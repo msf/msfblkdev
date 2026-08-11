@@ -35,6 +35,8 @@ const Checkpoint = struct {
     checkpoint_lsn: u64,
     last_footer_block: u32,
     layout: Layout,
+    empty_mapping: bool,
+    body_checksum: u64,
 };
 
 pub const Volume = struct {
@@ -296,7 +298,7 @@ fn encodeCheckpointDescriptor(
     std.mem.writeInt(u64, descriptor[descriptor_checksum_offset..], std.hash.XxHash3.hash(0, descriptor), .little);
 }
 
-fn decodeEmptyCheckpoint(
+fn decodeCheckpoint(
     descriptor: *[block_size]u8,
     expected_slot: CheckpointSlot,
     backing_bytes: u64,
@@ -306,15 +308,17 @@ fn decodeEmptyCheckpoint(
     const checksum_valid = stored_checksum == std.hash.XxHash3.hash(0, descriptor);
     std.mem.writeInt(u64, descriptor[descriptor_checksum_offset..], stored_checksum, .little);
 
+    const flags = std.mem.readInt(u16, descriptor[6..8], .little);
+    const body_checksum = std.mem.readInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], .little);
     if (!checksum_valid or
         !std.mem.eql(u8, descriptor[0..4], "VBLC") or
         descriptor[4] != 1 or
         descriptor[5] != @intFromEnum(expected_slot) or
-        std.mem.readInt(u16, descriptor[6..8], .little) != empty_mapping_flag or
+        (flags != 0 and flags != empty_mapping_flag) or
         std.mem.readInt(u32, descriptor[16..20], .little) != block_size or
         descriptor[68] != checksum_algorithm_xxh3_64 or
         !std.mem.allEqual(u8, descriptor[69..checkpoint_body_checksum_offset], 0) or
-        std.mem.readInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], .little) != 0 or
+        (flags == empty_mapping_flag and body_checksum != 0) or
         !std.mem.allEqual(u8, descriptor[checkpoint_body_checksum_offset + @sizeOf(u64) .. descriptor_checksum_offset], 0)) return null;
 
     const volume_blocks = std.mem.readInt(u32, descriptor[20..24], .little);
@@ -327,11 +331,13 @@ fn decodeEmptyCheckpoint(
     const generation = std.mem.readInt(u64, descriptor[32..40], .little);
     const checkpoint_lsn = std.mem.readInt(u64, descriptor[40..48], .little);
     const last_footer_block = std.mem.readInt(u32, descriptor[48..52], .little);
+    const empty_mapping = flags == empty_mapping_flag;
 
     if (std.mem.readInt(u64, descriptor[24..32], .little) != backing_blocks or
         generation == 0 or
-        checkpoint_lsn != 0 or
-        last_footer_block != layout.log_start - 1 or
+        last_footer_block < layout.log_start - 1 or
+        @as(u64, last_footer_block) >= backing_blocks or
+        (empty_mapping and (checkpoint_lsn != 0 or last_footer_block != layout.log_start - 1)) or
         std.mem.readInt(u32, descriptor[52..56], .little) != physical_map_start or
         std.mem.readInt(u32, descriptor[56..60], .little) != layout.physical_map_blocks or
         std.mem.readInt(u32, descriptor[60..64], .little) != checksum_map_start or
@@ -346,7 +352,43 @@ fn decodeEmptyCheckpoint(
         .checkpoint_lsn = checkpoint_lsn,
         .last_footer_block = last_footer_block,
         .layout = layout,
+        .empty_mapping = empty_mapping,
+        .body_checksum = body_checksum,
     };
+}
+
+fn loadCheckpointBody(
+    ring: *linux.IoUring,
+    fd: linux.fd_t,
+    checkpoint: Checkpoint,
+    mapping_storage: []align(block_size) u8,
+) !bool {
+    if (checkpoint.empty_mapping) {
+        @memset(mapping_storage, 0);
+        return true;
+    }
+
+    const body_start = switch (checkpoint.slot) {
+        .green => checkpoint.layout.green_physical_map_start,
+        .blue => checkpoint.layout.blue_physical_map_start,
+    };
+    const max_io_bytes = @as(usize, std.math.maxInt(i32)) / block_size * block_size;
+
+    var offset: usize = 0;
+    while (offset < mapping_storage.len) {
+        const length = @min(mapping_storage.len - offset, max_io_bytes);
+        _ = try ring.read(
+            checkpoint.generation,
+            fd,
+            .{ .buffer = mapping_storage[offset..][0..length] },
+            @as(u64, body_start) * block_size + offset,
+        );
+        if (try ring.submit() != 1) return error.UnexpectedSubmissionCount;
+        try completeExactly(ring, checkpoint.generation, @intCast(length));
+        offset += length;
+    }
+
+    return checkpoint.body_checksum == std.hash.XxHash3.hash(0, mapping_storage);
 }
 
 pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []const u8) !Volume {
@@ -368,42 +410,48 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
     if (try ring.submit() != 1) return error.UnexpectedSubmissionCount;
     try completeExactly(&ring, 1, descriptors.len);
 
-    const green = decodeEmptyCheckpoint(descriptors[0..block_size], .green, backing_size_result);
-    const blue = decodeEmptyCheckpoint(descriptors[block_size..], .blue, backing_size_result);
-    const checkpoint = if (green) |green_checkpoint|
-        if (blue) |blue_checkpoint|
-            if (green_checkpoint.generation > blue_checkpoint.generation) green_checkpoint else blue_checkpoint
-        else
-            green_checkpoint
-    else if (blue) |blue_checkpoint|
-        blue_checkpoint
-    else
-        return error.NoValidCheckpoint;
+    const green = decodeCheckpoint(descriptors[0..block_size], .green, backing_size_result);
+    const blue = decodeCheckpoint(descriptors[block_size..], .blue, backing_size_result);
+    var candidates = [_]?Checkpoint{ green, blue };
+    if (green == null or (blue != null and green.?.generation <= blue.?.generation)) {
+        std.mem.swap(?Checkpoint, &candidates[0], &candidates[1]);
+    }
 
-    const physical_map_bytes = @as(usize, checkpoint.layout.physical_map_blocks) * block_size;
-    const mapping_bytes = physical_map_bytes + @as(usize, checkpoint.layout.checksum_map_blocks) * block_size;
-    const mapping_storage = try allocator.allocWithOptions(u8, mapping_bytes, .fromByteUnits(block_size), null);
-    errdefer allocator.free(mapping_storage);
-    @memset(mapping_storage, 0);
+    for (candidates) |candidate| {
+        const checkpoint = candidate orelse continue;
+        const physical_map_bytes = @as(usize, checkpoint.layout.physical_map_blocks) * block_size;
+        const mapping_bytes = physical_map_bytes + @as(usize, checkpoint.layout.checksum_map_blocks) * block_size;
+        const mapping_storage = try allocator.allocWithOptions(u8, mapping_bytes, .fromByteUnits(block_size), null);
+        const body_valid = loadCheckpointBody(&ring, fd, checkpoint, mapping_storage) catch |err| {
+            allocator.free(mapping_storage);
+            return err;
+        };
+        if (!body_valid) {
+            allocator.free(mapping_storage);
+            continue;
+        }
 
-    return .{
-        .allocator = allocator,
-        .mapping_storage = mapping_storage,
-        .backing_fd = fd,
-        .io_uring = ring,
-        .volume_id = checkpoint.volume_id,
-        .volume_blocks = checkpoint.volume_blocks,
-        .backing_blocks = checkpoint.backing_blocks,
-        .log_start_block = checkpoint.layout.log_start,
-        .physical_blocks = @as([*]u32, @ptrCast(mapping_storage.ptr))[0..checkpoint.volume_blocks],
-        .checksums = @as([*]u64, @ptrCast(@alignCast(mapping_storage.ptr + physical_map_bytes)))[0..checkpoint.volume_blocks],
-        .last_lsn = checkpoint.checkpoint_lsn,
-        .durable_lsn = checkpoint.checkpoint_lsn,
-        .last_footer_block = checkpoint.last_footer_block,
-        .checkpoint_generation = checkpoint.generation,
-        .next_checkpoint_slot = if (checkpoint.slot == .green) .blue else .green,
-        .log_bytes_since_checkpoint = 0,
-    };
+        return .{
+            .allocator = allocator,
+            .mapping_storage = mapping_storage,
+            .backing_fd = fd,
+            .io_uring = ring,
+            .volume_id = checkpoint.volume_id,
+            .volume_blocks = checkpoint.volume_blocks,
+            .backing_blocks = checkpoint.backing_blocks,
+            .log_start_block = checkpoint.layout.log_start,
+            .physical_blocks = @as([*]u32, @ptrCast(mapping_storage.ptr))[0..checkpoint.volume_blocks],
+            .checksums = @as([*]u64, @ptrCast(@alignCast(mapping_storage.ptr + physical_map_bytes)))[0..checkpoint.volume_blocks],
+            .last_lsn = checkpoint.checkpoint_lsn,
+            .durable_lsn = checkpoint.checkpoint_lsn,
+            .last_footer_block = checkpoint.last_footer_block,
+            .checkpoint_generation = checkpoint.generation,
+            .next_checkpoint_slot = if (checkpoint.slot == .green) .blue else .green,
+            .log_bytes_since_checkpoint = 0,
+        };
+    }
+
+    return error.NoValidCheckpoint;
 }
 
 pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !void {
