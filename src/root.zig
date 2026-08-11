@@ -516,10 +516,15 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
     if (try ring.submit() != 1) return error.UnexpectedSubmissionCount;
     try completeExactly(&ring, 1, descriptors.len);
 
-    const green = decodeCheckpoint(descriptors[0..block_size], .green, backing_size_result);
-    const blue = decodeCheckpoint(descriptors[block_size..], .blue, backing_size_result);
-    if (green == null or blue == null) return error.NoValidCheckpoint;
-    const checkpoint = if (green.?.generation > blue.?.generation) green.? else blue.?;
+    const green = decodeCheckpoint(descriptors[0..block_size], .green, backing_size_result) orelse
+        return error.NoValidCheckpoint;
+    const blue = decodeCheckpoint(descriptors[block_size..], .blue, backing_size_result) orelse
+        return error.NoValidCheckpoint;
+    if (green.volume_id != blue.volume_id or
+        green.volume_blocks != blue.volume_blocks or
+        green.backing_blocks != blue.backing_blocks or
+        !std.meta.eql(green.layout, blue.layout)) return error.NoValidCheckpoint;
+    const checkpoint = if (green.generation > blue.generation) green else blue;
 
     const physical_map_bytes = @as(usize, checkpoint.layout.physical_map_blocks) * block_size;
     const mapping_bytes = physical_map_bytes + @as(usize, checkpoint.layout.checksum_map_blocks) * block_size;
@@ -861,6 +866,45 @@ test "open reconstructs state and selects a valid checkpoint root" {
     try std.testing.expectError(
         error.NoValidCheckpoint,
         open(std.testing.allocator, temporary_directory.dir.handle, "backing"),
+    );
+}
+
+test "open rejects checkpoint roots from different formats" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const small_volume_blocks: u32 = 1;
+    const large_volume_blocks: u32 = 1025;
+    const backing_blocks = @as(u64, layoutFor(large_volume_blocks).log_start) + 2;
+    for ([_][]const u8{ "small", "large" }) |path| {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, path, .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, backing_blocks * block_size);
+    }
+    try format(temporary_directory.dir.handle, "small", @as(u64, small_volume_blocks) * block_size);
+    try format(temporary_directory.dir.handle, "large", @as(u64, large_volume_blocks) * block_size);
+
+    var blue: [block_size]u8 = undefined;
+    {
+        const large = try temporary_directory.dir.openFile(std.testing.io, "large", .{});
+        defer large.close(std.testing.io);
+        try std.testing.expectEqual(
+            blue.len,
+            try large.readPositionalAll(std.testing.io, &blue, block_size),
+        );
+    }
+    {
+        const small = try temporary_directory.dir.openFile(std.testing.io, "small", .{ .mode = .read_write });
+        defer small.close(std.testing.io);
+        try small.writePositionalAll(std.testing.io, &blue, block_size);
+    }
+
+    try std.testing.expectError(
+        error.NoValidCheckpoint,
+        open(std.testing.allocator, temporary_directory.dir.handle, "small"),
     );
 }
 
