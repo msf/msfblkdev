@@ -1194,3 +1194,67 @@ test "close failure retains ownership for deinit" {
     try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(read_only_fd, linux.F.GETFD, 0)));
     try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(ring_fd, linux.F.GETFD, 0)));
 }
+
+test "V0.4 black-box acceptance" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 2;
+    const layout = layoutFor(volume_blocks);
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, (@as(u64, layout.log_start) + 2) * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", @as(u64, volume_blocks) * block_size);
+
+    var expected: [block_size]u8 = undefined;
+    for (&expected, 0..) |*byte, index| byte.* = @truncate(index);
+
+    {
+        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+        errdefer volume.deinit();
+
+        var actual: [block_size]u8 = @splat(0xa5);
+        try volume.read_block(0, &actual);
+        try std.testing.expect(std.mem.allEqual(u8, &actual, 0));
+
+        try volume.write_block(1, &expected);
+        try volume.read_block(1, &actual);
+        try std.testing.expectEqualSlices(u8, &expected, &actual);
+        try std.testing.expectError(error.InvalidLogicalBlock, volume.read_block(volume_blocks, &actual));
+        try std.testing.expectError(error.InvalidLogicalBlock, volume.write_block(volume_blocks, &expected));
+        try volume.flush();
+        try volume.close();
+    }
+
+    {
+        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+        errdefer volume.deinit();
+
+        var actual: [block_size]u8 = undefined;
+        try volume.read_block(1, &actual);
+        try std.testing.expectEqualSlices(u8, &expected, &actual);
+        try volume.close();
+    }
+
+    {
+        const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{ .mode = .read_write });
+        defer backing.close(std.testing.io);
+        const payload_offset = @as(u64, layout.log_start) * block_size;
+        var byte: [1]u8 = undefined;
+        try std.testing.expectEqual(byte.len, try backing.readPositionalAll(std.testing.io, &byte, payload_offset));
+        byte[0] ^= 0xff;
+        try backing.writePositionalAll(std.testing.io, &byte, payload_offset);
+        try backing.sync(std.testing.io);
+    }
+
+    var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+    defer volume.deinit();
+    var actual: [block_size]u8 = @splat(0x5a);
+    try std.testing.expectError(error.ChecksumMismatch, volume.read_block(1, &actual));
+    try std.testing.expect(std.mem.allEqual(u8, &actual, 0x5a));
+}
