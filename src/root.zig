@@ -134,6 +134,9 @@ pub const Volume = struct {
     }
 
     fn persistCheckpointBody(self: *Volume) !u64 {
+        if (comptime @import("builtin").cpu.arch.endian() != .little) {
+            @compileError("checkpoint body persistence requires a little-endian target");
+        }
         if (!self.ring_owned) return error.VolumeFailed;
         const layout = layoutFor(self.volume_blocks);
         const body_start = switch (self.next_checkpoint_slot) {
