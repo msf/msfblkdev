@@ -31,8 +31,8 @@ ublk userspace daemon             userspace
 
 ## Language and engineering style
 
-- **Zig 0.16.0 is currently preferred**, because its the last stable release 
-- Zig 0.16's high-level `std.Io.Uring` backend is explicitly unfinished. Before committing to Zig, implement a bounded spike using the low-level `std.os.linux.IoUring`: open a direct-I/O backing device, perform aligned read/write/fsync operations, validate CQE errors and short I/O, then reopen and verify the data.
+- **Zig 0.16.0 is pinned.** The project-local compiler is downloaded from ziglang.org and excluded from Git.
+- Zig 0.16's high-level `std.Io.Uring` backend is explicitly unfinished. Before committing to Zig beyond v0.0, implement a bounded spike using the low-level `std.os.linux.IoUring`: open a direct-I/O backing device, perform aligned read/write/fsync operations, validate CQE errors and short I/O, then reopen and verify the data.
 - If that direct `io_uring` path is not small and trustworthy, use Rust with the low-level `io-uring` crate. I/O ergonomics are a valid language-selection criterion; do not build an async runtime as part of this project.
 - Do not use Go: we want tight control of memory and using a *real* systems language. (muahahaha!)
 - Follow TigerStyle where applicable: simple control flow, bounded resources, assertions, checksums and an explicit fault model. Apply the principles rather than copying constraints without context.
@@ -230,25 +230,35 @@ V0 assumes one writer and a backing device where a successful fsync makes all pr
 
 V0 does not repair corruption, protect against maliciously forged footer data, compact or wrap the log, retry failed writes, support discard/write-zeroes, or provide concurrent writes. The first milestone tests daemon/process crashes; deterministic torn-write and corruption injection comes next.
 
-### Implementation milestone
+### Machine-verifiable V0 milestones
 
-First complete the language gate: the aligned direct-I/O read/write/fsync spike must pass on the real backing device in Zig 0.16, otherwise switch to Rust before implementing the format.
+Every milestone adds tests to the same cumulative gate:
 
-The first executable storage-engine test sequence is:
+```sh
+zig build test
+```
 
-1. Format and open a small configured volume.
-2. Write a known block to an LBA, read it back, flush, and cleanly close; close writes a checkpoint.
-3. Reopen, write at least two more blocks, and terminate the process without close/checkpoint.
-4. Reopen again, load the checkpoint, replay the footer-only tail, and verify all expected blocks.
+A milestone is complete only when that command exits successfully without weakening prior tests. Data structures are implementation work within a behavioral milestone, not milestones by themselves.
 
-This marks V0 complete: format/open, block write, checksummed read, flush, clean checkpoint, hard crash and recovery.
+- **v0.0 — build and I/O gate:** Pin Zig 0.16.0, establish the edit-compile-test loop, and perform an aligned `io_uring` write, fsync, reopen and read/compare against the real backing path. Switch to Rust before v0.1 if this path is not small and trustworthy.
+- **v0.1 — format:** Format a temporary image. Tests independently verify both descriptors and their checksums, calculated regions, capacity rejection and an empty log.
+- **v0.2 — open:** Format, close and open an image. Tests verify the reconstructed `Volume`, zero mapping and checkpoint selection.
+- **v0.3 — bootstrap, write and shutdown:** Format, open, write one block, flush and close. Tests inspect the raw payload/footer and resulting checkpoint mapping without using `read_block`.
+- **v0.4 — read:** Unwritten LBAs return zeros; written data reads correctly before and after reopen.
+- **v0.5 — update semantics:** Write multiple LBAs and overwrite one LBA. Tests prove the latest value wins after a clean reopen.
+- **v0.6 — crash recovery:** A subprocess writes after a checkpoint and exits without close. Its parent reopens the image, replays the tail and verifies every block.
+- **v0.7 — A/B checkpoints:** Force multiple checkpoints, corrupt the newest descriptor or body, and prove open falls back to the older checkpoint and replays its tail.
+- **v0.8 — integrity pass:** Corrupt payload, footer and checkpoint data. Tests cover checksum errors, tail truncation, invalid ranges, short I/O and failed I/O without mapping publication.
+- **v0.9 — V0 alpha:** Run a deterministic black-box workload against a byte-array reference model, including writes, overwrites, reads, flushes, clean restarts and hard crashes.
 
-### After V0
+Checksums required to interpret persistent data are implemented with the first relevant milestone. v0.8 expands corruption coverage and assertions rather than retrofitting the format.
 
-1. Add the ublk frontend for 4 KiB READ, WRITE and FLUSH requests. Run applicable `blktests` ublk coverage—especially mounting and daemon recovery—plus direct fio checks.
-2. Add basic functional tests: create and mount a filesystem, write and fsync files, unmount, restart the daemon, remount and verify data.
-3. Add a deterministic simulated block device and the obvious incomplete/reordered/corrupted I/O tests. Evaluate `dm-flakey`, `dm-log-writes`, `null_blk` fault injection and fio verification before writing bespoke tooling; an in-process simulator may still be required for deterministic completion ordering.
-4. Only then expand the fault matrix and measure queue depth, batching, record size, checkpoint/recovery throughput, and AI-harness-driven functional workloads.
+### Immediately after V0
+
+1. **v0.10 — basic ublk:** Expose 4 KiB READ, WRITE and FLUSH requests. Run applicable `blktests` ublk coverage—especially mounting and daemon recovery—plus direct fio verification.
+2. **v0.11 — filesystem goal:** Create and mount a filesystem, write and fsync files, unmount, restart the daemon, remount and verify hashes.
+3. Only then add deterministic fault simulation and broader incomplete, reordered and corrupted I/O coverage. Evaluate `dm-flakey`, `dm-log-writes`, `null_blk` and fio before writing bespoke tooling.
+4. Batching, queue-depth tuning, throughput work and AI-harness-driven workload generation come after correctness coverage through the mounted stack.
 
 ## Why this project
 
