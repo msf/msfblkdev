@@ -229,7 +229,11 @@ pub const Volume = struct {
 };
 
 fn closeFd(fd: linux.fd_t) void {
-    std.debug.assert(linux.errno(linux.close(fd)) == .SUCCESS);
+    std.debug.assert(closeCompleted(linux.errno(linux.close(fd))));
+}
+
+fn closeCompleted(result: linux.E) bool {
+    return result == .SUCCESS or result == .INTR;
 }
 
 fn completeExactly(ring: *linux.IoUring, user_data: u64, result: i32) !void {
@@ -458,7 +462,7 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
     if (linux.errno(backing_size_result) != .SUCCESS) return error.BackingSizeUnavailable;
 
     var ring = try linux.IoUring.init(2, 0);
-    errdefer ring.deinit();
+    errdefer if (ring.fd >= 0) ring.deinit();
 
     var descriptors: [2 * block_size]u8 align(block_size) = undefined;
     _ = try ring.read(1, fd, .{ .buffer = &descriptors }, 0);
@@ -478,6 +482,7 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
         const mapping_bytes = physical_map_bytes + @as(usize, checkpoint.layout.checksum_map_blocks) * block_size;
         const mapping_storage = try allocator.allocWithOptions(u8, mapping_bytes, .fromByteUnits(block_size), null);
         const body_valid = loadCheckpointBody(&ring, fd, checkpoint, mapping_storage) catch |err| {
+            ring.deinit();
             allocator.free(mapping_storage);
             return err;
         };
@@ -568,6 +573,12 @@ pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !
     _ = try ring.fsync(2, fd, 0);
     if (try ring.submit() != 1) return error.UnexpectedSubmissionCount;
     try completeExactly(&ring, 2, 0);
+}
+
+test "Linux close EINTR completes cleanup" {
+    try std.testing.expect(closeCompleted(.SUCCESS));
+    try std.testing.expect(closeCompleted(.INTR));
+    try std.testing.expect(!closeCompleted(.BADF));
 }
 
 test "direct io_uring write survives fsync and reopen" {
