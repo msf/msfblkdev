@@ -158,15 +158,20 @@ pub const Volume = struct {
         self.log_bytes_since_checkpoint = 0;
     }
 
+    pub fn close(self: *Volume) !void {
+        try self.checkpoint();
+        self.deinit();
+    }
+
     pub fn deinit(self: *Volume) void {
         self.io_uring.deinit();
-        close(self.backing_fd);
+        closeFd(self.backing_fd);
         self.allocator.free(self.mapping_storage);
         self.* = undefined;
     }
 };
 
-fn close(fd: linux.fd_t) void {
+fn closeFd(fd: linux.fd_t) void {
     std.debug.assert(linux.errno(linux.close(fd)) == .SUCCESS);
 }
 
@@ -350,7 +355,7 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
         .DIRECT = true,
         .CLOEXEC = true,
     }, 0);
-    errdefer close(fd);
+    errdefer closeFd(fd);
 
     const backing_size_result = linux.lseek(fd, 0, linux.SEEK.END);
     if (linux.errno(backing_size_result) != .SUCCESS) return error.BackingSizeUnavailable;
@@ -414,7 +419,7 @@ pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !
         .DIRECT = true,
         .CLOEXEC = true,
     }, 0);
-    defer close(fd);
+    defer closeFd(fd);
 
     const backing_size_result = linux.lseek(fd, 0, linux.SEEK.END);
     if (linux.errno(backing_size_result) != .SUCCESS) return error.BackingSizeUnavailable;
@@ -479,7 +484,7 @@ test "direct io_uring write survives fsync and reopen" {
             .DIRECT = true,
             .CLOEXEC = true,
         }, 0o600);
-        defer close(fd);
+        defer closeFd(fd);
 
         _ = try ring.write(1, fd, &written, 0);
         try std.testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -496,7 +501,7 @@ test "direct io_uring write survives fsync and reopen" {
             .DIRECT = true,
             .CLOEXEC = true,
         }, 0);
-        defer close(fd);
+        defer closeFd(fd);
 
         _ = try ring.read(3, fd, .{ .buffer = &read }, 0);
         try std.testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -859,7 +864,7 @@ test "checkpoint persists and activates the inactive slot" {
             .DIRECT = true,
             .CLOEXEC = true,
         }, 0);
-        defer close(read_only_fd);
+        defer closeFd(read_only_fd);
         volume.backing_fd = read_only_fd;
         defer volume.backing_fd = writable_fd;
 
