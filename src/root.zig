@@ -3,8 +3,12 @@ const std = @import("std");
 const linux = std.os.linux;
 const block_size = 4096;
 const descriptor_checksum_offset = block_size - @sizeOf(u64);
+const footer_checksum_offset = block_size - @sizeOf(u64);
+const footer_lba_offset = 32;
+const footer_payload_checksum_offset = 1384;
 const empty_mapping_flag = 1;
 const checksum_algorithm_xxh3_64 = 1;
+const write_record_kind = 1;
 
 const CheckpointSlot = enum(u8) {
     green,
@@ -49,6 +53,37 @@ pub const Volume = struct {
     checkpoint_generation: u64,
     next_checkpoint_slot: CheckpointSlot,
     log_bytes_since_checkpoint: u64,
+
+    pub fn write_block(self: *Volume, lba: u32, data: *const [block_size]u8) !void {
+        if (lba >= self.volume_blocks) return error.InvalidLogicalBlock;
+        if (self.last_lsn == std.math.maxInt(u64)) return error.SequenceExhausted;
+
+        const payload_block_u64 = @as(u64, self.last_footer_block) + 1;
+        const footer_block_u64 = payload_block_u64 + 1;
+        if (footer_block_u64 >= self.backing_blocks) return error.LogFull;
+        const payload_block: u32 = @intCast(payload_block_u64);
+        const footer_block: u32 = @intCast(footer_block_u64);
+        const lsn = self.last_lsn + 1;
+        const checksum = payloadChecksum(self.volume_id, lba, payload_block, data);
+
+        var record: [2 * block_size]u8 align(block_size) = undefined;
+        @memcpy(record[0..block_size], data);
+        encodeWriteFooter(record[block_size..], self.volume_id, lsn, self.last_footer_block, footer_block, lba, checksum);
+        const iovecs = [_]std.posix.iovec_const{
+            .{ .base = record[0..block_size].ptr, .len = block_size },
+            .{ .base = record[block_size..].ptr, .len = block_size },
+        };
+
+        _ = try self.io_uring.writev(lsn, self.backing_fd, &iovecs, payload_block_u64 * block_size);
+        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+        try completeExactly(&self.io_uring, lsn, record.len);
+
+        self.physical_blocks[lba] = payload_block;
+        self.checksums[lba] = checksum;
+        self.last_lsn = lsn;
+        self.last_footer_block = footer_block;
+        self.log_bytes_since_checkpoint += record.len;
+    }
 
     pub fn deinit(self: *Volume) void {
         self.io_uring.deinit();
@@ -111,6 +146,39 @@ fn randomVolumeId() !u64 {
         offset += result;
     }
     return std.mem.readInt(u64, &encoded, .little);
+}
+
+fn payloadChecksum(volume_id: u64, lba: u32, physical_block: u32, payload: *const [block_size]u8) u64 {
+    var addresses: [2 * @sizeOf(u32)]u8 = undefined;
+    std.mem.writeInt(u32, addresses[0..4], lba, .little);
+    std.mem.writeInt(u32, addresses[4..8], physical_block, .little);
+
+    var hasher = std.hash.XxHash3.init(volume_id);
+    hasher.update(&addresses);
+    hasher.update(payload);
+    return hasher.final();
+}
+
+fn encodeWriteFooter(
+    footer: *[block_size]u8,
+    volume_id: u64,
+    lsn: u64,
+    previous_footer_block: u32,
+    footer_block: u32,
+    lba: u32,
+    payload_checksum: u64,
+) void {
+    @memset(footer, 0);
+    @memcpy(footer[0..4], "VBLF");
+    footer[4] = 1;
+    footer[5] = write_record_kind;
+    std.mem.writeInt(u64, footer[8..16], volume_id, .little);
+    std.mem.writeInt(u64, footer[16..24], lsn, .little);
+    std.mem.writeInt(u32, footer[24..28], previous_footer_block, .little);
+    std.mem.writeInt(u32, footer[28..32], footer_block, .little);
+    std.mem.writeInt(u32, footer[footer_lba_offset..][0..4], lba, .little);
+    std.mem.writeInt(u64, footer[footer_payload_checksum_offset..][0..8], payload_checksum, .little);
+    std.mem.writeInt(u64, footer[footer_checksum_offset..], std.hash.XxHash3.hash(0, footer), .little);
 }
 
 fn encodeCheckpointDescriptor(
