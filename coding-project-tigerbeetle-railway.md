@@ -50,7 +50,7 @@ V0 is the standalone local storage engine, before ublk integration. It uses a pr
 ### Bounds and layout
 
 - Logical block size: 4 KiB.
-- Maximum virtual volume: 8 TiB = `2^31` logical blocks. LBA IDs and the volume block count use `u32`; their high bit must be zero. Logical ranges are checked with `count <= volume_blocks - start`. Byte sizes, byte offsets, ublk's 512-byte sector addresses and LSNs use `u64`.
+- Maximum virtual volume: 8 TiB = `2^31` logical blocks. LBA IDs and the volume block count use `u32`; only LBA IDs must have their high bit zero, while the block count may equal `2^31`. Logical ranges are checked with `count <= volume_blocks - start`. Byte sizes, byte offsets, ublk's 512-byte sector addresses and LSNs use `u64`.
 - Physical addresses are 4 KiB block indexes encoded as `u32`; physical block zero never stores payload and is the unmapped sentinel in the LBA map.
 - All persistent integers are little-endian. Persistent structures are encoded explicitly rather than written from compiler-layout structs.
 
