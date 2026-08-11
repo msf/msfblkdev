@@ -7,6 +7,7 @@ const descriptor_checksum_offset = block_size - @sizeOf(u64);
 const footer_checksum_offset = block_size - @sizeOf(u64);
 const footer_lba_offset = 32;
 const footer_payload_checksum_offset = 1384;
+const footer_payload_max = (footer_payload_checksum_offset - footer_lba_offset) / @sizeOf(u32);
 const empty_mapping_flag = 1;
 const checksum_algorithm_xxh3_64 = 1;
 const write_record_kind = 1;
@@ -450,6 +451,51 @@ fn loadCheckpointBody(
     return checkpoint.body_checksum == std.hash.XxHash3.hash(0, mapping_storage);
 }
 
+fn isExpectedTailFooter(
+    footer: *[block_size]u8,
+    checkpoint: Checkpoint,
+    footer_block: u32,
+    payload_count: u32,
+) bool {
+    const stored_checksum = std.mem.readInt(u64, footer[footer_checksum_offset..], .little);
+    std.mem.writeInt(u64, footer[footer_checksum_offset..], 0, .little);
+    const checksum_valid = stored_checksum == std.hash.XxHash3.hash(0, footer);
+    std.mem.writeInt(u64, footer[footer_checksum_offset..], stored_checksum, .little);
+
+    if (!checksum_valid or
+        !std.mem.eql(u8, footer[0..4], "VBLF") or
+        footer[4] != 1 or
+        footer[5] != write_record_kind or
+        std.mem.readInt(u16, footer[6..8], .little) != 0 or
+        std.mem.readInt(u64, footer[8..16], .little) != checkpoint.volume_id or
+        checkpoint.checkpoint_lsn == std.math.maxInt(u64) or
+        std.mem.readInt(u64, footer[16..24], .little) != checkpoint.checkpoint_lsn + 1 or
+        std.mem.readInt(u32, footer[24..28], .little) != checkpoint.last_footer_block or
+        std.mem.readInt(u32, footer[28..32], .little) != footer_block) return false;
+
+    for (0..payload_count) |index| {
+        const offset = footer_lba_offset + index * @sizeOf(u32);
+        if (std.mem.readInt(u32, footer[offset..][0..4], .little) >= checkpoint.volume_blocks) return false;
+    }
+    return true;
+}
+
+fn hasUnreplayedTail(ring: *linux.IoUring, fd: linux.fd_t, checkpoint: Checkpoint) !bool {
+    var footer: [block_size]u8 align(block_size) = undefined;
+    for (1..footer_payload_max + 1) |payload_count| {
+        const footer_block_u64 = @as(u64, checkpoint.last_footer_block) + payload_count + 1;
+        if (footer_block_u64 >= checkpoint.backing_blocks) break;
+        const footer_block: u32 = @intCast(footer_block_u64);
+
+        _ = try ring.read(footer_block, fd, .{ .buffer = &footer }, footer_block_u64 * block_size);
+        if (try ring.submit() != 1) return error.UnexpectedSubmissionCount;
+        try completeExactly(ring, footer_block, footer.len);
+
+        if (isExpectedTailFooter(&footer, checkpoint, footer_block, @intCast(payload_count))) return true;
+    }
+    return false;
+}
+
 pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []const u8) !Volume {
     const fd = try std.posix.openat(dir_fd, backing_path, .{
         .ACCMODE = .RDWR,
@@ -490,6 +536,16 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
         if (!body_valid) {
             allocator.free(mapping_storage);
             return error.NoValidCheckpoint;
+        }
+        const unreplayed_tail = hasUnreplayedTail(&ring, fd, checkpoint) catch |err| {
+            ring.deinit();
+            allocator.free(mapping_storage);
+            return err;
+        };
+        if (unreplayed_tail) {
+            ring.deinit();
+            allocator.free(mapping_storage);
+            return error.TailReplayRequired;
         }
 
         return .{
@@ -1243,6 +1299,36 @@ test "close I/O failure poisons the ring and retains remaining ownership" {
     volume_owned = false;
     try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(read_only_fd, linux.F.GETFD, 0)));
     try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(ring_fd, linux.F.GETFD, 0)));
+}
+
+test "open rejects a durable tail until replay is implemented" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 1;
+    const layout = layoutFor(volume_blocks);
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, (@as(u64, layout.log_start) + 2) * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", block_size);
+
+    {
+        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+        var payload: [block_size]u8 = @splat(0xa5);
+        try volume.write_block(0, &payload);
+        try volume.flush();
+        volume.deinit();
+    }
+
+    try std.testing.expectError(
+        error.TailReplayRequired,
+        open(std.testing.allocator, temporary_directory.dir.handle, "backing"),
+    );
 }
 
 test "V0.4 black-box acceptance" {
