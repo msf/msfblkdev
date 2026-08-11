@@ -598,3 +598,89 @@ test "open reconstructs state and selects a valid checkpoint root" {
         open(std.testing.allocator, temporary_directory.dir.handle, "backing"),
     );
 }
+
+test "write_block appends and publishes one-block record" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 2;
+    const layout = layoutFor(volume_blocks);
+    const backing_blocks = @as(u64, layout.log_start) + 2;
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, backing_blocks * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", @as(u64, volume_blocks) * block_size);
+
+    var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+    defer volume.deinit();
+
+    var payload: [block_size]u8 = undefined;
+    for (&payload, 0..) |*byte, index| byte.* = @truncate(index);
+
+    const lba: u32 = 1;
+    const previous_footer_block = volume.last_footer_block;
+    const payload_block = previous_footer_block + 1;
+    const footer_block = payload_block + 1;
+    try std.testing.expectError(error.InvalidLogicalBlock, volume.write_block(volume_blocks, &payload));
+    try volume.write_block(lba, &payload);
+    try std.testing.expectError(error.LogFull, volume.write_block(0, &payload));
+
+    const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{});
+    defer backing.close(std.testing.io);
+    var record: [2 * block_size]u8 = undefined;
+    try std.testing.expectEqual(
+        record.len,
+        try backing.readPositionalAll(std.testing.io, &record, @as(u64, payload_block) * block_size),
+    );
+    try std.testing.expectEqualSlices(u8, &payload, record[0..block_size]);
+
+    var addresses: [2 * @sizeOf(u32)]u8 = undefined;
+    std.mem.writeInt(u32, addresses[0..4], lba, .little);
+    std.mem.writeInt(u32, addresses[4..8], payload_block, .little);
+    var payload_hasher = std.hash.XxHash3.init(volume.volume_id);
+    payload_hasher.update(&addresses);
+    payload_hasher.update(record[0..block_size]);
+    const expected_payload_checksum = payload_hasher.final();
+
+    var footer = record[block_size..];
+    try std.testing.expectEqualSlices(u8, "VBLF", footer[0..4]);
+    try std.testing.expectEqual(@as(u8, 1), footer[4]);
+    try std.testing.expectEqual(@as(u8, write_record_kind), footer[5]);
+    try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, footer[6..8], .little));
+    try std.testing.expectEqual(volume.volume_id, std.mem.readInt(u64, footer[8..16], .little));
+    try std.testing.expectEqual(@as(u64, 1), std.mem.readInt(u64, footer[16..24], .little));
+
+    const decoded_previous_footer_block = std.mem.readInt(u32, footer[24..28], .little);
+    const decoded_footer_block = std.mem.readInt(u32, footer[28..32], .little);
+    try std.testing.expectEqual(previous_footer_block, decoded_previous_footer_block);
+    try std.testing.expectEqual(footer_block, decoded_footer_block);
+    const payload_count = decoded_footer_block - decoded_previous_footer_block - 1;
+    try std.testing.expectEqual(@as(u32, 1), payload_count);
+    try std.testing.expectEqual(payload_block, decoded_footer_block - payload_count);
+
+    try std.testing.expectEqual(lba, std.mem.readInt(u32, footer[footer_lba_offset..][0..4], .little));
+    try std.testing.expectEqual(
+        expected_payload_checksum,
+        std.mem.readInt(u64, footer[footer_payload_checksum_offset..][0..8], .little),
+    );
+    try std.testing.expect(std.mem.allEqual(u8, footer[footer_lba_offset + @sizeOf(u32) .. footer_payload_checksum_offset], 0));
+    try std.testing.expect(std.mem.allEqual(u8, footer[footer_payload_checksum_offset + @sizeOf(u64) .. footer_checksum_offset], 0));
+
+    const stored_footer_checksum = std.mem.readInt(u64, footer[footer_checksum_offset..], .little);
+    std.mem.writeInt(u64, footer[footer_checksum_offset..], 0, .little);
+    try std.testing.expectEqual(stored_footer_checksum, std.hash.XxHash3.hash(0, footer));
+
+    try std.testing.expectEqual(@as(u32, 0), volume.physical_blocks[0]);
+    try std.testing.expectEqual(@as(u64, 0), volume.checksums[0]);
+    try std.testing.expectEqual(payload_block, volume.physical_blocks[lba]);
+    try std.testing.expectEqual(expected_payload_checksum, volume.checksums[lba]);
+    try std.testing.expectEqual(@as(u64, 1), volume.last_lsn);
+    try std.testing.expectEqual(@as(u64, 0), volume.durable_lsn);
+    try std.testing.expectEqual(footer_block, volume.last_footer_block);
+    try std.testing.expectEqual(@as(u64, 2 * block_size), volume.log_bytes_since_checkpoint);
+}
