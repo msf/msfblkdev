@@ -2,6 +2,8 @@ const std = @import("std");
 
 const linux = std.os.linux;
 const block_size = 4096;
+const checkpoint_magic = "VBLC";
+const write_footer_magic = "VBLF";
 const checkpoint_body_checksum_offset = 72;
 const descriptor_checksum_offset = block_size - @sizeOf(u64);
 const footer_checksum_offset = block_size - @sizeOf(u64);
@@ -41,23 +43,30 @@ const Checkpoint = struct {
 };
 
 pub const Volume = struct {
-    allocator: std.mem.Allocator,
-    mapping_storage: []align(block_size) u8,
-    backing_fd: linux.fd_t,
-    io_uring: linux.IoUring,
-    ring_owned: bool,
+    // Immutable identity and layout recovered from the format roots.
     volume_id: u64,
     volume_blocks: u32,
     backing_blocks: u64,
     log_start_block: u32,
+
+    // Live mapping and append/durability state.
     physical_blocks: []u32,
     checksums: []u64,
     last_lsn: u64,
     durable_lsn: u64,
     last_footer_block: u32,
+
+    // Checkpoint publication state.
     checkpoint_generation: u64,
     next_checkpoint_slot: CheckpointSlot,
     log_bytes_since_checkpoint: u64,
+
+    // Process-local resources owned for the volume lifetime.
+    allocator: std.mem.Allocator,
+    mapping_storage: []align(block_size) u8,
+    backing_fd: linux.fd_t,
+    io_uring: linux.IoUring,
+    ring_owned: bool,
 
     pub fn write_block(self: *Volume, lba: u32, data: *const [block_size]u8) !void {
         if (!self.ring_owned) return error.VolumeFailed;
@@ -75,6 +84,7 @@ pub const Volume = struct {
         var record: [2 * block_size]u8 align(block_size) = undefined;
         @memcpy(record[0..block_size], data);
         encodeWriteFooter(record[block_size..], self.volume_id, lsn, self.last_footer_block, footer_block, lba, checksum);
+        // Recovery probes footer positions, so WRITEV keeps the footer last.
         const iovecs = [_]std.posix.iovec_const{
             .{ .base = record[0..block_size].ptr, .len = block_size },
             .{ .base = record[block_size..].ptr, .len = block_size },
@@ -205,6 +215,7 @@ pub const Volume = struct {
         }
         try self.flush();
 
+        // Keep the old root authoritative until the new descriptor is durable.
         self.checkpoint_generation = generation;
         self.next_checkpoint_slot = if (slot == .green) .blue else .green;
         self.log_bytes_since_checkpoint = 0;
@@ -224,6 +235,7 @@ pub const Volume = struct {
 
     fn poison(self: *Volume) void {
         if (!self.ring_owned) return;
+        // Fail-stop until recovery resolves what reached disk.
         self.io_uring.deinit();
         self.ring_owned = false;
     }
@@ -309,7 +321,7 @@ fn encodeWriteFooter(
     payload_checksum: u64,
 ) void {
     @memset(footer, 0);
-    @memcpy(footer[0..4], "VBLF");
+    @memcpy(footer[0..4], write_footer_magic);
     footer[4] = 1;
     footer[5] = write_record_kind;
     std.mem.writeInt(u64, footer[8..16], volume_id, .little);
@@ -335,7 +347,7 @@ fn encodeCheckpointDescriptor(
     body_checksum: u64,
 ) void {
     @memset(descriptor, 0);
-    @memcpy(descriptor[0..4], "VBLC");
+    @memcpy(descriptor[0..4], checkpoint_magic);
     descriptor[4] = 1;
     descriptor[5] = @intFromEnum(slot);
     std.mem.writeInt(u16, descriptor[6..8], flags, .little);
@@ -371,7 +383,7 @@ fn decodeCheckpoint(
     const flags = std.mem.readInt(u16, descriptor[6..8], .little);
     const body_checksum = std.mem.readInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], .little);
     if (!checksum_valid or
-        !std.mem.eql(u8, descriptor[0..4], "VBLC") or
+        !std.mem.eql(u8, descriptor[0..4], checkpoint_magic) or
         descriptor[4] != 1 or
         descriptor[5] != @intFromEnum(expected_slot) or
         (flags != 0 and flags != empty_mapping_flag) or
@@ -463,7 +475,7 @@ fn isExpectedTailFooter(
     std.mem.writeInt(u64, footer[footer_checksum_offset..], stored_checksum, .little);
 
     if (!checksum_valid or
-        !std.mem.eql(u8, footer[0..4], "VBLF") or
+        !std.mem.eql(u8, footer[0..4], write_footer_magic) or
         footer[4] != 1 or
         footer[5] != write_record_kind or
         std.mem.readInt(u16, footer[6..8], .little) != 0 or
@@ -482,6 +494,7 @@ fn isExpectedTailFooter(
 
 fn hasUnreplayedTail(ring: *linux.IoUring, fd: linux.fd_t, checkpoint: Checkpoint) !bool {
     errdefer ring.deinit();
+    // Footer metadata is enough to detect a tail; payload integrity stays a read-time concern.
     var footer: [block_size]u8 align(block_size) = undefined;
     for (1..footer_payload_max + 1) |payload_count| {
         const footer_block_u64 = @as(u64, checkpoint.last_footer_block) + payload_count + 1;
@@ -589,6 +602,7 @@ pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !
     const backing_blocks = try backingBlocksFor(layout, backing_size_result);
 
     const volume_id = try randomVolumeId();
+    // The two empty checkpoint roots are the format; no bootstrap log record is needed.
     var descriptors: [2 * block_size]u8 align(block_size) = undefined;
     encodeCheckpointDescriptor(
         descriptors[0..block_size],
@@ -775,7 +789,7 @@ test "format writes valid empty checkpoint roots and log geometry" {
     const checksum_map_starts = [_]u32{ 4, 9 };
     for (0..2) |index| {
         var descriptor = descriptors[index * block_size ..][0..block_size];
-        try std.testing.expectEqualSlices(u8, "VBLC", descriptor[0..4]);
+        try std.testing.expectEqualSlices(u8, checkpoint_magic, descriptor[0..4]);
         try std.testing.expectEqual(@as(u8, 1), descriptor[4]);
         try std.testing.expectEqual(@as(u8, @intCast(index)), descriptor[5]);
         try std.testing.expectEqual(@as(u16, 1), std.mem.readInt(u16, descriptor[6..8], .little));
@@ -957,7 +971,7 @@ test "write_block appends and publishes one-block record" {
     const expected_payload_checksum = payload_hasher.final();
 
     var footer = record[block_size..];
-    try std.testing.expectEqualSlices(u8, "VBLF", footer[0..4]);
+    try std.testing.expectEqualSlices(u8, write_footer_magic, footer[0..4]);
     try std.testing.expectEqual(@as(u8, 1), footer[4]);
     try std.testing.expectEqual(@as(u8, write_record_kind), footer[5]);
     try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, footer[6..8], .little));
@@ -1105,7 +1119,7 @@ test "checkpoint persists and activates the inactive slot" {
     try std.testing.expectEqualSlices(u8, &expected_body, &body);
 
     var descriptor = descriptors[0..block_size];
-    try std.testing.expectEqualSlices(u8, "VBLC", descriptor[0..4]);
+    try std.testing.expectEqualSlices(u8, checkpoint_magic, descriptor[0..4]);
     try std.testing.expectEqual(@as(u8, 1), descriptor[4]);
     try std.testing.expectEqual(@as(u8, @intFromEnum(checkpoint_slot)), descriptor[5]);
     try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, descriptor[6..8], .little));
