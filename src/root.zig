@@ -1059,6 +1059,73 @@ test "close persists a newer checkpoint and releases ownership" {
     try std.testing.expectEqual(descriptor_checksum, std.hash.XxHash3.hash(0, descriptor));
 }
 
+test "open recovers a non-empty checkpoint and falls back from body corruption" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 1;
+    const layout = layoutFor(volume_blocks);
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, (@as(u64, layout.log_start) + 2) * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", block_size);
+
+    var payload: [block_size]u8 = @splat(0xa5);
+    const payload_block = layout.log_start;
+    const footer_block = payload_block + 1;
+    var payload_checksum: u64 = undefined;
+    {
+        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+        var volume_owned = true;
+        defer if (volume_owned) volume.deinit();
+
+        try volume.write_block(0, &payload);
+        payload_checksum = volume.checksums[0];
+        try volume.close();
+        volume_owned = false;
+    }
+
+    {
+        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+        defer volume.deinit();
+
+        try std.testing.expectEqual(payload_block, volume.physical_blocks[0]);
+        try std.testing.expectEqual(payload_checksum, volume.checksums[0]);
+        try std.testing.expectEqual(@as(u64, 1), volume.last_lsn);
+        try std.testing.expectEqual(@as(u64, 1), volume.durable_lsn);
+        try std.testing.expectEqual(footer_block, volume.last_footer_block);
+        try std.testing.expectEqual(@as(u64, 3), volume.checkpoint_generation);
+        try std.testing.expectEqual(CheckpointSlot.blue, volume.next_checkpoint_slot);
+        try std.testing.expectEqual(@as(u64, 0), volume.log_bytes_since_checkpoint);
+    }
+
+    {
+        const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{ .mode = .read_write });
+        defer backing.close(std.testing.io);
+        var byte: [1]u8 = undefined;
+        const body_offset = @as(u64, layout.green_physical_map_start) * block_size;
+        try std.testing.expectEqual(byte.len, try backing.readPositionalAll(std.testing.io, &byte, body_offset));
+        byte[0] ^= 0xff;
+        try backing.writePositionalAll(std.testing.io, &byte, body_offset);
+    }
+
+    var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+    defer volume.deinit();
+    try std.testing.expectEqual(@as(u32, 0), volume.physical_blocks[0]);
+    try std.testing.expectEqual(@as(u64, 0), volume.checksums[0]);
+    try std.testing.expectEqual(@as(u64, 0), volume.last_lsn);
+    try std.testing.expectEqual(@as(u64, 0), volume.durable_lsn);
+    try std.testing.expectEqual(layout.log_start - 1, volume.last_footer_block);
+    try std.testing.expectEqual(@as(u64, 2), volume.checkpoint_generation);
+    try std.testing.expectEqual(CheckpointSlot.green, volume.next_checkpoint_slot);
+    try std.testing.expectEqual(@as(u64, 0), volume.log_bytes_since_checkpoint);
+}
+
 test "close failure retains ownership for deinit" {
     var temporary_directory = std.testing.tmpDir(.{});
     defer temporary_directory.cleanup();
