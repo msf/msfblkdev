@@ -937,3 +937,120 @@ test "checkpoint persists and activates the inactive slot" {
     try std.testing.expectEqual(descriptor_checksum, std.hash.XxHash3.hash(0, descriptor));
     try std.testing.expectEqual(initial_generation, std.mem.readInt(u64, descriptors[block_size + 32 ..][0..8], .little));
 }
+
+test "close persists a newer checkpoint and releases ownership" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 1;
+    const layout = layoutFor(volume_blocks);
+    const backing_blocks = @as(u64, layout.log_start) + 2;
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, backing_blocks * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", @as(u64, volume_blocks) * block_size);
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer std.testing.expect(debug_allocator.deinit() == .ok) catch @panic("allocator leak");
+
+    var volume = try open(debug_allocator.allocator(), temporary_directory.dir.handle, "backing");
+    var volume_owned = true;
+    defer if (volume_owned) volume.deinit();
+
+    var payload: [block_size]u8 = @splat(0xa5);
+    const initial_generation = volume.checkpoint_generation;
+    const checkpoint_slot = volume.next_checkpoint_slot;
+    const payload_block = volume.last_footer_block + 1;
+    const footer_block = payload_block + 1;
+    try volume.write_block(0, &payload);
+    const payload_checksum = volume.checksums[0];
+    const backing_fd = volume.backing_fd;
+    const ring_fd = volume.io_uring.fd;
+
+    try volume.close();
+    volume_owned = false;
+
+    try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(backing_fd, linux.F.GETFD, 0)));
+    try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(ring_fd, linux.F.GETFD, 0)));
+
+    const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{});
+    defer backing.close(std.testing.io);
+    var descriptors: [2 * block_size]u8 = undefined;
+    var body: [2 * block_size]u8 = undefined;
+    try std.testing.expectEqual(descriptors.len, try backing.readPositionalAll(std.testing.io, &descriptors, 0));
+    try std.testing.expectEqual(
+        body.len,
+        try backing.readPositionalAll(
+            std.testing.io,
+            &body,
+            @as(u64, layout.green_physical_map_start) * block_size,
+        ),
+    );
+
+    try std.testing.expectEqual(CheckpointSlot.green, checkpoint_slot);
+    var descriptor = descriptors[0..block_size];
+    try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, descriptor[6..8], .little));
+    try std.testing.expectEqual(initial_generation + 1, std.mem.readInt(u64, descriptor[32..40], .little));
+    try std.testing.expectEqual(@as(u64, 1), std.mem.readInt(u64, descriptor[40..48], .little));
+    try std.testing.expectEqual(footer_block, std.mem.readInt(u32, descriptor[48..52], .little));
+    try std.testing.expectEqual(initial_generation, std.mem.readInt(u64, descriptors[block_size + 32 ..][0..8], .little));
+    try std.testing.expectEqual(payload_block, std.mem.readInt(u32, body[0..4], .little));
+    try std.testing.expectEqual(payload_checksum, std.mem.readInt(u64, body[block_size..][0..8], .little));
+    try std.testing.expectEqual(
+        std.hash.XxHash3.hash(0, &body),
+        std.mem.readInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], .little),
+    );
+
+    const descriptor_checksum = std.mem.readInt(u64, descriptor[descriptor_checksum_offset..], .little);
+    @memset(descriptor[descriptor_checksum_offset..], 0);
+    try std.testing.expectEqual(descriptor_checksum, std.hash.XxHash3.hash(0, descriptor));
+}
+
+test "close failure retains ownership for deinit" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 1;
+    const layout = layoutFor(volume_blocks);
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, (@as(u64, layout.log_start) + 2) * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", block_size);
+
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer std.testing.expect(debug_allocator.deinit() == .ok) catch @panic("allocator leak");
+
+    var volume = try open(debug_allocator.allocator(), temporary_directory.dir.handle, "backing");
+    var volume_owned = true;
+    defer if (volume_owned) volume.deinit();
+
+    const read_only_fd = try std.posix.openat(temporary_directory.dir.handle, "backing", .{
+        .DIRECT = true,
+        .CLOEXEC = true,
+    }, 0);
+    const writable_fd = volume.backing_fd;
+    volume.backing_fd = read_only_fd;
+    closeFd(writable_fd);
+
+    const ring_fd = volume.io_uring.fd;
+    const initial_generation = volume.checkpoint_generation;
+    try std.testing.expectError(error.InputOutput, volume.close());
+    try std.testing.expectEqual(initial_generation, volume.checkpoint_generation);
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.fcntl(read_only_fd, linux.F.GETFD, 0)));
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.fcntl(ring_fd, linux.F.GETFD, 0)));
+
+    volume.deinit();
+    volume_owned = false;
+    try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(read_only_fd, linux.F.GETFD, 0)));
+    try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(ring_fd, linux.F.GETFD, 0)));
+}
