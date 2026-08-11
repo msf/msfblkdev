@@ -691,3 +691,36 @@ test "write_block appends and publishes one-block record" {
     try std.testing.expectEqual(footer_block, volume.last_footer_block);
     try std.testing.expectEqual(@as(u64, 2 * block_size), volume.log_bytes_since_checkpoint);
 }
+
+test "flush advances durability through the current write" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 1;
+    const layout = layoutFor(volume_blocks);
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, (@as(u64, layout.log_start) + 2) * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", @as(u64, volume_blocks) * block_size);
+
+    var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+    defer volume.deinit();
+
+    try volume.flush();
+    try std.testing.expectEqual(@as(u64, 0), volume.last_lsn);
+    try std.testing.expectEqual(@as(u64, 0), volume.durable_lsn);
+
+    var payload: [block_size]u8 = undefined;
+    @memset(&payload, 0xa5);
+    try volume.write_block(0, &payload);
+    try std.testing.expectEqual(@as(u64, 1), volume.last_lsn);
+    try std.testing.expectEqual(@as(u64, 0), volume.durable_lsn);
+
+    try volume.flush();
+    try std.testing.expectEqual(volume.last_lsn, volume.durable_lsn);
+}
