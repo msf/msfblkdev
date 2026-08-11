@@ -453,7 +453,7 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
         };
         if (!body_valid) {
             allocator.free(mapping_storage);
-            continue;
+            return error.NoValidCheckpoint;
         }
 
         return .{
@@ -1084,7 +1084,7 @@ test "close persists a newer checkpoint and releases ownership" {
     try std.testing.expectEqual(descriptor_checksum, std.hash.XxHash3.hash(0, descriptor));
 }
 
-test "open recovers a non-empty checkpoint and falls back from body corruption" {
+test "open recovers a non-empty checkpoint and rejects a corrupt newer body" {
     var temporary_directory = std.testing.tmpDir(.{});
     defer temporary_directory.cleanup();
 
@@ -1139,16 +1139,10 @@ test "open recovers a non-empty checkpoint and falls back from body corruption" 
         try backing.writePositionalAll(std.testing.io, &byte, body_offset);
     }
 
-    var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
-    defer volume.deinit();
-    try std.testing.expectEqual(@as(u32, 0), volume.physical_blocks[0]);
-    try std.testing.expectEqual(@as(u64, 0), volume.checksums[0]);
-    try std.testing.expectEqual(@as(u64, 0), volume.last_lsn);
-    try std.testing.expectEqual(@as(u64, 0), volume.durable_lsn);
-    try std.testing.expectEqual(layout.log_start - 1, volume.last_footer_block);
-    try std.testing.expectEqual(@as(u64, 2), volume.checkpoint_generation);
-    try std.testing.expectEqual(CheckpointSlot.green, volume.next_checkpoint_slot);
-    try std.testing.expectEqual(@as(u64, 0), volume.log_bytes_since_checkpoint);
+    try std.testing.expectError(
+        error.NoValidCheckpoint,
+        open(std.testing.allocator, temporary_directory.dir.handle, "backing"),
+    );
 }
 
 test "close failure retains ownership for deinit" {
