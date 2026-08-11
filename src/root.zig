@@ -85,6 +85,13 @@ pub const Volume = struct {
         self.log_bytes_since_checkpoint += record.len;
     }
 
+    pub fn flush(self: *Volume) !void {
+        _ = try self.io_uring.fsync(self.last_lsn, self.backing_fd, 0);
+        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+        try completeExactly(&self.io_uring, self.last_lsn, 0);
+        self.durable_lsn = self.last_lsn;
+    }
+
     pub fn deinit(self: *Volume) void {
         self.io_uring.deinit();
         close(self.backing_fd);
