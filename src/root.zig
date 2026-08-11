@@ -49,6 +49,15 @@ fn layoutFor(volume_blocks: u32) Layout {
     };
 }
 
+fn backingBlocksFor(layout: Layout, backing_bytes: u64) !u64 {
+    if (backing_bytes % block_size != 0) return error.InvalidBackingSize;
+
+    const backing_blocks = backing_bytes / block_size;
+    if (backing_blocks > @as(u64, std.math.maxInt(u32)) + 1) return error.BackingTooLarge;
+    if (backing_blocks < @as(u64, layout.log_start) + 2) return error.BackingTooSmall;
+    return backing_blocks;
+}
+
 fn randomVolumeId() !u64 {
     var encoded: [@sizeOf(u64)]u8 = undefined;
     var offset: usize = 0;
@@ -100,7 +109,7 @@ pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !
     if (volume_bytes == 0 or volume_bytes % block_size != 0) return error.InvalidVolumeSize;
 
     const volume_blocks_u64 = volume_bytes / block_size;
-    if (volume_blocks_u64 >= @as(u64, 1) << 31) return error.InvalidVolumeSize;
+    if (volume_blocks_u64 > @as(u64, 1) << 31) return error.InvalidVolumeSize;
     const volume_blocks: u32 = @intCast(volume_blocks_u64);
     const layout = layoutFor(volume_blocks);
 
@@ -113,10 +122,7 @@ pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !
 
     const backing_size_result = linux.lseek(fd, 0, linux.SEEK.END);
     if (linux.errno(backing_size_result) != .SUCCESS) return error.BackingSizeUnavailable;
-    const backing_bytes: u64 = backing_size_result;
-    if (backing_bytes % block_size != 0) return error.InvalidBackingSize;
-    const backing_blocks = backing_bytes / block_size;
-    if (backing_blocks < @as(u64, layout.log_start) + 2) return error.BackingTooSmall;
+    const backing_blocks = try backingBlocksFor(layout, backing_size_result);
 
     const volume_id = try randomVolumeId();
     var descriptors: [2 * block_size]u8 align(block_size) = undefined;
@@ -180,20 +186,90 @@ test "direct io_uring write survives fsync and reopen" {
     try std.testing.expectEqualSlices(u8, &written, &read);
 }
 
-test "format writes valid empty checkpoint roots" {
+test "format validates volume size boundaries" {
     var temporary_directory = std.testing.tmpDir(.{});
     defer temporary_directory.cleanup();
 
+    try std.testing.expectError(error.InvalidVolumeSize, format(temporary_directory.dir.handle, "missing", 0));
+    try std.testing.expectError(error.InvalidVolumeSize, format(temporary_directory.dir.handle, "missing", block_size - 1));
+
+    const maximum_volume_blocks = @as(u64, 1) << 31;
+    try std.testing.expectError(
+        error.InvalidVolumeSize,
+        format(temporary_directory.dir.handle, "missing", (maximum_volume_blocks + 1) * block_size),
+    );
+
+    const layout = layoutFor(@intCast(maximum_volume_blocks));
     {
         const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
             .read = true,
             .exclusive = true,
         });
         defer backing.close(std.testing.io);
-        try backing.setLength(std.testing.io, 8 * block_size);
+        try backing.setLength(std.testing.io, (@as(u64, layout.log_start) + 2) * block_size);
     }
 
-    try format(temporary_directory.dir.handle, "backing", block_size);
+    try format(temporary_directory.dir.handle, "backing", maximum_volume_blocks * block_size);
+}
+
+test "format validates backing capacity boundaries" {
+    const layout = layoutFor(1);
+    const physical_address_space_blocks = @as(u64, std.math.maxInt(u32)) + 1;
+    try std.testing.expectEqual(
+        physical_address_space_blocks,
+        try backingBlocksFor(layout, physical_address_space_blocks * block_size),
+    );
+    try std.testing.expectError(
+        error.BackingTooLarge,
+        backingBlocksFor(layout, (physical_address_space_blocks + 1) * block_size),
+    );
+
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "misaligned", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, (@as(u64, layout.log_start) + 2) * block_size - 1);
+    }
+    try std.testing.expectError(
+        error.InvalidBackingSize,
+        format(temporary_directory.dir.handle, "misaligned", block_size),
+    );
+
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "too-small", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, (@as(u64, layout.log_start) + 1) * block_size);
+    }
+    try std.testing.expectError(
+        error.BackingTooSmall,
+        format(temporary_directory.dir.handle, "too-small", block_size),
+    );
+}
+
+test "format writes valid empty checkpoint roots and log geometry" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 1025;
+    const backing_blocks: u64 = 14;
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, backing_blocks * block_size);
+    }
+
+    try format(temporary_directory.dir.handle, "backing", @as(u64, volume_blocks) * block_size);
 
     const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{});
     defer backing.close(std.testing.io);
@@ -201,6 +277,8 @@ test "format writes valid empty checkpoint roots" {
     try std.testing.expectEqual(descriptors.len, try backing.readPositionalAll(std.testing.io, &descriptors, 0));
 
     const volume_id = std.mem.readInt(u64, descriptors[8..16], .little);
+    const physical_map_starts = [_]u32{ 2, 7 };
+    const checksum_map_starts = [_]u32{ 4, 9 };
     for (0..2) |index| {
         var descriptor = descriptors[index * block_size ..][0..block_size];
         try std.testing.expectEqualSlices(u8, "VBLC", descriptor[0..4]);
@@ -209,18 +287,28 @@ test "format writes valid empty checkpoint roots" {
         try std.testing.expectEqual(@as(u16, 1), std.mem.readInt(u16, descriptor[6..8], .little));
         try std.testing.expectEqual(volume_id, std.mem.readInt(u64, descriptor[8..16], .little));
         try std.testing.expectEqual(@as(u32, block_size), std.mem.readInt(u32, descriptor[16..20], .little));
-        try std.testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, descriptor[20..24], .little));
-        try std.testing.expectEqual(@as(u64, 8), std.mem.readInt(u64, descriptor[24..32], .little));
+        try std.testing.expectEqual(volume_blocks, std.mem.readInt(u32, descriptor[20..24], .little));
+        try std.testing.expectEqual(backing_blocks, std.mem.readInt(u64, descriptor[24..32], .little));
         try std.testing.expectEqual(@as(u64, @intCast(index + 1)), std.mem.readInt(u64, descriptor[32..40], .little));
-        try std.testing.expectEqual(@as(u32, 5), std.mem.readInt(u32, descriptor[48..52], .little));
-        try std.testing.expectEqual(@as(u32, @intCast(2 + index * 2)), std.mem.readInt(u32, descriptor[52..56], .little));
-        try std.testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, descriptor[56..60], .little));
-        try std.testing.expectEqual(@as(u32, @intCast(3 + index * 2)), std.mem.readInt(u32, descriptor[60..64], .little));
-        try std.testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, descriptor[64..68], .little));
+        try std.testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, descriptor[40..48], .little));
+        try std.testing.expectEqual(@as(u32, 11), std.mem.readInt(u32, descriptor[48..52], .little));
+        try std.testing.expectEqual(physical_map_starts[index], std.mem.readInt(u32, descriptor[52..56], .little));
+        try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, descriptor[56..60], .little));
+        try std.testing.expectEqual(checksum_map_starts[index], std.mem.readInt(u32, descriptor[60..64], .little));
+        try std.testing.expectEqual(@as(u32, 3), std.mem.readInt(u32, descriptor[64..68], .little));
         try std.testing.expectEqual(@as(u8, 1), descriptor[68]);
 
         const checksum = std.mem.readInt(u64, descriptor[descriptor_checksum_offset..], .little);
         @memset(descriptor[descriptor_checksum_offset..], 0);
         try std.testing.expectEqual(checksum, std.hash.XxHash3.hash(0, descriptor));
     }
+
+    var empty_log: [2 * block_size]u8 = undefined;
+    try std.testing.expectEqual(
+        empty_log.len,
+        try backing.readPositionalAll(std.testing.io, &empty_log, 12 * block_size),
+    );
+    var zeroes: [2 * block_size]u8 = undefined;
+    @memset(&zeroes, 0);
+    try std.testing.expectEqualSlices(u8, &zeroes, &empty_log);
 }
