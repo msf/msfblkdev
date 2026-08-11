@@ -822,3 +822,113 @@ test "flush advances durability through the current write" {
     try volume.flush();
     try std.testing.expectEqual(volume.last_lsn, volume.durable_lsn);
 }
+
+test "checkpoint persists and activates the inactive slot" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 1025;
+    const layout = layoutFor(volume_blocks);
+    const backing_blocks = @as(u64, layout.log_start) + 2;
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, backing_blocks * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", @as(u64, volume_blocks) * block_size);
+
+    var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+    defer volume.deinit();
+
+    var payload: [block_size]u8 = undefined;
+    for (&payload, 0..) |*byte, index| byte.* = @truncate(index);
+    const lba = volume_blocks - 1;
+    const payload_block = volume.last_footer_block + 1;
+    const footer_block = payload_block + 1;
+    const initial_generation = volume.checkpoint_generation;
+    const checkpoint_slot = volume.next_checkpoint_slot;
+    try volume.write_block(lba, &payload);
+    const payload_checksum = volume.checksums[lba];
+
+    {
+        const writable_fd = volume.backing_fd;
+        const read_only_fd = try std.posix.openat(temporary_directory.dir.handle, "backing", .{
+            .DIRECT = true,
+            .CLOEXEC = true,
+        }, 0);
+        defer close(read_only_fd);
+        volume.backing_fd = read_only_fd;
+        defer volume.backing_fd = writable_fd;
+
+        try std.testing.expectError(error.InputOutput, volume.checkpoint());
+        try std.testing.expectEqual(initial_generation, volume.checkpoint_generation);
+        try std.testing.expectEqual(checkpoint_slot, volume.next_checkpoint_slot);
+        try std.testing.expectEqual(@as(u64, 2 * block_size), volume.log_bytes_since_checkpoint);
+    }
+
+    try volume.checkpoint();
+    try std.testing.expectEqual(initial_generation + 1, volume.checkpoint_generation);
+    try std.testing.expectEqual(CheckpointSlot.blue, volume.next_checkpoint_slot);
+    try std.testing.expectEqual(volume.last_lsn, volume.durable_lsn);
+    try std.testing.expectEqual(@as(u64, 0), volume.log_bytes_since_checkpoint);
+
+    const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{});
+    defer backing.close(std.testing.io);
+    var descriptors: [2 * block_size]u8 = undefined;
+    var body: [5 * block_size]u8 = undefined;
+    try std.testing.expectEqual(
+        descriptors.len,
+        try backing.readPositionalAll(std.testing.io, &descriptors, 0),
+    );
+    try std.testing.expectEqual(
+        body.len,
+        try backing.readPositionalAll(
+            std.testing.io,
+            &body,
+            @as(u64, layout.green_physical_map_start) * block_size,
+        ),
+    );
+
+    var expected_body: [5 * block_size]u8 = @splat(0);
+    const physical_offset = @as(usize, lba) * @sizeOf(u32);
+    std.mem.writeInt(u32, expected_body[physical_offset..][0..4], payload_block, .little);
+    const checksum_offset = @as(usize, layout.physical_map_blocks) * block_size + @as(usize, lba) * @sizeOf(u64);
+    std.mem.writeInt(u64, expected_body[checksum_offset..][0..8], payload_checksum, .little);
+    try std.testing.expectEqualSlices(u8, &expected_body, &body);
+
+    var descriptor = descriptors[0..block_size];
+    try std.testing.expectEqualSlices(u8, "VBLC", descriptor[0..4]);
+    try std.testing.expectEqual(@as(u8, 1), descriptor[4]);
+    try std.testing.expectEqual(@as(u8, @intFromEnum(checkpoint_slot)), descriptor[5]);
+    try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, descriptor[6..8], .little));
+    try std.testing.expectEqual(volume.volume_id, std.mem.readInt(u64, descriptor[8..16], .little));
+    try std.testing.expectEqual(@as(u32, block_size), std.mem.readInt(u32, descriptor[16..20], .little));
+    try std.testing.expectEqual(volume_blocks, std.mem.readInt(u32, descriptor[20..24], .little));
+    try std.testing.expectEqual(backing_blocks, std.mem.readInt(u64, descriptor[24..32], .little));
+    try std.testing.expectEqual(initial_generation + 1, std.mem.readInt(u64, descriptor[32..40], .little));
+    try std.testing.expectEqual(@as(u64, 1), std.mem.readInt(u64, descriptor[40..48], .little));
+    try std.testing.expectEqual(footer_block, std.mem.readInt(u32, descriptor[48..52], .little));
+    try std.testing.expectEqual(layout.green_physical_map_start, std.mem.readInt(u32, descriptor[52..56], .little));
+    try std.testing.expectEqual(layout.physical_map_blocks, std.mem.readInt(u32, descriptor[56..60], .little));
+    try std.testing.expectEqual(layout.green_checksum_map_start, std.mem.readInt(u32, descriptor[60..64], .little));
+    try std.testing.expectEqual(layout.checksum_map_blocks, std.mem.readInt(u32, descriptor[64..68], .little));
+    try std.testing.expectEqual(@as(u8, checksum_algorithm_xxh3_64), descriptor[68]);
+    try std.testing.expect(std.mem.allEqual(u8, descriptor[69..checkpoint_body_checksum_offset], 0));
+    try std.testing.expectEqual(
+        std.hash.XxHash3.hash(0, &body),
+        std.mem.readInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], .little),
+    );
+    try std.testing.expect(std.mem.allEqual(
+        u8,
+        descriptor[checkpoint_body_checksum_offset + @sizeOf(u64) .. descriptor_checksum_offset],
+        0,
+    ));
+
+    const descriptor_checksum = std.mem.readInt(u64, descriptor[descriptor_checksum_offset..], .little);
+    @memset(descriptor[descriptor_checksum_offset..], 0);
+    try std.testing.expectEqual(descriptor_checksum, std.hash.XxHash3.hash(0, descriptor));
+    try std.testing.expectEqual(initial_generation, std.mem.readInt(u64, descriptors[block_size + 32 ..][0..8], .little));
+}
