@@ -16,7 +16,7 @@ Do not switch language or Zig version. If the low-level `std.os.linux.IoUring` p
 
 ## Cumulative acceptance
 
-Every committed state must pass:
+Every implementation commit from the V0.0 build scaffold onward must pass (the preceding planning-only commits contain no build yet):
 
 ```sh
 .tools/zig-x86_64-linux-0.16.0/zig build test
