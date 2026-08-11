@@ -471,6 +471,7 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
 
     const green = decodeCheckpoint(descriptors[0..block_size], .green, backing_size_result);
     const blue = decodeCheckpoint(descriptors[block_size..], .blue, backing_size_result);
+    if (green == null or blue == null) return error.NoValidCheckpoint;
     var candidates = [_]?Checkpoint{ green, blue };
     if (green == null or (blue != null and green.?.generation <= blue.?.generation)) {
         std.mem.swap(?Checkpoint, &candidates[0], &candidates[1]);
@@ -809,15 +810,6 @@ test "open reconstructs state and selects a valid checkpoint root" {
 
     green[0] ^= 0xff;
     try backing.writePositionalAll(std.testing.io, green, 0);
-    {
-        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
-        defer volume.deinit();
-        try std.testing.expectEqual(@as(u64, 2), volume.checkpoint_generation);
-        try std.testing.expectEqual(CheckpointSlot.green, volume.next_checkpoint_slot);
-    }
-
-    descriptors[block_size] ^= 0xff;
-    try backing.writePositionalAll(std.testing.io, descriptors[block_size..], block_size);
     try std.testing.expectError(
         error.NoValidCheckpoint,
         open(std.testing.allocator, temporary_directory.dir.handle, "backing"),
@@ -1127,7 +1119,7 @@ test "close persists a newer checkpoint and releases ownership" {
     try std.testing.expectEqual(descriptor_checksum, std.hash.XxHash3.hash(0, descriptor));
 }
 
-test "open recovers a non-empty checkpoint and rejects a corrupt newer body" {
+test "open recovers a non-empty checkpoint and rejects newer checkpoint corruption" {
     var temporary_directory = std.testing.tmpDir(.{});
     defer temporary_directory.cleanup();
 
@@ -1172,16 +1164,31 @@ test "open recovers a non-empty checkpoint and rejects a corrupt newer body" {
         try std.testing.expectEqual(@as(u64, 0), volume.log_bytes_since_checkpoint);
     }
 
+    var descriptor_byte: [1]u8 = undefined;
     {
         const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{ .mode = .read_write });
         defer backing.close(std.testing.io);
-        var byte: [1]u8 = undefined;
-        const body_offset = @as(u64, layout.green_physical_map_start) * block_size;
-        try std.testing.expectEqual(byte.len, try backing.readPositionalAll(std.testing.io, &byte, body_offset));
-        byte[0] ^= 0xff;
-        try backing.writePositionalAll(std.testing.io, &byte, body_offset);
+        try std.testing.expectEqual(descriptor_byte.len, try backing.readPositionalAll(std.testing.io, &descriptor_byte, 0));
+        descriptor_byte[0] ^= 0xff;
+        try backing.writePositionalAll(std.testing.io, &descriptor_byte, 0);
     }
+    try std.testing.expectError(
+        error.NoValidCheckpoint,
+        open(std.testing.allocator, temporary_directory.dir.handle, "backing"),
+    );
 
+    {
+        const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{ .mode = .read_write });
+        defer backing.close(std.testing.io);
+        descriptor_byte[0] ^= 0xff;
+        try backing.writePositionalAll(std.testing.io, &descriptor_byte, 0);
+
+        var body_byte: [1]u8 = undefined;
+        const body_offset = @as(u64, layout.green_physical_map_start) * block_size;
+        try std.testing.expectEqual(body_byte.len, try backing.readPositionalAll(std.testing.io, &body_byte, body_offset));
+        body_byte[0] ^= 0xff;
+        try backing.writePositionalAll(std.testing.io, &body_byte, body_offset);
+    }
     try std.testing.expectError(
         error.NoValidCheckpoint,
         open(std.testing.allocator, temporary_directory.dir.handle, "backing"),
