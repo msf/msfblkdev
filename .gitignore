@@ -1,0 +1,5 @@
+/.tools/
+/ublksrv/
+/.zig-cache/
+/zig-cache/
+/zig-out/
