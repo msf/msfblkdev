@@ -2,7 +2,7 @@ const std = @import("std");
 
 const linux = std.os.linux;
 const block_size = 4096;
-const checkpoint_body_checksum_offset = 69;
+const checkpoint_body_checksum_offset = 72;
 const descriptor_checksum_offset = block_size - @sizeOf(u64);
 const footer_checksum_offset = block_size - @sizeOf(u64);
 const footer_lba_offset = 32;
@@ -121,6 +121,43 @@ pub const Volume = struct {
         return std.hash.XxHash3.hash(0, self.mapping_storage);
     }
 
+    fn checkpoint(self: *Volume) !void {
+        if (self.checkpoint_generation == std.math.maxInt(u64)) return error.GenerationExhausted;
+
+        try self.flush();
+        const body_checksum = try self.persistCheckpointBody();
+        const generation = self.checkpoint_generation + 1;
+        const slot = self.next_checkpoint_slot;
+        var descriptor: [block_size]u8 align(block_size) = undefined;
+        encodeCheckpointDescriptor(
+            &descriptor,
+            slot,
+            0,
+            generation,
+            self.last_lsn,
+            self.last_footer_block,
+            self.volume_id,
+            self.volume_blocks,
+            self.backing_blocks,
+            layoutFor(self.volume_blocks),
+            body_checksum,
+        );
+
+        _ = try self.io_uring.write(
+            self.last_lsn,
+            self.backing_fd,
+            &descriptor,
+            @as(u64, @intFromEnum(slot)) * block_size,
+        );
+        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+        try completeExactly(&self.io_uring, self.last_lsn, descriptor.len);
+        try self.flush();
+
+        self.checkpoint_generation = generation;
+        self.next_checkpoint_slot = if (slot == .green) .blue else .green;
+        self.log_bytes_since_checkpoint = 0;
+    }
+
     pub fn deinit(self: *Volume) void {
         self.io_uring.deinit();
         close(self.backing_fd);
@@ -220,7 +257,10 @@ fn encodeWriteFooter(
 fn encodeCheckpointDescriptor(
     descriptor: *[block_size]u8,
     slot: CheckpointSlot,
+    flags: u16,
     generation: u64,
+    checkpoint_lsn: u64,
+    last_footer_block: u32,
     volume_id: u64,
     volume_blocks: u32,
     backing_blocks: u64,
@@ -231,13 +271,14 @@ fn encodeCheckpointDescriptor(
     @memcpy(descriptor[0..4], "VBLC");
     descriptor[4] = 1;
     descriptor[5] = @intFromEnum(slot);
-    std.mem.writeInt(u16, descriptor[6..8], empty_mapping_flag, .little);
+    std.mem.writeInt(u16, descriptor[6..8], flags, .little);
     std.mem.writeInt(u64, descriptor[8..16], volume_id, .little);
     std.mem.writeInt(u32, descriptor[16..20], block_size, .little);
     std.mem.writeInt(u32, descriptor[20..24], volume_blocks, .little);
     std.mem.writeInt(u64, descriptor[24..32], backing_blocks, .little);
     std.mem.writeInt(u64, descriptor[32..40], generation, .little);
-    std.mem.writeInt(u32, descriptor[48..52], layout.log_start - 1, .little);
+    std.mem.writeInt(u64, descriptor[40..48], checkpoint_lsn, .little);
+    std.mem.writeInt(u32, descriptor[48..52], last_footer_block, .little);
 
     const physical_map_start = if (slot == .green) layout.green_physical_map_start else layout.blue_physical_map_start;
     const checksum_map_start = if (slot == .green) layout.green_checksum_map_start else layout.blue_checksum_map_start;
@@ -267,6 +308,7 @@ fn decodeEmptyCheckpoint(
         std.mem.readInt(u16, descriptor[6..8], .little) != empty_mapping_flag or
         std.mem.readInt(u32, descriptor[16..20], .little) != block_size or
         descriptor[68] != checksum_algorithm_xxh3_64 or
+        !std.mem.allEqual(u8, descriptor[69..checkpoint_body_checksum_offset], 0) or
         std.mem.readInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], .little) != 0 or
         !std.mem.allEqual(u8, descriptor[checkpoint_body_checksum_offset + @sizeOf(u64) .. descriptor_checksum_offset], 0)) return null;
 
@@ -380,8 +422,32 @@ pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !
 
     const volume_id = try randomVolumeId();
     var descriptors: [2 * block_size]u8 align(block_size) = undefined;
-    encodeCheckpointDescriptor(descriptors[0..block_size], .green, 1, volume_id, volume_blocks, backing_blocks, layout, 0);
-    encodeCheckpointDescriptor(descriptors[block_size..], .blue, 2, volume_id, volume_blocks, backing_blocks, layout, 0);
+    encodeCheckpointDescriptor(
+        descriptors[0..block_size],
+        .green,
+        empty_mapping_flag,
+        1,
+        0,
+        layout.log_start - 1,
+        volume_id,
+        volume_blocks,
+        backing_blocks,
+        layout,
+        0,
+    );
+    encodeCheckpointDescriptor(
+        descriptors[block_size..],
+        .blue,
+        empty_mapping_flag,
+        2,
+        0,
+        layout.log_start - 1,
+        volume_id,
+        volume_blocks,
+        backing_blocks,
+        layout,
+        0,
+    );
 
     var ring = try linux.IoUring.init(2, 0);
     defer ring.deinit();
