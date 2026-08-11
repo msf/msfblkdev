@@ -2,6 +2,7 @@ const std = @import("std");
 
 const linux = std.os.linux;
 const block_size = 4096;
+const checkpoint_body_checksum_offset = 69;
 const descriptor_checksum_offset = block_size - @sizeOf(u64);
 const footer_checksum_offset = block_size - @sizeOf(u64);
 const footer_lba_offset = 32;
@@ -90,6 +91,34 @@ pub const Volume = struct {
         if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
         try completeExactly(&self.io_uring, self.last_lsn, 0);
         self.durable_lsn = self.last_lsn;
+    }
+
+    fn persistCheckpointBody(self: *Volume) !u64 {
+        const layout = layoutFor(self.volume_blocks);
+        const body_start = switch (self.next_checkpoint_slot) {
+            .green => layout.green_physical_map_start,
+            .blue => layout.blue_physical_map_start,
+        };
+        const max_io_bytes = @as(usize, std.math.maxInt(i32)) / block_size * block_size;
+
+        var offset: usize = 0;
+        while (offset < self.mapping_storage.len) {
+            const length = @min(self.mapping_storage.len - offset, max_io_bytes);
+            _ = try self.io_uring.write(
+                self.last_lsn,
+                self.backing_fd,
+                self.mapping_storage[offset..][0..length],
+                @as(u64, body_start) * block_size + offset,
+            );
+            if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+            try completeExactly(&self.io_uring, self.last_lsn, @intCast(length));
+            offset += length;
+        }
+
+        _ = try self.io_uring.fsync(self.last_lsn, self.backing_fd, 0);
+        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+        try completeExactly(&self.io_uring, self.last_lsn, 0);
+        return std.hash.XxHash3.hash(0, self.mapping_storage);
     }
 
     pub fn deinit(self: *Volume) void {
@@ -196,6 +225,7 @@ fn encodeCheckpointDescriptor(
     volume_blocks: u32,
     backing_blocks: u64,
     layout: Layout,
+    body_checksum: u64,
 ) void {
     @memset(descriptor, 0);
     @memcpy(descriptor[0..4], "VBLC");
@@ -216,6 +246,7 @@ fn encodeCheckpointDescriptor(
     std.mem.writeInt(u32, descriptor[60..64], checksum_map_start, .little);
     std.mem.writeInt(u32, descriptor[64..68], layout.checksum_map_blocks, .little);
     descriptor[68] = checksum_algorithm_xxh3_64;
+    std.mem.writeInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], body_checksum, .little);
     std.mem.writeInt(u64, descriptor[descriptor_checksum_offset..], std.hash.XxHash3.hash(0, descriptor), .little);
 }
 
@@ -236,7 +267,8 @@ fn decodeEmptyCheckpoint(
         std.mem.readInt(u16, descriptor[6..8], .little) != empty_mapping_flag or
         std.mem.readInt(u32, descriptor[16..20], .little) != block_size or
         descriptor[68] != checksum_algorithm_xxh3_64 or
-        !std.mem.allEqual(u8, descriptor[69..descriptor_checksum_offset], 0)) return null;
+        std.mem.readInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], .little) != 0 or
+        !std.mem.allEqual(u8, descriptor[checkpoint_body_checksum_offset + @sizeOf(u64) .. descriptor_checksum_offset], 0)) return null;
 
     const volume_blocks = std.mem.readInt(u32, descriptor[20..24], .little);
     if (volume_blocks == 0 or volume_blocks > @as(u32, 1) << 31) return null;
@@ -348,8 +380,8 @@ pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !
 
     const volume_id = try randomVolumeId();
     var descriptors: [2 * block_size]u8 align(block_size) = undefined;
-    encodeCheckpointDescriptor(descriptors[0..block_size], .green, 1, volume_id, volume_blocks, backing_blocks, layout);
-    encodeCheckpointDescriptor(descriptors[block_size..], .blue, 2, volume_id, volume_blocks, backing_blocks, layout);
+    encodeCheckpointDescriptor(descriptors[0..block_size], .green, 1, volume_id, volume_blocks, backing_blocks, layout, 0);
+    encodeCheckpointDescriptor(descriptors[block_size..], .blue, 2, volume_id, volume_blocks, backing_blocks, layout, 0);
 
     var ring = try linux.IoUring.init(2, 0);
     defer ring.deinit();
