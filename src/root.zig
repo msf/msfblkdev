@@ -88,6 +88,31 @@ pub const Volume = struct {
         self.log_bytes_since_checkpoint += record.len;
     }
 
+    pub fn read_block(self: *Volume, lba: u32, data: *[block_size]u8) !void {
+        if (lba >= self.volume_blocks) return error.InvalidLogicalBlock;
+
+        const physical_block = self.physical_blocks[lba];
+        if (physical_block == 0) {
+            @memset(data, 0);
+            return;
+        }
+
+        var payload: [block_size]u8 align(block_size) = undefined;
+        _ = try self.io_uring.read(
+            lba,
+            self.backing_fd,
+            .{ .buffer = &payload },
+            @as(u64, physical_block) * block_size,
+        );
+        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+        try completeExactly(&self.io_uring, lba, payload.len);
+
+        if (payloadChecksum(self.volume_id, lba, physical_block, &payload) != self.checksums[lba]) {
+            return error.ChecksumMismatch;
+        }
+        @memcpy(data, &payload);
+    }
+
     pub fn flush(self: *Volume) !void {
         _ = try self.io_uring.fsync(self.last_lsn, self.backing_fd, 0);
         if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
