@@ -519,13 +519,12 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
     const green = decodeCheckpoint(descriptors[0..block_size], .green, backing_size_result);
     const blue = decodeCheckpoint(descriptors[block_size..], .blue, backing_size_result);
     if (green == null or blue == null) return error.NoValidCheckpoint;
-    var candidates = [_]?Checkpoint{ green, blue };
-    if (green == null or (blue != null and green.?.generation <= blue.?.generation)) {
-        std.mem.swap(?Checkpoint, &candidates[0], &candidates[1]);
+    var candidates = [_]Checkpoint{ green.?, blue.? };
+    if (candidates[0].generation <= candidates[1].generation) {
+        std.mem.swap(Checkpoint, &candidates[0], &candidates[1]);
     }
 
-    for (candidates) |candidate| {
-        const checkpoint = candidate orelse continue;
+    for (candidates) |checkpoint| {
         const physical_map_bytes = @as(usize, checkpoint.layout.physical_map_blocks) * block_size;
         const mapping_bytes = physical_map_bytes + @as(usize, checkpoint.layout.checksum_map_blocks) * block_size;
         const mapping_storage = try allocator.allocWithOptions(u8, mapping_bytes, .fromByteUnits(block_size), null);
