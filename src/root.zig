@@ -519,56 +519,49 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
     const green = decodeCheckpoint(descriptors[0..block_size], .green, backing_size_result);
     const blue = decodeCheckpoint(descriptors[block_size..], .blue, backing_size_result);
     if (green == null or blue == null) return error.NoValidCheckpoint;
-    var candidates = [_]Checkpoint{ green.?, blue.? };
-    if (candidates[0].generation <= candidates[1].generation) {
-        std.mem.swap(Checkpoint, &candidates[0], &candidates[1]);
+    const checkpoint = if (green.?.generation > blue.?.generation) green.? else blue.?;
+
+    const physical_map_bytes = @as(usize, checkpoint.layout.physical_map_blocks) * block_size;
+    const mapping_bytes = physical_map_bytes + @as(usize, checkpoint.layout.checksum_map_blocks) * block_size;
+    const mapping_storage = try allocator.allocWithOptions(u8, mapping_bytes, .fromByteUnits(block_size), null);
+    const body_valid = loadCheckpointBody(&ring, fd, checkpoint, mapping_storage) catch |err| {
+        ring.deinit();
+        allocator.free(mapping_storage);
+        return err;
+    };
+    if (!body_valid) {
+        allocator.free(mapping_storage);
+        return error.NoValidCheckpoint;
+    }
+    const unreplayed_tail = hasUnreplayedTail(&ring, fd, checkpoint) catch |err| {
+        allocator.free(mapping_storage);
+        return err;
+    };
+    if (unreplayed_tail) {
+        ring.deinit();
+        allocator.free(mapping_storage);
+        return error.TailReplayRequired;
     }
 
-    for (candidates) |checkpoint| {
-        const physical_map_bytes = @as(usize, checkpoint.layout.physical_map_blocks) * block_size;
-        const mapping_bytes = physical_map_bytes + @as(usize, checkpoint.layout.checksum_map_blocks) * block_size;
-        const mapping_storage = try allocator.allocWithOptions(u8, mapping_bytes, .fromByteUnits(block_size), null);
-        const body_valid = loadCheckpointBody(&ring, fd, checkpoint, mapping_storage) catch |err| {
-            ring.deinit();
-            allocator.free(mapping_storage);
-            return err;
-        };
-        if (!body_valid) {
-            allocator.free(mapping_storage);
-            return error.NoValidCheckpoint;
-        }
-        const unreplayed_tail = hasUnreplayedTail(&ring, fd, checkpoint) catch |err| {
-            allocator.free(mapping_storage);
-            return err;
-        };
-        if (unreplayed_tail) {
-            ring.deinit();
-            allocator.free(mapping_storage);
-            return error.TailReplayRequired;
-        }
-
-        return .{
-            .allocator = allocator,
-            .mapping_storage = mapping_storage,
-            .backing_fd = fd,
-            .io_uring = ring,
-            .ring_owned = true,
-            .volume_id = checkpoint.volume_id,
-            .volume_blocks = checkpoint.volume_blocks,
-            .backing_blocks = checkpoint.backing_blocks,
-            .log_start_block = checkpoint.layout.log_start,
-            .physical_blocks = @as([*]u32, @ptrCast(mapping_storage.ptr))[0..checkpoint.volume_blocks],
-            .checksums = @as([*]u64, @ptrCast(@alignCast(mapping_storage.ptr + physical_map_bytes)))[0..checkpoint.volume_blocks],
-            .last_lsn = checkpoint.checkpoint_lsn,
-            .durable_lsn = checkpoint.checkpoint_lsn,
-            .last_footer_block = checkpoint.last_footer_block,
-            .checkpoint_generation = checkpoint.generation,
-            .next_checkpoint_slot = if (checkpoint.slot == .green) .blue else .green,
-            .log_bytes_since_checkpoint = 0,
-        };
-    }
-
-    return error.NoValidCheckpoint;
+    return .{
+        .allocator = allocator,
+        .mapping_storage = mapping_storage,
+        .backing_fd = fd,
+        .io_uring = ring,
+        .ring_owned = true,
+        .volume_id = checkpoint.volume_id,
+        .volume_blocks = checkpoint.volume_blocks,
+        .backing_blocks = checkpoint.backing_blocks,
+        .log_start_block = checkpoint.layout.log_start,
+        .physical_blocks = @as([*]u32, @ptrCast(mapping_storage.ptr))[0..checkpoint.volume_blocks],
+        .checksums = @as([*]u64, @ptrCast(@alignCast(mapping_storage.ptr + physical_map_bytes)))[0..checkpoint.volume_blocks],
+        .last_lsn = checkpoint.checkpoint_lsn,
+        .durable_lsn = checkpoint.checkpoint_lsn,
+        .last_footer_block = checkpoint.last_footer_block,
+        .checkpoint_generation = checkpoint.generation,
+        .next_checkpoint_slot = if (checkpoint.slot == .green) .blue else .green,
+        .log_bytes_since_checkpoint = 0,
+    };
 }
 
 pub fn format(dir_fd: linux.fd_t, backing_path: []const u8, volume_bytes: u64) !void {
