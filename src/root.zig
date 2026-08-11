@@ -459,3 +459,74 @@ test "format writes valid empty checkpoint roots and log geometry" {
     @memset(&zeroes, 0);
     try std.testing.expectEqualSlices(u8, &zeroes, &empty_log);
 }
+
+test "open reconstructs state and selects a valid checkpoint root" {
+    var temporary_directory = std.testing.tmpDir(.{});
+    defer temporary_directory.cleanup();
+
+    const volume_blocks: u32 = 1025;
+    const backing_blocks: u64 = 14;
+    {
+        const backing = try temporary_directory.dir.createFile(std.testing.io, "backing", .{
+            .read = true,
+            .exclusive = true,
+        });
+        defer backing.close(std.testing.io);
+        try backing.setLength(std.testing.io, backing_blocks * block_size);
+    }
+    try format(temporary_directory.dir.handle, "backing", @as(u64, volume_blocks) * block_size);
+
+    const backing = try temporary_directory.dir.openFile(std.testing.io, "backing", .{ .mode = .read_write });
+    defer backing.close(std.testing.io);
+    var descriptors: [2 * block_size]u8 = undefined;
+    try std.testing.expectEqual(descriptors.len, try backing.readPositionalAll(std.testing.io, &descriptors, 0));
+    const volume_id = std.mem.readInt(u64, descriptors[8..16], .little);
+
+    {
+        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+        defer volume.deinit();
+
+        try std.testing.expectEqual(volume_id, volume.volume_id);
+        try std.testing.expectEqual(volume_blocks, volume.volume_blocks);
+        try std.testing.expectEqual(backing_blocks, volume.backing_blocks);
+        try std.testing.expectEqual(@as(u32, 12), volume.log_start_block);
+        try std.testing.expectEqual(@as(usize, volume_blocks), volume.physical_blocks.len);
+        try std.testing.expectEqual(@as(usize, volume_blocks), volume.checksums.len);
+        try std.testing.expect(std.mem.allEqual(u32, volume.physical_blocks, 0));
+        try std.testing.expect(std.mem.allEqual(u64, volume.checksums, 0));
+        try std.testing.expectEqual(@as(u64, 0), volume.last_lsn);
+        try std.testing.expectEqual(@as(u64, 0), volume.durable_lsn);
+        try std.testing.expectEqual(@as(u32, 11), volume.last_footer_block);
+        try std.testing.expectEqual(@as(u64, 2), volume.checkpoint_generation);
+        try std.testing.expectEqual(CheckpointSlot.green, volume.next_checkpoint_slot);
+        try std.testing.expectEqual(@as(u64, 0), volume.log_bytes_since_checkpoint);
+    }
+
+    var green = descriptors[0..block_size];
+    std.mem.writeInt(u64, green[32..40], 3, .little);
+    std.mem.writeInt(u64, green[descriptor_checksum_offset..], 0, .little);
+    std.mem.writeInt(u64, green[descriptor_checksum_offset..], std.hash.XxHash3.hash(0, green), .little);
+    try backing.writePositionalAll(std.testing.io, green, 0);
+    {
+        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+        defer volume.deinit();
+        try std.testing.expectEqual(@as(u64, 3), volume.checkpoint_generation);
+        try std.testing.expectEqual(CheckpointSlot.blue, volume.next_checkpoint_slot);
+    }
+
+    green[0] ^= 0xff;
+    try backing.writePositionalAll(std.testing.io, green, 0);
+    {
+        var volume = try open(std.testing.allocator, temporary_directory.dir.handle, "backing");
+        defer volume.deinit();
+        try std.testing.expectEqual(@as(u64, 2), volume.checkpoint_generation);
+        try std.testing.expectEqual(CheckpointSlot.green, volume.next_checkpoint_slot);
+    }
+
+    descriptors[block_size] ^= 0xff;
+    try backing.writePositionalAll(std.testing.io, descriptors[block_size..], block_size);
+    try std.testing.expectError(
+        error.NoValidCheckpoint,
+        open(std.testing.allocator, temporary_directory.dir.handle, "backing"),
+    );
+}
