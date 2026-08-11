@@ -481,6 +481,7 @@ fn isExpectedTailFooter(
 }
 
 fn hasUnreplayedTail(ring: *linux.IoUring, fd: linux.fd_t, checkpoint: Checkpoint) !bool {
+    errdefer ring.deinit();
     var footer: [block_size]u8 align(block_size) = undefined;
     for (1..footer_payload_max + 1) |payload_count| {
         const footer_block_u64 = @as(u64, checkpoint.last_footer_block) + payload_count + 1;
@@ -538,7 +539,6 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
             return error.NoValidCheckpoint;
         }
         const unreplayed_tail = hasUnreplayedTail(&ring, fd, checkpoint) catch |err| {
-            ring.deinit();
             allocator.free(mapping_storage);
             return err;
         };
