@@ -44,6 +44,7 @@ pub const Volume = struct {
     mapping_storage: []align(block_size) u8,
     backing_fd: linux.fd_t,
     io_uring: linux.IoUring,
+    ring_owned: bool,
     volume_id: u64,
     volume_blocks: u32,
     backing_blocks: u64,
@@ -58,6 +59,7 @@ pub const Volume = struct {
     log_bytes_since_checkpoint: u64,
 
     pub fn write_block(self: *Volume, lba: u32, data: *const [block_size]u8) !void {
+        if (!self.ring_owned) return error.VolumeFailed;
         if (lba >= self.volume_blocks) return error.InvalidLogicalBlock;
         if (self.last_lsn == std.math.maxInt(u64)) return error.SequenceExhausted;
 
@@ -77,9 +79,12 @@ pub const Volume = struct {
             .{ .base = record[block_size..].ptr, .len = block_size },
         };
 
-        _ = try self.io_uring.writev(lsn, self.backing_fd, &iovecs, payload_block_u64 * block_size);
-        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
-        try completeExactly(&self.io_uring, lsn, record.len);
+        {
+            errdefer self.poison();
+            _ = try self.io_uring.writev(lsn, self.backing_fd, &iovecs, payload_block_u64 * block_size);
+            if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+            try completeExactly(&self.io_uring, lsn, record.len);
+        }
 
         self.physical_blocks[lba] = payload_block;
         self.checksums[lba] = checksum;
@@ -89,6 +94,7 @@ pub const Volume = struct {
     }
 
     pub fn read_block(self: *Volume, lba: u32, data: *[block_size]u8) !void {
+        if (!self.ring_owned) return error.VolumeFailed;
         if (lba >= self.volume_blocks) return error.InvalidLogicalBlock;
 
         const physical_block = self.physical_blocks[lba];
@@ -98,14 +104,17 @@ pub const Volume = struct {
         }
 
         var payload: [block_size]u8 align(block_size) = undefined;
-        _ = try self.io_uring.read(
-            lba,
-            self.backing_fd,
-            .{ .buffer = &payload },
-            @as(u64, physical_block) * block_size,
-        );
-        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
-        try completeExactly(&self.io_uring, lba, payload.len);
+        {
+            errdefer self.poison();
+            _ = try self.io_uring.read(
+                lba,
+                self.backing_fd,
+                .{ .buffer = &payload },
+                @as(u64, physical_block) * block_size,
+            );
+            if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+            try completeExactly(&self.io_uring, lba, payload.len);
+        }
 
         if (payloadChecksum(self.volume_id, lba, physical_block, &payload) != self.checksums[lba]) {
             return error.ChecksumMismatch;
@@ -114,13 +123,18 @@ pub const Volume = struct {
     }
 
     pub fn flush(self: *Volume) !void {
-        _ = try self.io_uring.fsync(self.last_lsn, self.backing_fd, 0);
-        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
-        try completeExactly(&self.io_uring, self.last_lsn, 0);
+        if (!self.ring_owned) return error.VolumeFailed;
+        {
+            errdefer self.poison();
+            _ = try self.io_uring.fsync(self.last_lsn, self.backing_fd, 0);
+            if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+            try completeExactly(&self.io_uring, self.last_lsn, 0);
+        }
         self.durable_lsn = self.last_lsn;
     }
 
     fn persistCheckpointBody(self: *Volume) !u64 {
+        if (!self.ring_owned) return error.VolumeFailed;
         const layout = layoutFor(self.volume_blocks);
         const body_start = switch (self.next_checkpoint_slot) {
             .green => layout.green_physical_map_start,
@@ -128,27 +142,31 @@ pub const Volume = struct {
         };
         const max_io_bytes = @as(usize, std.math.maxInt(i32)) / block_size * block_size;
 
-        var offset: usize = 0;
-        while (offset < self.mapping_storage.len) {
-            const length = @min(self.mapping_storage.len - offset, max_io_bytes);
-            _ = try self.io_uring.write(
-                self.last_lsn,
-                self.backing_fd,
-                self.mapping_storage[offset..][0..length],
-                @as(u64, body_start) * block_size + offset,
-            );
-            if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
-            try completeExactly(&self.io_uring, self.last_lsn, @intCast(length));
-            offset += length;
-        }
+        {
+            errdefer self.poison();
+            var offset: usize = 0;
+            while (offset < self.mapping_storage.len) {
+                const length = @min(self.mapping_storage.len - offset, max_io_bytes);
+                _ = try self.io_uring.write(
+                    self.last_lsn,
+                    self.backing_fd,
+                    self.mapping_storage[offset..][0..length],
+                    @as(u64, body_start) * block_size + offset,
+                );
+                if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+                try completeExactly(&self.io_uring, self.last_lsn, @intCast(length));
+                offset += length;
+            }
 
-        _ = try self.io_uring.fsync(self.last_lsn, self.backing_fd, 0);
-        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
-        try completeExactly(&self.io_uring, self.last_lsn, 0);
+            _ = try self.io_uring.fsync(self.last_lsn, self.backing_fd, 0);
+            if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+            try completeExactly(&self.io_uring, self.last_lsn, 0);
+        }
         return std.hash.XxHash3.hash(0, self.mapping_storage);
     }
 
     fn checkpoint(self: *Volume) !void {
+        if (!self.ring_owned) return error.VolumeFailed;
         if (self.checkpoint_generation == std.math.maxInt(u64)) return error.GenerationExhausted;
 
         try self.flush();
@@ -170,14 +188,17 @@ pub const Volume = struct {
             body_checksum,
         );
 
-        _ = try self.io_uring.write(
-            self.last_lsn,
-            self.backing_fd,
-            &descriptor,
-            @as(u64, @intFromEnum(slot)) * block_size,
-        );
-        if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
-        try completeExactly(&self.io_uring, self.last_lsn, descriptor.len);
+        {
+            errdefer self.poison();
+            _ = try self.io_uring.write(
+                self.last_lsn,
+                self.backing_fd,
+                &descriptor,
+                @as(u64, @intFromEnum(slot)) * block_size,
+            );
+            if (try self.io_uring.submit() != 1) return error.UnexpectedSubmissionCount;
+            try completeExactly(&self.io_uring, self.last_lsn, descriptor.len);
+        }
         try self.flush();
 
         self.checkpoint_generation = generation;
@@ -191,10 +212,16 @@ pub const Volume = struct {
     }
 
     pub fn deinit(self: *Volume) void {
-        self.io_uring.deinit();
+        if (self.ring_owned) self.io_uring.deinit();
         closeFd(self.backing_fd);
         self.allocator.free(self.mapping_storage);
         self.* = undefined;
+    }
+
+    fn poison(self: *Volume) void {
+        if (!self.ring_owned) return;
+        self.io_uring.deinit();
+        self.ring_owned = false;
     }
 };
 
@@ -461,6 +488,7 @@ pub fn open(allocator: std.mem.Allocator, dir_fd: linux.fd_t, backing_path: []co
             .mapping_storage = mapping_storage,
             .backing_fd = fd,
             .io_uring = ring,
+            .ring_owned = true,
             .volume_id = checkpoint.volume_id,
             .volume_blocks = checkpoint.volume_blocks,
             .backing_blocks = checkpoint.backing_blocks,
@@ -931,6 +959,8 @@ test "checkpoint persists and activates the inactive slot" {
     try volume.write_block(lba, &payload);
     const payload_checksum = volume.checksums[lba];
 
+    try volume.checkpoint();
+
     {
         const writable_fd = volume.backing_fd;
         const read_only_fd = try std.posix.openat(temporary_directory.dir.handle, "backing", .{
@@ -941,13 +971,12 @@ test "checkpoint persists and activates the inactive slot" {
         volume.backing_fd = read_only_fd;
         defer volume.backing_fd = writable_fd;
 
+        const ring_fd = volume.io_uring.fd;
         try std.testing.expectError(error.InputOutput, volume.checkpoint());
-        try std.testing.expectEqual(initial_generation, volume.checkpoint_generation);
-        try std.testing.expectEqual(checkpoint_slot, volume.next_checkpoint_slot);
-        try std.testing.expectEqual(@as(u64, 2 * block_size), volume.log_bytes_since_checkpoint);
+        try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(ring_fd, linux.F.GETFD, 0)));
+        try std.testing.expectError(error.VolumeFailed, volume.flush());
     }
 
-    try volume.checkpoint();
     try std.testing.expectEqual(initial_generation + 1, volume.checkpoint_generation);
     try std.testing.expectEqual(CheckpointSlot.blue, volume.next_checkpoint_slot);
     try std.testing.expectEqual(volume.last_lsn, volume.durable_lsn);
@@ -1145,7 +1174,7 @@ test "open recovers a non-empty checkpoint and rejects a corrupt newer body" {
     );
 }
 
-test "close failure retains ownership for deinit" {
+test "close I/O failure poisons the ring and retains remaining ownership" {
     var temporary_directory = std.testing.tmpDir(.{});
     defer temporary_directory.cleanup();
 
@@ -1181,7 +1210,13 @@ test "close failure retains ownership for deinit" {
     try std.testing.expectError(error.InputOutput, volume.close());
     try std.testing.expectEqual(initial_generation, volume.checkpoint_generation);
     try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.fcntl(read_only_fd, linux.F.GETFD, 0)));
-    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.fcntl(ring_fd, linux.F.GETFD, 0)));
+    try std.testing.expectEqual(linux.E.BADF, linux.errno(linux.fcntl(ring_fd, linux.F.GETFD, 0)));
+
+    var block: [block_size]u8 = @splat(0xa5);
+    try std.testing.expectError(error.VolumeFailed, volume.read_block(0, &block));
+    try std.testing.expectError(error.VolumeFailed, volume.write_block(0, &block));
+    try std.testing.expectError(error.VolumeFailed, volume.flush());
+    try std.testing.expectError(error.VolumeFailed, volume.close());
 
     volume.deinit();
     volume_owned = false;
