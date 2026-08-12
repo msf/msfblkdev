@@ -1089,6 +1089,48 @@ mod tests {
     }
 
     #[test]
+    fn failed_write_is_not_published_and_close_releases_resources() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let mut volume = open(&backing.0)?;
+        volume.backing = backing.reopen()?;
+
+        let initial_footer_block = volume.last_footer_block;
+        let error = volume.write_block(0, &[0xa5; BLOCK_SIZE]).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::EBADF));
+        assert_eq!(volume.physical_blocks, [0]);
+        assert_eq!(volume.checksums, [0]);
+        assert_eq!(volume.last_lsn, 0);
+        assert_eq!(volume.durable_lsn, 0);
+        assert_eq!(volume.last_footer_block, initial_footer_block);
+        assert_eq!(volume.log_bytes_since_checkpoint, 0);
+
+        let mut block = [0x5a; BLOCK_SIZE];
+        assert_eq!(
+            volume.read_block(0, &mut block).unwrap_err().to_string(),
+            "volume failed"
+        );
+        assert_eq!(block, [0x5a; BLOCK_SIZE]);
+        assert_eq!(
+            volume
+                .write_block(0, &[0; BLOCK_SIZE])
+                .unwrap_err()
+                .to_string(),
+            "volume failed"
+        );
+        assert_eq!(volume.flush().unwrap_err().to_string(), "volume failed");
+
+        let backing_fd = volume.backing.as_raw_fd();
+        let ring_fd = volume.ring.as_ref().unwrap().as_raw_fd();
+        assert_eq!(volume.close().unwrap_err().to_string(), "volume failed");
+        assert_eq!(unsafe { libc::fcntl(backing_fd, libc::F_GETFD) }, -1);
+        assert_eq!(unsafe { libc::fcntl(ring_fd, libc::F_GETFD) }, -1);
+        Ok(())
+    }
+
+    #[test]
     fn public_operations_complete_v0_4_acceptance() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 2_u32;
