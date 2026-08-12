@@ -192,6 +192,42 @@ impl Volume {
         Ok(())
     }
 
+    /// Reads one logical block, returning zeros when it has not been written.
+    pub fn read_block(&mut self, lba: u32, data: &mut [u8; BLOCK_SIZE]) -> io::Result<()> {
+        if self.failed {
+            return Err(io::Error::other("volume failed"));
+        }
+        if lba >= self.volume_blocks {
+            return Err(invalid_input("invalid logical block"));
+        }
+
+        let physical_block = self.physical_blocks[lba as usize];
+        if physical_block == 0 {
+            data.fill(0);
+            return Ok(());
+        }
+
+        let mut payload = AlignedBlock([0; BLOCK_SIZE]);
+        let read = opcode::Read::new(
+            types::Fd(self.backing.as_raw_fd()),
+            payload.0.as_mut_ptr(),
+            BLOCK_SIZE as u32,
+        )
+        .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
+        .build();
+        if let Err(error) = submit_exact(&mut self.ring, read, u64::from(lba), BLOCK_SIZE as i32) {
+            self.failed = true;
+            return Err(error);
+        }
+        if payload_checksum(self.volume_id, lba, physical_block, &payload.0)
+            != self.checksums[lba as usize]
+        {
+            return Err(invalid_data("payload checksum mismatch"));
+        }
+        data.copy_from_slice(&payload.0);
+        Ok(())
+    }
+
     /// Appends one payload and footer record and publishes it after exact completion.
     pub fn write_block(&mut self, lba: u32, data: &[u8; BLOCK_SIZE]) -> io::Result<()> {
         if self.failed {
@@ -984,6 +1020,61 @@ mod tests {
         assert_eq!(volume.durable_lsn, 0);
         assert_eq!(volume.last_footer_block, footer_block);
         assert_eq!(volume.log_bytes_since_checkpoint, (2 * BLOCK_SIZE) as u64);
+        Ok(())
+    }
+
+    #[test]
+    fn public_operations_complete_v0_4_acceptance() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 2_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+
+        let mut expected = [0; BLOCK_SIZE];
+        for (index, byte) in expected.iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        {
+            let mut volume = open(&backing.0)?;
+            let mut actual = [0xa5; BLOCK_SIZE];
+            volume.read_block(0, &mut actual)?;
+            assert_eq!(actual, [0; BLOCK_SIZE]);
+            assert_eq!(
+                volume
+                    .read_block(volume_blocks, &mut actual)
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::InvalidInput
+            );
+
+            volume.write_block(1, &expected)?;
+            volume.read_block(1, &mut actual)?;
+            assert_eq!(actual, expected);
+            volume.flush()?;
+            volume.close()?;
+        }
+        {
+            let mut volume = open(&backing.0)?;
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(1, &mut actual)?;
+            assert_eq!(actual, expected);
+            volume.close()?;
+        }
+
+        let file = OpenOptions::new().write(true).open(&backing.0)?;
+        file.write_all_at(
+            &[expected[0] ^ 0xff],
+            u64::from(layout.log_start) * BLOCK_SIZE as u64,
+        )?;
+        file.sync_all()?;
+        let mut volume = open(&backing.0)?;
+        let mut actual = [0x5a; BLOCK_SIZE];
+        assert_eq!(
+            volume.read_block(1, &mut actual).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(actual, [0x5a; BLOCK_SIZE]);
         Ok(())
     }
 
