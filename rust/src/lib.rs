@@ -10,6 +10,7 @@ mod tests {
     use std::os::unix::fs::OpenOptionsExt;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use xxhash_rust::xxh3::{xxh3_64, xxh3_64_with_seed};
 
     const BLOCK_SIZE: usize = 4096;
 
@@ -114,6 +115,20 @@ mod tests {
         .offset(0)
         .build();
         submit_exact(ring, entry, 3, BLOCK_SIZE as i32)
+    }
+
+    #[test]
+    fn xxh3_matches_zig_vectors() {
+        assert_eq!(xxh3_64(b""), 0x2d06_8005_38d3_94c2);
+        assert_eq!(xxh3_64(&[0; BLOCK_SIZE]), 0x93d7_6fe1_48c6_89ba);
+
+        let mut payload_input = [0xa5; BLOCK_SIZE + 8];
+        payload_input[..4].copy_from_slice(&0x0102_0304_u32.to_le_bytes());
+        payload_input[4..8].copy_from_slice(&0x0506_0708_u32.to_le_bytes());
+        assert_eq!(
+            xxh3_64_with_seed(&payload_input, 0x1122_3344_5566_7788),
+            0x4681_58e2_0c4c_72c4
+        );
     }
 
     #[test]
