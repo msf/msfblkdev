@@ -77,6 +77,20 @@ pub struct Volume {
 }
 
 impl Volume {
+    /// Makes all completed writes durable.
+    pub fn flush(&mut self) -> io::Result<()> {
+        if self.failed {
+            return Err(io::Error::other("volume failed"));
+        }
+        let fsync = opcode::Fsync::new(types::Fd(self.backing.as_raw_fd())).build();
+        if let Err(error) = submit_exact(&mut self.ring, fsync, self.last_lsn, 0) {
+            self.failed = true;
+            return Err(error);
+        }
+        self.durable_lsn = self.last_lsn;
+        Ok(())
+    }
+
     /// Appends one payload and footer record and publishes it after exact completion.
     pub fn write_block(&mut self, lba: u32, data: &[u8; BLOCK_SIZE]) -> io::Result<()> {
         if self.failed {
@@ -720,6 +734,21 @@ mod tests {
         assert_eq!(volume.durable_lsn, 0);
         assert_eq!(volume.last_footer_block, footer_block);
         assert_eq!(volume.log_bytes_since_checkpoint, (2 * BLOCK_SIZE) as u64);
+        Ok(())
+    }
+
+    #[test]
+    fn flush_advances_durable_lsn() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let mut volume = open(&backing.0)?;
+
+        volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
+        assert_eq!(volume.durable_lsn(), 0);
+        volume.flush()?;
+        assert_eq!(volume.durable_lsn(), volume.last_lsn());
         Ok(())
     }
 
