@@ -1,14 +1,18 @@
 # my-block-storage
 
-A Linux-only V0.4 prototype of a 4 KiB log-structured block-storage engine. It exposes the Zig public API (`format`, `open`, `write_block`, `read_block`, `flush`, and `close`); it does not yet expose a block device.
+A Linux-only prototype of a 4 KiB log-structured block-storage engine. Separate Zig and Rust implementations complete V0.4; neither exposes a block device yet.
 
 ## Prerequisites
 
-Linux x86_64, a kernel with `io_uring`, and a backing filesystem or device that supports `O_DIRECT`. Setup also needs `make`, `curl`, `sha256sum`, `tar`, and xz support.
+Linux x86_64, a kernel with `io_uring`, a backing filesystem or device that supports `O_DIRECT`, a Rust toolchain with Cargo, and `make`. Zig setup also needs `curl`, `sha256sum`, `tar`, and xz support.
 
 `make setup` downloads Zig 0.16.0 from ziglang.org into `.tools/` and verifies its pinned SHA-256 checksum. No system Zig installation is used.
 
-## Edit loop
+## Implementations
+
+The Zig implementation is in `src/root.zig` and exposes `format`, `open`, `write_block`, `read_block`, `flush`, and `close`. The separate Rust crate is in `rust/` and exposes `format`, `open`, and `Volume::{write_block, read_block, flush, close}`.
+
+## Zig and combined edit loop
 
 ```sh
 make build
@@ -17,12 +21,22 @@ make test
 make run
 ```
 
-- `make build` builds `zig-out/lib/libblock-storage.a`.
-- `make lint` checks Zig formatting.
-- `make test` runs the complete test suite.
-- `make run` runs the V0.4 public-API black-box scenario: format, open, zero-read, write/read, flush/close, reopen, and read again.
+- `make build`, `make lint`, and `make test` check both implementations; append `-zig` or `-rust` to target one.
+- `make run` runs the Zig V0.4 public-API scenario: format, open, zero-read, write/read, flush/close, reopen, and read again.
 
-There is no default container setup because these tests intentionally exercise the host kernel and direct-I/O path.
+## Rust edit/test loop
+
+```sh
+cd rust
+cargo build
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+The Rust acceptance test exercises the same V0.4 sequence through its public API.
+
+There is no default container setup because the tests intentionally exercise the host kernel and direct-I/O path.
 
 ## Boundaries
 
