@@ -241,6 +241,7 @@ impl Volume {
             .checked_add(1)
             .ok_or_else(|| io::Error::other("sequence exhausted"))?;
         let payload_block = u64::from(self.last_footer_block) + 1;
+        debug_assert!(payload_block >= u64::from(self.log_start_block));
         let footer_block = payload_block + 1;
         if footer_block >= self.backing_blocks {
             return Err(io::Error::other("log full"));
@@ -288,51 +289,6 @@ impl Volume {
         self.last_footer_block = footer_block;
         self.log_bytes_since_checkpoint += record.0.len() as u64;
         Ok(())
-    }
-
-    pub fn volume_id(&self) -> u64 {
-        self.volume_id
-    }
-
-    pub fn volume_blocks(&self) -> u32 {
-        self.volume_blocks
-    }
-
-    pub fn backing_blocks(&self) -> u64 {
-        self.backing_blocks
-    }
-
-    pub fn log_start_block(&self) -> u32 {
-        self.log_start_block
-    }
-
-    pub fn mapping_is_empty(&self) -> bool {
-        self.physical_blocks.iter().all(|block| *block == 0)
-            && self.checksums.iter().all(|checksum| *checksum == 0)
-    }
-
-    pub fn last_lsn(&self) -> u64 {
-        self.last_lsn
-    }
-
-    pub fn durable_lsn(&self) -> u64 {
-        self.durable_lsn
-    }
-
-    pub fn last_footer_block(&self) -> u32 {
-        self.last_footer_block
-    }
-
-    pub fn checkpoint_generation(&self) -> u64 {
-        self.checkpoint_generation
-    }
-
-    pub fn next_checkpoint_is_green(&self) -> bool {
-        self.next_checkpoint_slot == CheckpointSlot::Green
-    }
-
-    pub fn log_bytes_since_checkpoint(&self) -> u64 {
-        self.log_bytes_since_checkpoint
     }
 }
 
@@ -693,27 +649,36 @@ fn submit_exact(
             .push(&entry.user_data(user_data))
             .map_err(|_| io::Error::other("io_uring submission queue is full"))?;
     }
-    if ring.submit_and_wait(1)? != 1 {
-        return Err(io::Error::other("unexpected io_uring submission count"));
-    }
+    wait_exact(ring, user_data, expected_result)
+}
 
-    let mut completions = ring.completion();
-    let completion = completions
-        .next()
-        .ok_or_else(|| io::Error::other("missing io_uring completion"))?;
-    if completion.user_data() != user_data || completion.flags() != 0 {
-        return Err(io::Error::other("unexpected io_uring completion"));
+fn wait_exact(ring: &mut IoUring, user_data: u64, expected_result: i32) -> io::Result<()> {
+    let mut unexpected_completion = false;
+    loop {
+        // A submitted SQE may retain caller pointers even when this wait is interrupted or empty.
+        let _wait_result = ring.submit_and_wait(1);
+        let mut completions = ring.completion();
+        let Some(completion) = completions.next() else {
+            continue;
+        };
+        if completion.user_data() != user_data {
+            unexpected_completion = true;
+            continue;
+        }
+        if unexpected_completion || completion.flags() != 0 {
+            return Err(io::Error::other("unexpected io_uring completion"));
+        }
+        if completion.result() < 0 {
+            return Err(io::Error::from_raw_os_error(-completion.result()));
+        }
+        if completion.result() != expected_result {
+            return Err(io::Error::other("short io_uring operation"));
+        }
+        if completions.next().is_some() {
+            return Err(io::Error::other("unexpected extra io_uring completion"));
+        }
+        return Ok(());
     }
-    if completion.result() < 0 {
-        return Err(io::Error::from_raw_os_error(-completion.result()));
-    }
-    if completion.result() != expected_result {
-        return Err(io::Error::other("short io_uring operation"));
-    }
-    if completions.next().is_some() {
-        return Err(io::Error::other("unexpected extra io_uring completion"));
-    }
-    Ok(())
 }
 
 /// Opens a formatted volume from its two empty checkpoint roots.
@@ -746,6 +711,9 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
         || green.layout != blue.layout
     {
         return Err(invalid_data("checkpoint roots disagree"));
+    }
+    if green.generation == blue.generation {
+        return Err(invalid_data("checkpoint generations are ambiguous"));
     }
     let candidates = if green.generation > blue.generation {
         [green, blue]
@@ -848,6 +816,7 @@ pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<(
 mod tests {
     use super::*;
     use std::fs::remove_file;
+    use std::os::fd::FromRawFd;
     use std::os::unix::fs::FileExt;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -961,6 +930,39 @@ mod tests {
 
         assert_eq!(written.0, read.0);
         Ok(())
+    }
+
+    #[test]
+    fn waits_when_submission_succeeds_before_completion_exists() -> io::Result<()> {
+        let event_fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+        if event_fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let event = unsafe { File::from_raw_fd(event_fd) };
+        let mut ring = IoUring::new(2)?;
+        let poll = opcode::PollAdd::new(types::Fd(event_fd), libc::POLLIN as u32)
+            .build()
+            .user_data(7);
+        unsafe {
+            ring.submission()
+                .push(&poll)
+                .map_err(|_| io::Error::other("io_uring submission queue is full"))?;
+        }
+        assert_eq!(ring.submit()?, 1);
+        assert!(ring.completion().next().is_none());
+
+        let sender = std::thread::spawn(move || {
+            let value = 1_u64;
+            unsafe { libc::write(event_fd, (&raw const value).cast(), size_of::<u64>()) }
+        });
+        let result = wait_exact(&mut ring, 7, libc::POLLIN.into());
+        let write_result = sender
+            .join()
+            .map_err(|_| io::Error::other("sender panicked"))?;
+
+        assert_eq!(write_result, size_of::<u64>() as isize);
+        drop(event);
+        result
     }
 
     #[test]
@@ -1079,6 +1081,25 @@ mod tests {
     }
 
     #[test]
+    fn open_rejects_durable_uncheckpointed_tail() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
+        volume.flush()?;
+        drop(volume);
+
+        assert_eq!(
+            open(&backing.0).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+        Ok(())
+    }
+
+    #[test]
     fn flush_advances_durable_lsn() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
@@ -1087,9 +1108,9 @@ mod tests {
         let mut volume = open(&backing.0)?;
 
         volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
-        assert_eq!(volume.durable_lsn(), 0);
+        assert_eq!(volume.durable_lsn, 0);
         volume.flush()?;
-        assert_eq!(volume.durable_lsn(), volume.last_lsn());
+        assert_eq!(volume.durable_lsn, volume.last_lsn);
         Ok(())
     }
 
@@ -1101,9 +1122,9 @@ mod tests {
         backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
         format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
         let mut volume = open(&backing.0)?;
-        let volume_id = volume.volume_id();
+        let volume_id = volume.volume_id;
         let payload = [0xa5; BLOCK_SIZE];
-        let payload_block = volume.last_footer_block() + 1;
+        let payload_block = volume.last_footer_block + 1;
         let footer_block = payload_block + 1;
         let lba = 1_u32;
         volume.write_block(lba, &payload)?;
@@ -1162,11 +1183,11 @@ mod tests {
         let reopened = open(&backing.0)?;
         assert_eq!(reopened.physical_blocks, [0, payload_block]);
         assert_eq!(reopened.checksums, [0, payload_checksum]);
-        assert_eq!(reopened.last_lsn(), 1);
-        assert_eq!(reopened.durable_lsn(), 1);
-        assert_eq!(reopened.last_footer_block(), footer_block);
-        assert_eq!(reopened.checkpoint_generation(), 3);
-        assert!(!reopened.next_checkpoint_is_green());
+        assert_eq!(reopened.last_lsn, 1);
+        assert_eq!(reopened.durable_lsn, 1);
+        assert_eq!(reopened.last_footer_block, footer_block);
+        assert_eq!(reopened.checkpoint_generation, 3);
+        assert_eq!(reopened.next_checkpoint_slot, CheckpointSlot::Blue);
         Ok(())
     }
 
@@ -1219,28 +1240,39 @@ mod tests {
         let volume_id = read_u64(&descriptors, 8);
 
         let volume = open(&backing.0)?;
-        assert_eq!(volume.volume_id(), volume_id);
-        assert_eq!(volume.volume_blocks(), volume_blocks);
-        assert_eq!(volume.backing_blocks(), backing_blocks);
-        assert_eq!(volume.log_start_block(), 12);
-        assert!(volume.mapping_is_empty());
-        assert_eq!(volume.last_lsn(), 0);
-        assert_eq!(volume.durable_lsn(), 0);
-        assert_eq!(volume.last_footer_block(), 11);
-        assert_eq!(volume.checkpoint_generation(), 2);
-        assert!(volume.next_checkpoint_is_green());
-        assert_eq!(volume.log_bytes_since_checkpoint(), 0);
+        assert_eq!(volume.volume_id, volume_id);
+        assert_eq!(volume.volume_blocks, volume_blocks);
+        assert_eq!(volume.backing_blocks, backing_blocks);
+        assert_eq!(volume.log_start_block, 12);
+        assert!(volume.physical_blocks.iter().all(|block| *block == 0));
+        assert!(volume.checksums.iter().all(|checksum| *checksum == 0));
+        assert_eq!(volume.last_lsn, 0);
+        assert_eq!(volume.durable_lsn, 0);
+        assert_eq!(volume.last_footer_block, 11);
+        assert_eq!(volume.checkpoint_generation, 2);
+        assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Green);
+        assert_eq!(volume.log_bytes_since_checkpoint, 0);
         drop(volume);
 
         let green = &mut descriptors[..BLOCK_SIZE];
+        green[32..40].copy_from_slice(&2_u64.to_le_bytes());
+        green[DESCRIPTOR_CHECKSUM_OFFSET..].fill(0);
+        let checksum = xxh3_64(green);
+        green[DESCRIPTOR_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
+        file.write_all_at(green, 0)?;
+        assert_eq!(
+            open(&backing.0).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+
         green[32..40].copy_from_slice(&3_u64.to_le_bytes());
         green[DESCRIPTOR_CHECKSUM_OFFSET..].fill(0);
         let checksum = xxh3_64(green);
         green[DESCRIPTOR_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
         file.write_all_at(green, 0)?;
         let volume = open(&backing.0)?;
-        assert_eq!(volume.checkpoint_generation(), 3);
-        assert!(!volume.next_checkpoint_is_green());
+        assert_eq!(volume.checkpoint_generation, 3);
+        assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Blue);
         drop(volume);
 
         green[8] ^= 1;
