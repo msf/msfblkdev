@@ -13,6 +13,8 @@ const BLOCK_SIZE: usize = 4096;
 const FOOTER_LBA_OFFSET: usize = 32;
 const FOOTER_PAYLOAD_CHECKSUM_OFFSET: usize = 1384;
 const FOOTER_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
+const FOOTER_PAYLOAD_MAX: u32 =
+    ((FOOTER_PAYLOAD_CHECKSUM_OFFSET - FOOTER_LBA_OFFSET) / size_of::<u32>()) as u32;
 const CHECKPOINT_BODY_CHECKSUM_OFFSET: usize = 72;
 const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
 const EMPTY_MAPPING_FLAG: u16 = 1;
@@ -56,6 +58,8 @@ struct Checkpoint {
     checkpoint_lsn: u64,
     last_footer_block: u32,
     layout: Layout,
+    empty_mapping: bool,
+    body_checksum: u64,
 }
 
 pub struct Volume {
@@ -109,6 +113,8 @@ impl Volume {
             checkpoint_lsn: self.last_lsn,
             last_footer_block: self.last_footer_block,
             layout: layout_for(u64::from(self.volume_blocks) * BLOCK_SIZE as u64)?.1,
+            empty_mapping: false,
+            body_checksum,
         };
         encode_checkpoint_descriptor(&mut descriptor.0, &checkpoint, 0, body_checksum);
         let write = opcode::Write::new(
@@ -433,7 +439,7 @@ fn encode_checkpoint_descriptor(
     descriptor[DESCRIPTOR_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
 }
 
-fn decode_empty_checkpoint(
+fn decode_checkpoint(
     descriptor: &mut [u8],
     expected_slot: CheckpointSlot,
     backing_bytes: u64,
@@ -443,14 +449,21 @@ fn decode_empty_checkpoint(
     let checksum_valid = xxh3_64(descriptor) == stored_checksum;
     descriptor[DESCRIPTOR_CHECKSUM_OFFSET..].copy_from_slice(&stored_checksum.to_le_bytes());
 
+    let flags = u16::from_le_bytes(descriptor[6..8].try_into().unwrap());
+    let body_checksum = read_u64(descriptor, CHECKPOINT_BODY_CHECKSUM_OFFSET);
     if !checksum_valid
         || &descriptor[..4] != b"VBLC"
         || descriptor[4] != 1
         || descriptor[5] != expected_slot as u8
-        || u16::from_le_bytes(descriptor[6..8].try_into().unwrap()) != EMPTY_MAPPING_FLAG
+        || (flags != 0 && flags != EMPTY_MAPPING_FLAG)
         || read_u32(descriptor, 16) != BLOCK_SIZE as u32
         || descriptor[68] != CHECKSUM_ALGORITHM_XXH3_64
-        || descriptor[69..DESCRIPTOR_CHECKSUM_OFFSET]
+        || descriptor[69..CHECKPOINT_BODY_CHECKSUM_OFFSET]
+            .iter()
+            .any(|byte| *byte != 0)
+        || (flags == EMPTY_MAPPING_FLAG && body_checksum != 0)
+        || descriptor
+            [CHECKPOINT_BODY_CHECKSUM_OFFSET + size_of::<u64>()..DESCRIPTOR_CHECKSUM_OFFSET]
             .iter()
             .any(|byte| *byte != 0)
     {
@@ -475,11 +488,13 @@ fn decode_empty_checkpoint(
     let checkpoint_lsn = read_u64(descriptor, 40);
     let last_footer_block = read_u32(descriptor, 48);
 
+    let empty_mapping = flags == EMPTY_MAPPING_FLAG;
     if volume_blocks != expected_volume_blocks
         || read_u64(descriptor, 24) != backing_blocks
         || generation == 0
-        || checkpoint_lsn != 0
-        || last_footer_block != layout.log_start - 1
+        || last_footer_block < layout.log_start - 1
+        || u64::from(last_footer_block) >= backing_blocks
+        || (empty_mapping && (checkpoint_lsn != 0 || last_footer_block != layout.log_start - 1))
         || read_u32(descriptor, 52) != physical_map_start
         || read_u32(descriptor, 56) != layout.physical_map_blocks
         || read_u32(descriptor, 60) != checksum_map_start
@@ -497,7 +512,137 @@ fn decode_empty_checkpoint(
         checkpoint_lsn,
         last_footer_block,
         layout,
+        empty_mapping,
+        body_checksum,
     })
+}
+
+fn load_checkpoint_body(
+    ring: &mut IoUring,
+    backing: &File,
+    checkpoint: Checkpoint,
+) -> io::Result<Option<(Vec<u32>, Vec<u64>)>> {
+    let mapping_len = checkpoint.volume_blocks as usize;
+    let mut physical_blocks = Vec::new();
+    physical_blocks
+        .try_reserve_exact(mapping_len)
+        .map_err(io::Error::other)?;
+    physical_blocks.resize(mapping_len, 0);
+    let mut checksums = Vec::new();
+    checksums
+        .try_reserve_exact(mapping_len)
+        .map_err(io::Error::other)?;
+    checksums.resize(mapping_len, 0);
+    if checkpoint.empty_mapping {
+        return Ok(Some((physical_blocks, checksums)));
+    }
+
+    let body_start = match checkpoint.slot {
+        CheckpointSlot::Green => checkpoint.layout.green_physical_map_start,
+        CheckpointSlot::Blue => checkpoint.layout.blue_physical_map_start,
+    };
+    let mut hasher = Xxh3::new();
+    let mut block = AlignedBlock([0; BLOCK_SIZE]);
+    for block_index in 0..checkpoint.layout.physical_map_blocks {
+        read_checkpoint_body_block(ring, backing, body_start + block_index, &mut block)?;
+        hasher.update(&block.0);
+        let first = block_index as usize * (BLOCK_SIZE / size_of::<u32>());
+        for (value, bytes) in physical_blocks[first..]
+            .iter_mut()
+            .zip(block.0.chunks_exact(size_of::<u32>()))
+        {
+            *value = u32::from_le_bytes(bytes.try_into().unwrap());
+        }
+    }
+    for block_index in 0..checkpoint.layout.checksum_map_blocks {
+        read_checkpoint_body_block(
+            ring,
+            backing,
+            body_start + checkpoint.layout.physical_map_blocks + block_index,
+            &mut block,
+        )?;
+        hasher.update(&block.0);
+        let first = block_index as usize * (BLOCK_SIZE / size_of::<u64>());
+        for (value, bytes) in checksums[first..]
+            .iter_mut()
+            .zip(block.0.chunks_exact(size_of::<u64>()))
+        {
+            *value = u64::from_le_bytes(bytes.try_into().unwrap());
+        }
+    }
+
+    Ok((hasher.digest() == checkpoint.body_checksum).then_some((physical_blocks, checksums)))
+}
+
+fn read_checkpoint_body_block(
+    ring: &mut IoUring,
+    backing: &File,
+    physical_block: u32,
+    block: &mut AlignedBlock,
+) -> io::Result<()> {
+    let read = opcode::Read::new(
+        types::Fd(backing.as_raw_fd()),
+        block.0.as_mut_ptr(),
+        BLOCK_SIZE as u32,
+    )
+    .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
+    .build();
+    submit_exact(ring, read, u64::from(physical_block), BLOCK_SIZE as i32)
+}
+
+fn is_expected_tail_footer(
+    footer: &mut [u8],
+    checkpoint: Checkpoint,
+    footer_block: u32,
+    payload_count: u32,
+) -> bool {
+    let stored_checksum = read_u64(footer, FOOTER_CHECKSUM_OFFSET);
+    footer[FOOTER_CHECKSUM_OFFSET..].fill(0);
+    let checksum_valid = xxh3_64(footer) == stored_checksum;
+    footer[FOOTER_CHECKSUM_OFFSET..].copy_from_slice(&stored_checksum.to_le_bytes());
+    if !checksum_valid
+        || &footer[..4] != b"VBLF"
+        || footer[4] != 1
+        || footer[5] != 1
+        || u16::from_le_bytes(footer[6..8].try_into().unwrap()) != 0
+        || read_u64(footer, 8) != checkpoint.volume_id
+        || checkpoint.checkpoint_lsn == u64::MAX
+        || read_u64(footer, 16) != checkpoint.checkpoint_lsn + 1
+        || read_u32(footer, 24) != checkpoint.last_footer_block
+        || read_u32(footer, 28) != footer_block
+    {
+        return false;
+    }
+    (0..payload_count).all(|index| {
+        read_u32(
+            footer,
+            FOOTER_LBA_OFFSET + index as usize * size_of::<u32>(),
+        ) < checkpoint.volume_blocks
+    })
+}
+
+fn has_unreplayed_tail(
+    ring: &mut IoUring,
+    backing: &File,
+    checkpoint: Checkpoint,
+) -> io::Result<bool> {
+    let mut footer = AlignedBlock([0; BLOCK_SIZE]);
+    for payload_count in 1..=FOOTER_PAYLOAD_MAX {
+        let footer_block = u64::from(checkpoint.last_footer_block) + u64::from(payload_count) + 1;
+        if footer_block >= checkpoint.backing_blocks {
+            break;
+        }
+        read_checkpoint_body_block(ring, backing, footer_block as u32, &mut footer)?;
+        if is_expected_tail_footer(
+            &mut footer.0,
+            checkpoint,
+            footer_block as u32,
+            payload_count,
+        ) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn submit_exact(
@@ -555,9 +700,9 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
     submit_exact(&mut ring, read, 3, descriptors.0.len() as i32)?;
 
     let (green_bytes, blue_bytes) = descriptors.0.split_at_mut(BLOCK_SIZE);
-    let green = decode_empty_checkpoint(green_bytes, CheckpointSlot::Green, backing_bytes)
+    let green = decode_checkpoint(green_bytes, CheckpointSlot::Green, backing_bytes)
         .ok_or_else(|| invalid_data("invalid green checkpoint root"))?;
-    let blue = decode_empty_checkpoint(blue_bytes, CheckpointSlot::Blue, backing_bytes)
+    let blue = decode_checkpoint(blue_bytes, CheckpointSlot::Blue, backing_bytes)
         .ok_or_else(|| invalid_data("invalid blue checkpoint root"))?;
     if green.volume_id != blue.volume_id
         || green.volume_blocks != blue.volume_blocks
@@ -566,23 +711,25 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
     {
         return Err(invalid_data("checkpoint roots disagree"));
     }
-    let checkpoint = if green.generation > blue.generation {
-        green
+    let candidates = if green.generation > blue.generation {
+        [green, blue]
     } else {
-        blue
+        [blue, green]
     };
-
-    let mapping_len = checkpoint.volume_blocks as usize;
-    let mut physical_blocks = Vec::new();
-    physical_blocks
-        .try_reserve_exact(mapping_len)
-        .map_err(io::Error::other)?;
-    physical_blocks.resize(mapping_len, 0);
-    let mut checksums = Vec::new();
-    checksums
-        .try_reserve_exact(mapping_len)
-        .map_err(io::Error::other)?;
-    checksums.resize(mapping_len, 0);
+    let mut recovered = None;
+    for checkpoint in candidates {
+        if let Some((physical_blocks, checksums)) =
+            load_checkpoint_body(&mut ring, &backing, checkpoint)?
+        {
+            recovered = Some((checkpoint, physical_blocks, checksums));
+            break;
+        }
+    }
+    let (checkpoint, physical_blocks, checksums) =
+        recovered.ok_or_else(|| invalid_data("no valid checkpoint body"))?;
+    if has_unreplayed_tail(&mut ring, &backing, checkpoint)? {
+        return Err(invalid_data("checkpoint tail replay required"));
+    }
 
     Ok(Volume {
         backing,
@@ -630,6 +777,8 @@ pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<(
         checkpoint_lsn: 0,
         last_footer_block: layout.log_start - 1,
         layout,
+        empty_mapping: true,
+        body_checksum: 0,
     };
     encode_checkpoint_descriptor(
         &mut descriptors.0[..BLOCK_SIZE],
@@ -918,6 +1067,15 @@ mod tests {
         let stored_descriptor_checksum = read_u64(&descriptor, DESCRIPTOR_CHECKSUM_OFFSET);
         descriptor[DESCRIPTOR_CHECKSUM_OFFSET..].fill(0);
         assert_eq!(xxh3_64(&descriptor), stored_descriptor_checksum);
+
+        let reopened = open(&backing.0)?;
+        assert_eq!(reopened.physical_blocks, [0, payload_block]);
+        assert_eq!(reopened.checksums, [0, payload_checksum]);
+        assert_eq!(reopened.last_lsn(), 1);
+        assert_eq!(reopened.durable_lsn(), 1);
+        assert_eq!(reopened.last_footer_block(), footer_block);
+        assert_eq!(reopened.checkpoint_generation(), 3);
+        assert!(!reopened.next_checkpoint_is_green());
         Ok(())
     }
 
