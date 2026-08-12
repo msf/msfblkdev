@@ -64,11 +64,10 @@ struct Checkpoint {
 
 pub struct Volume {
     backing: File,
-    ring: IoUring,
+    ring: Option<IoUring>,
     volume_id: u64,
     volume_blocks: u32,
     backing_blocks: u64,
-    log_start_block: u32,
     physical_blocks: Vec<u32>,
     checksums: Vec<u64>,
     last_lsn: u64,
@@ -241,7 +240,6 @@ impl Volume {
             .checked_add(1)
             .ok_or_else(|| io::Error::other("sequence exhausted"))?;
         let payload_block = u64::from(self.last_footer_block) + 1;
-        debug_assert!(payload_block >= u64::from(self.log_start_block));
         let footer_block = payload_block + 1;
         if footer_block >= self.backing_blocks {
             return Err(io::Error::other("log full"));
@@ -510,7 +508,7 @@ fn decode_checkpoint(
 }
 
 fn load_checkpoint_body(
-    ring: &mut IoUring,
+    ring: &mut Option<IoUring>,
     backing: &File,
     checkpoint: Checkpoint,
 ) -> io::Result<Option<(Vec<u32>, Vec<u64>)>> {
@@ -567,7 +565,7 @@ fn load_checkpoint_body(
 }
 
 fn read_checkpoint_body_block(
-    ring: &mut IoUring,
+    ring: &mut Option<IoUring>,
     backing: &File,
     physical_block: u32,
     block: &mut AlignedBlock,
@@ -614,7 +612,7 @@ fn is_expected_tail_footer(
 }
 
 fn has_unreplayed_tail(
-    ring: &mut IoUring,
+    ring: &mut Option<IoUring>,
     backing: &File,
     checkpoint: Checkpoint,
 ) -> io::Result<bool> {
@@ -638,26 +636,61 @@ fn has_unreplayed_tail(
 }
 
 fn submit_exact(
-    ring: &mut IoUring,
+    ring: &mut Option<IoUring>,
     entry: squeue::Entry,
     user_data: u64,
     expected_result: i32,
 ) -> io::Result<()> {
     // SAFETY: each caller keeps operation buffers and the file alive until this waits for the CQE.
-    unsafe {
-        ring.submission()
+    let push_result = unsafe {
+        ring.as_mut()
+            .ok_or_else(|| io::Error::other("io_uring unavailable"))?
+            .submission()
             .push(&entry.user_data(user_data))
-            .map_err(|_| io::Error::other("io_uring submission queue is full"))?;
+    };
+    if push_result.is_err() {
+        drop(ring.take());
+        return Err(io::Error::other("io_uring submission queue is full"));
     }
     wait_exact(ring, user_data, expected_result)
 }
 
-fn wait_exact(ring: &mut IoUring, user_data: u64, expected_result: i32) -> io::Result<()> {
+fn wait_exact(ring: &mut Option<IoUring>, user_data: u64, expected_result: i32) -> io::Result<()> {
+    wait_exact_with(ring, user_data, expected_result, |ring| {
+        ring.submit_and_wait(1)
+    })
+}
+
+fn wait_exact_with(
+    ring: &mut Option<IoUring>,
+    user_data: u64,
+    expected_result: i32,
+    mut submit_and_wait: impl FnMut(&mut IoUring) -> io::Result<usize>,
+) -> io::Result<()> {
+    let mut submitted = 0;
     let mut unexpected_completion = false;
     loop {
         // A submitted SQE may retain caller pointers even when this wait is interrupted or empty.
-        let _wait_result = ring.submit_and_wait(1);
-        let mut completions = ring.completion();
+        match submit_and_wait(
+            ring.as_mut()
+                .ok_or_else(|| io::Error::other("io_uring unavailable"))?,
+        ) {
+            Ok(count) if count <= 1 - submitted => submitted += count,
+            Ok(_) => {
+                drop(ring.take());
+                return Err(io::Error::other("unexpected io_uring submission count"));
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => {
+                drop(ring.take());
+                return Err(error);
+            }
+        }
+
+        let mut completions = ring
+            .as_mut()
+            .ok_or_else(|| io::Error::other("io_uring unavailable"))?
+            .completion();
         let Some(completion) = completions.next() else {
             continue;
         };
@@ -689,7 +722,7 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
         .custom_flags(libc::O_DIRECT | libc::O_CLOEXEC)
         .open(backing_path)?;
     let backing_bytes = backing.seek(SeekFrom::End(0))?;
-    let mut ring = IoUring::new(2)?;
+    let mut ring = Some(IoUring::new(2)?);
     let mut descriptors = AlignedDescriptors([0; 2 * BLOCK_SIZE]);
     let read = opcode::Read::new(
         types::Fd(backing.as_raw_fd()),
@@ -741,7 +774,6 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
         volume_id: checkpoint.volume_id,
         volume_blocks: checkpoint.volume_blocks,
         backing_blocks: checkpoint.backing_blocks,
-        log_start_block: checkpoint.layout.log_start,
         physical_blocks,
         checksums,
         last_lsn: checkpoint.checkpoint_lsn,
@@ -799,7 +831,7 @@ pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<(
         0,
     );
 
-    let mut ring = IoUring::new(2)?;
+    let mut ring = Some(IoUring::new(2)?);
     let write = opcode::Write::new(
         types::Fd(file.as_raw_fd()),
         descriptors.0.as_ptr(),
@@ -869,7 +901,11 @@ mod tests {
         }
     }
 
-    fn write_exact(ring: &mut IoUring, file: &File, block: &AlignedBlock) -> io::Result<()> {
+    fn write_exact(
+        ring: &mut Option<IoUring>,
+        file: &File,
+        block: &AlignedBlock,
+    ) -> io::Result<()> {
         let entry = opcode::Write::new(
             types::Fd(file.as_raw_fd()),
             block.0.as_ptr(),
@@ -880,12 +916,16 @@ mod tests {
         submit_exact(ring, entry, 1, BLOCK_SIZE as i32)
     }
 
-    fn fsync(ring: &mut IoUring, file: &File) -> io::Result<()> {
+    fn fsync(ring: &mut Option<IoUring>, file: &File) -> io::Result<()> {
         let entry = opcode::Fsync::new(types::Fd(file.as_raw_fd())).build();
         submit_exact(ring, entry, 2, 0)
     }
 
-    fn read_exact(ring: &mut IoUring, file: &File, block: &mut AlignedBlock) -> io::Result<()> {
+    fn read_exact(
+        ring: &mut Option<IoUring>,
+        file: &File,
+        block: &mut AlignedBlock,
+    ) -> io::Result<()> {
         let entry = opcode::Read::new(
             types::Fd(file.as_raw_fd()),
             block.0.as_mut_ptr(),
@@ -913,7 +953,7 @@ mod tests {
     #[test]
     fn direct_io_uring_write_survives_fsync_and_reopen() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
-        let mut ring = IoUring::new(4)?;
+        let mut ring = Some(IoUring::new(4)?);
         let written = AlignedBlock([0xa5; BLOCK_SIZE]);
 
         {
@@ -948,21 +988,44 @@ mod tests {
                 .push(&poll)
                 .map_err(|_| io::Error::other("io_uring submission queue is full"))?;
         }
-        assert_eq!(ring.submit()?, 1);
-        assert!(ring.completion().next().is_none());
+        let mut ring = Some(ring);
+        let mut calls = 0;
+        let mut write_result = 0;
+        let result = wait_exact_with(
+            &mut ring,
+            7,
+            libc::POLLIN.into(),
+            |ring| -> io::Result<usize> {
+                calls += 1;
+                if calls == 1 {
+                    assert_eq!(ring.submit()?, 1);
+                    return Ok(1);
+                }
+                let value = 1_u64;
+                write_result =
+                    unsafe { libc::write(event_fd, (&raw const value).cast(), size_of::<u64>()) };
+                assert_eq!(ring.submit_and_wait(1)?, 0);
+                Ok(0)
+            },
+        );
 
-        let sender = std::thread::spawn(move || {
-            let value = 1_u64;
-            unsafe { libc::write(event_fd, (&raw const value).cast(), size_of::<u64>()) }
-        });
-        let result = wait_exact(&mut ring, 7, libc::POLLIN.into());
-        let write_result = sender
-            .join()
-            .map_err(|_| io::Error::other("sender panicked"))?;
-
+        assert_eq!(calls, 2);
         assert_eq!(write_result, size_of::<u64>() as isize);
         drop(event);
         result
+    }
+
+    #[test]
+    fn destroys_ring_before_returning_permanent_wait_error() -> io::Result<()> {
+        let mut ring = Some(IoUring::new(2)?);
+        let error = wait_exact_with(&mut ring, 7, 0, |_| {
+            Err(io::Error::from_raw_os_error(libc::EIO))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.raw_os_error(), Some(libc::EIO));
+        assert!(ring.is_none());
+        Ok(())
     }
 
     #[test]
@@ -1243,7 +1306,6 @@ mod tests {
         assert_eq!(volume.volume_id, volume_id);
         assert_eq!(volume.volume_blocks, volume_blocks);
         assert_eq!(volume.backing_blocks, backing_blocks);
-        assert_eq!(volume.log_start_block, 12);
         assert!(volume.physical_blocks.iter().all(|block| *block == 0));
         assert!(volume.checksums.iter().all(|checksum| *checksum == 0));
         assert_eq!(volume.last_lsn, 0);
