@@ -4,10 +4,15 @@ ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
-.PHONY: setup build lint test run
+.PHONY: setup build build-zig build-rust lint lint-zig lint-rust test test-zig test-rust run
 
-build: setup
+build: build-zig build-rust
+
+build-zig: setup
 	@$(ZIG) build
+
+build-rust:
+	@cd rust && cargo build
 
 setup:
 	@set -eu; \
@@ -25,11 +30,21 @@ setup:
 	rm -rf "$(ZIG_DIR)"; \
 	mv "$$tmp/zig-x86_64-linux-$(ZIG_VERSION)" "$(ZIG_DIR)"
 
-lint: setup
+lint: lint-zig lint-rust
+
+lint-zig: setup
 	@$(ZIG) fmt --check build.zig src
 
-test: setup
+lint-rust:
+	@cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+
+test: test-zig test-rust
+
+test-zig: setup
 	@$(ZIG) build test
+
+test-rust:
+	@cd rust && cargo test
 
 run: setup
 	@$(ZIG) test src/root.zig --test-filter "V0.4 black-box acceptance"
