@@ -7,9 +7,12 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use xxhash_rust::xxh3::xxh3_64;
+use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
 const BLOCK_SIZE: usize = 4096;
+const FOOTER_LBA_OFFSET: usize = 32;
+const FOOTER_PAYLOAD_CHECKSUM_OFFSET: usize = 1384;
+const FOOTER_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
 const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
 const EMPTY_MAPPING_FLAG: u16 = 1;
 const CHECKSUM_ALGORITHM_XXH3_64: u8 = 1;
@@ -22,6 +25,9 @@ struct AlignedBlock([u8; BLOCK_SIZE]);
 
 #[repr(align(4096))]
 struct AlignedDescriptors([u8; 2 * BLOCK_SIZE]);
+
+#[repr(align(4096))]
+struct AlignedRecord([u8; 2 * BLOCK_SIZE]);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum CheckpointSlot {
@@ -53,8 +59,8 @@ struct Checkpoint {
 }
 
 pub struct Volume {
-    _backing: File,
-    _ring: IoUring,
+    backing: File,
+    ring: IoUring,
     volume_id: u64,
     volume_blocks: u32,
     backing_blocks: u64,
@@ -67,9 +73,72 @@ pub struct Volume {
     checkpoint_generation: u64,
     next_checkpoint_slot: CheckpointSlot,
     log_bytes_since_checkpoint: u64,
+    failed: bool,
 }
 
 impl Volume {
+    /// Appends one payload and footer record and publishes it after exact completion.
+    pub fn write_block(&mut self, lba: u32, data: &[u8; BLOCK_SIZE]) -> io::Result<()> {
+        if self.failed {
+            return Err(io::Error::other("volume failed"));
+        }
+        if lba >= self.volume_blocks {
+            return Err(invalid_input("invalid logical block"));
+        }
+        let lsn = self
+            .last_lsn
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("sequence exhausted"))?;
+        let payload_block = u64::from(self.last_footer_block) + 1;
+        let footer_block = payload_block + 1;
+        if footer_block >= self.backing_blocks {
+            return Err(io::Error::other("log full"));
+        }
+        let payload_block = payload_block as u32;
+        let footer_block = footer_block as u32;
+        let checksum = payload_checksum(self.volume_id, lba, payload_block, data);
+
+        let mut record = AlignedRecord([0; 2 * BLOCK_SIZE]);
+        record.0[..BLOCK_SIZE].copy_from_slice(data);
+        encode_write_footer(
+            &mut record.0[BLOCK_SIZE..],
+            self.volume_id,
+            lsn,
+            self.last_footer_block,
+            footer_block,
+            lba,
+            checksum,
+        );
+        let iovecs = [
+            libc::iovec {
+                iov_base: record.0.as_mut_ptr().cast(),
+                iov_len: BLOCK_SIZE,
+            },
+            libc::iovec {
+                iov_base: record.0[BLOCK_SIZE..].as_mut_ptr().cast(),
+                iov_len: BLOCK_SIZE,
+            },
+        ];
+        let write = opcode::Writev::new(
+            types::Fd(self.backing.as_raw_fd()),
+            iovecs.as_ptr(),
+            iovecs.len() as u32,
+        )
+        .offset(u64::from(payload_block) * BLOCK_SIZE as u64)
+        .build();
+        if let Err(error) = submit_exact(&mut self.ring, write, lsn, record.0.len() as i32) {
+            self.failed = true;
+            return Err(error);
+        }
+
+        self.physical_blocks[lba as usize] = payload_block;
+        self.checksums[lba as usize] = checksum;
+        self.last_lsn = lsn;
+        self.last_footer_block = footer_block;
+        self.log_bytes_since_checkpoint += record.0.len() as u64;
+        Ok(())
+    }
+
     pub fn volume_id(&self) -> u64 {
         self.volume_id
     }
@@ -130,6 +199,38 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
 
 fn read_u64(bytes: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
+}
+
+fn payload_checksum(volume_id: u64, lba: u32, physical_block: u32, payload: &[u8]) -> u64 {
+    let mut hasher = Xxh3::with_seed(volume_id);
+    hasher.update(&lba.to_le_bytes());
+    hasher.update(&physical_block.to_le_bytes());
+    hasher.update(payload);
+    hasher.digest()
+}
+
+fn encode_write_footer(
+    footer: &mut [u8],
+    volume_id: u64,
+    lsn: u64,
+    previous_footer_block: u32,
+    footer_block: u32,
+    lba: u32,
+    payload_checksum: u64,
+) {
+    footer.fill(0);
+    footer[..4].copy_from_slice(b"VBLF");
+    footer[4] = 1;
+    footer[5] = 1;
+    footer[8..16].copy_from_slice(&volume_id.to_le_bytes());
+    footer[16..24].copy_from_slice(&lsn.to_le_bytes());
+    footer[24..28].copy_from_slice(&previous_footer_block.to_le_bytes());
+    footer[28..32].copy_from_slice(&footer_block.to_le_bytes());
+    footer[FOOTER_LBA_OFFSET..FOOTER_LBA_OFFSET + 4].copy_from_slice(&lba.to_le_bytes());
+    footer[FOOTER_PAYLOAD_CHECKSUM_OFFSET..FOOTER_PAYLOAD_CHECKSUM_OFFSET + 8]
+        .copy_from_slice(&payload_checksum.to_le_bytes());
+    let checksum = xxh3_64(footer);
+    footer[FOOTER_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
 }
 
 fn layout_for(volume_bytes: u64) -> io::Result<(u32, Layout)> {
@@ -375,8 +476,8 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
     checksums.resize(mapping_len, 0);
 
     Ok(Volume {
-        _backing: backing,
-        _ring: ring,
+        backing,
+        ring,
         volume_id: checkpoint.volume_id,
         volume_blocks: checkpoint.volume_blocks,
         backing_blocks: checkpoint.backing_blocks,
@@ -392,6 +493,7 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
             CheckpointSlot::Blue => CheckpointSlot::Green,
         },
         log_bytes_since_checkpoint: 0,
+        failed: false,
     })
 }
 
@@ -558,6 +660,66 @@ mod tests {
         }
 
         assert_eq!(written.0, read.0);
+        Ok(())
+    }
+
+    #[test]
+    fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 2_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let mut volume = open(&backing.0)?;
+
+        let lba = 1_u32;
+        let payload = [0xa5; BLOCK_SIZE];
+        let previous_footer_block = volume.last_footer_block;
+        let payload_block = previous_footer_block + 1;
+        let footer_block = payload_block + 1;
+        volume.write_block(lba, &payload)?;
+
+        let mut record = [0; 2 * BLOCK_SIZE];
+        File::open(&backing.0)?
+            .read_exact_at(&mut record, u64::from(payload_block) * BLOCK_SIZE as u64)?;
+        assert_eq!(&record[..BLOCK_SIZE], &payload);
+        let footer = &mut record[BLOCK_SIZE..];
+        assert_eq!(&footer[..4], b"VBLF");
+        assert_eq!(&footer[4..8], &[1, 1, 0, 0]);
+        assert_eq!(read_u64(footer, 8), volume.volume_id);
+        assert_eq!(read_u64(footer, 16), 1);
+        assert_eq!(read_u32(footer, 24), previous_footer_block);
+        assert_eq!(read_u32(footer, 28), footer_block);
+        assert_eq!(read_u32(footer, FOOTER_LBA_OFFSET), lba);
+        let mut checksum_input = [0; BLOCK_SIZE + 8];
+        checksum_input[..4].copy_from_slice(&lba.to_le_bytes());
+        checksum_input[4..8].copy_from_slice(&payload_block.to_le_bytes());
+        checksum_input[8..].copy_from_slice(&payload);
+        let expected_payload_checksum = xxh3_64_with_seed(&checksum_input, volume.volume_id);
+        assert_eq!(
+            read_u64(footer, FOOTER_PAYLOAD_CHECKSUM_OFFSET),
+            expected_payload_checksum
+        );
+        assert!(
+            footer[FOOTER_LBA_OFFSET + 4..FOOTER_PAYLOAD_CHECKSUM_OFFSET]
+                .iter()
+                .all(|byte| *byte == 0)
+        );
+        assert!(
+            footer[FOOTER_PAYLOAD_CHECKSUM_OFFSET + 8..FOOTER_CHECKSUM_OFFSET]
+                .iter()
+                .all(|byte| *byte == 0)
+        );
+        let stored_footer_checksum = read_u64(footer, FOOTER_CHECKSUM_OFFSET);
+        footer[FOOTER_CHECKSUM_OFFSET..].fill(0);
+        assert_eq!(xxh3_64(footer), stored_footer_checksum);
+
+        assert_eq!(volume.physical_blocks, [0, payload_block]);
+        assert_eq!(volume.checksums, [0, expected_payload_checksum]);
+        assert_eq!(volume.last_lsn, 1);
+        assert_eq!(volume.durable_lsn, 0);
+        assert_eq!(volume.last_footer_block, footer_block);
+        assert_eq!(volume.log_bytes_since_checkpoint, (2 * BLOCK_SIZE) as u64);
         Ok(())
     }
 
