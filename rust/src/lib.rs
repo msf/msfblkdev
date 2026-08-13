@@ -10,6 +10,9 @@ use std::path::Path;
 use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
 const BLOCK_SIZE: usize = 4096;
+const CHECKPOINT_MAGIC: &[u8; 4] = b"VBLC";
+const FOOTER_MAGIC: &[u8; 4] = b"VBLF";
+const FORMAT_VERSION: u8 = 1;
 const FOOTER_LBA_OFFSET: usize = 32;
 const FOOTER_PAYLOAD_CHECKSUM_OFFSET: usize = 1384;
 const FOOTER_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
@@ -303,6 +306,12 @@ fn read_u64(bytes: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }
 
+fn random_volume_id() -> io::Result<u64> {
+    let mut bytes = [0; size_of::<u64>()];
+    File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
 fn payload_checksum(volume_id: u64, lba: u32, physical_block: u32, payload: &[u8]) -> u64 {
     let mut hasher = Xxh3::with_seed(volume_id);
     hasher.update(&lba.to_le_bytes());
@@ -321,8 +330,8 @@ fn encode_write_footer(
     payload_checksum: u64,
 ) {
     footer.fill(0);
-    footer[..4].copy_from_slice(b"VBLF");
-    footer[4] = 1;
+    footer[..4].copy_from_slice(FOOTER_MAGIC);
+    footer[4] = FORMAT_VERSION;
     footer[5] = 1;
     footer[8..16].copy_from_slice(&volume_id.to_le_bytes());
     footer[16..24].copy_from_slice(&lsn.to_le_bytes());
@@ -387,8 +396,8 @@ fn backing_blocks_for(layout: &Layout, backing_bytes: u64) -> io::Result<u64> {
 
 fn encode_checkpoint_descriptor(descriptor: &mut [u8], checkpoint: &Checkpoint) {
     descriptor.fill(0);
-    descriptor[..4].copy_from_slice(b"VBLC");
-    descriptor[4] = 1;
+    descriptor[..4].copy_from_slice(CHECKPOINT_MAGIC);
+    descriptor[4] = FORMAT_VERSION;
     descriptor[5] = checkpoint.slot as u8;
     descriptor[8..16].copy_from_slice(&checkpoint.volume_id.to_le_bytes());
     descriptor[16..20].copy_from_slice(&(BLOCK_SIZE as u32).to_le_bytes());
@@ -415,8 +424,8 @@ fn decode_checkpoint(
 
     let body_checksum = read_u64(descriptor, CHECKPOINT_BODY_CHECKSUM_OFFSET);
     if !checksum_valid
-        || &descriptor[..4] != b"VBLC"
-        || descriptor[4] != 1
+        || &descriptor[..4] != CHECKPOINT_MAGIC
+        || descriptor[4] != FORMAT_VERSION
         || descriptor[5] != expected_slot as u8
         || descriptor[6..8] != [0, 0]
         || read_u32(descriptor, 16) != BLOCK_SIZE as u32
@@ -541,8 +550,8 @@ fn is_expected_tail_footer(
     let checksum_valid = xxh3_64(footer) == stored_checksum;
     footer[FOOTER_CHECKSUM_OFFSET..].copy_from_slice(&stored_checksum.to_le_bytes());
     if !checksum_valid
-        || &footer[..4] != b"VBLF"
-        || footer[4] != 1
+        || &footer[..4] != FOOTER_MAGIC
+        || footer[4] != FORMAT_VERSION
         || footer[5] != 1
         || u16::from_le_bytes(footer[6..8].try_into().unwrap()) != 0
         || read_u64(footer, 8) != checkpoint.volume_id
@@ -749,9 +758,7 @@ pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<(
         .open(backing_path)?;
     let backing_blocks = backing_blocks_for(&layout, file.seek(SeekFrom::End(0))?)?;
 
-    let mut volume_id_bytes = [0; size_of::<u64>()];
-    File::open("/dev/urandom")?.read_exact(&mut volume_id_bytes)?;
-    let volume_id = u64::from_le_bytes(volume_id_bytes);
+    let volume_id = random_volume_id()?;
 
     let mut descriptors = AlignedDescriptors([0; 2 * BLOCK_SIZE]);
     let mut checkpoint = Checkpoint {
@@ -986,8 +993,8 @@ mod tests {
             .read_exact_at(&mut record, u64::from(payload_block) * BLOCK_SIZE as u64)?;
         assert_eq!(&record[..BLOCK_SIZE], &payload);
         let footer = &mut record[BLOCK_SIZE..];
-        assert_eq!(&footer[..4], b"VBLF");
-        assert_eq!(&footer[4..8], &[1, 1, 0, 0]);
+        assert_eq!(&footer[..4], FOOTER_MAGIC);
+        assert_eq!(&footer[4..8], &[FORMAT_VERSION, 1, 0, 0]);
         assert_eq!(read_u64(footer, 8), volume.volume_id);
         assert_eq!(read_u64(footer, 16), 1);
         assert_eq!(read_u32(footer, 24), previous_footer_block);
@@ -1193,8 +1200,8 @@ mod tests {
 
         let mut descriptor = [0; BLOCK_SIZE];
         file.read_exact_at(&mut descriptor, BLOCK_SIZE as u64)?;
-        assert_eq!(&descriptor[..4], b"VBLC");
-        assert_eq!(&descriptor[4..8], &[1, 1, 0, 0]);
+        assert_eq!(&descriptor[..4], CHECKPOINT_MAGIC);
+        assert_eq!(&descriptor[4..8], &[FORMAT_VERSION, 1, 0, 0]);
         assert_eq!(read_u64(&descriptor, 8), volume_id);
         assert_eq!(read_u64(&descriptor, 32), 1);
         assert_eq!(read_u32(&descriptor, 40), footer_block);
@@ -1398,8 +1405,8 @@ mod tests {
 
         for index in 0..2 {
             let descriptor = &descriptors[index * BLOCK_SIZE..(index + 1) * BLOCK_SIZE];
-            assert_eq!(&descriptor[..4], b"VBLC");
-            assert_eq!(descriptor[4], 1);
+            assert_eq!(&descriptor[..4], CHECKPOINT_MAGIC);
+            assert_eq!(descriptor[4], FORMAT_VERSION);
             assert_eq!(descriptor[5], index as u8);
             assert_eq!(&descriptor[6..8], &[0, 0]);
             assert_eq!(read_u64(descriptor, 8), volume_id);

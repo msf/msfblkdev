@@ -3,7 +3,8 @@ const std = @import("std");
 const linux = std.os.linux;
 const block_size = 4096;
 const checkpoint_magic = "VBLC";
-const write_footer_magic = "VBLF";
+const footer_magic = "VBLF";
+const format_version: u8 = 1;
 const checkpoint_body_checksum_offset = 72;
 const descriptor_checksum_offset = block_size - @sizeOf(u64);
 const footer_checksum_offset = block_size - @sizeOf(u64);
@@ -321,8 +322,8 @@ fn encodeWriteFooter(
     payload_checksum: u64,
 ) void {
     @memset(footer, 0);
-    @memcpy(footer[0..4], write_footer_magic);
-    footer[4] = 1;
+    @memcpy(footer[0..4], footer_magic);
+    footer[4] = format_version;
     footer[5] = write_record_kind;
     std.mem.writeInt(u64, footer[8..16], volume_id, .little);
     std.mem.writeInt(u64, footer[16..24], lsn, .little);
@@ -348,7 +349,7 @@ fn encodeCheckpointDescriptor(
 ) void {
     @memset(descriptor, 0);
     @memcpy(descriptor[0..4], checkpoint_magic);
-    descriptor[4] = 1;
+    descriptor[4] = format_version;
     descriptor[5] = @intFromEnum(slot);
     std.mem.writeInt(u16, descriptor[6..8], flags, .little);
     std.mem.writeInt(u64, descriptor[8..16], volume_id, .little);
@@ -384,7 +385,7 @@ fn decodeCheckpoint(
     const body_checksum = std.mem.readInt(u64, descriptor[checkpoint_body_checksum_offset..][0..8], .little);
     if (!checksum_valid or
         !std.mem.eql(u8, descriptor[0..4], checkpoint_magic) or
-        descriptor[4] != 1 or
+        descriptor[4] != format_version or
         descriptor[5] != @intFromEnum(expected_slot) or
         (flags != 0 and flags != empty_mapping_flag) or
         std.mem.readInt(u32, descriptor[16..20], .little) != block_size or
@@ -475,8 +476,8 @@ fn isExpectedTailFooter(
     std.mem.writeInt(u64, footer[footer_checksum_offset..], stored_checksum, .little);
 
     if (!checksum_valid or
-        !std.mem.eql(u8, footer[0..4], write_footer_magic) or
-        footer[4] != 1 or
+        !std.mem.eql(u8, footer[0..4], footer_magic) or
+        footer[4] != format_version or
         footer[5] != write_record_kind or
         std.mem.readInt(u16, footer[6..8], .little) != 0 or
         std.mem.readInt(u64, footer[8..16], .little) != checkpoint.volume_id or
@@ -790,7 +791,7 @@ test "format writes valid empty checkpoint roots and log geometry" {
     for (0..2) |index| {
         var descriptor = descriptors[index * block_size ..][0..block_size];
         try std.testing.expectEqualSlices(u8, checkpoint_magic, descriptor[0..4]);
-        try std.testing.expectEqual(@as(u8, 1), descriptor[4]);
+        try std.testing.expectEqual(format_version, descriptor[4]);
         try std.testing.expectEqual(@as(u8, @intCast(index)), descriptor[5]);
         try std.testing.expectEqual(@as(u16, 1), std.mem.readInt(u16, descriptor[6..8], .little));
         try std.testing.expectEqual(volume_id, std.mem.readInt(u64, descriptor[8..16], .little));
@@ -971,8 +972,8 @@ test "write_block appends and publishes one-block record" {
     const expected_payload_checksum = payload_hasher.final();
 
     var footer = record[block_size..];
-    try std.testing.expectEqualSlices(u8, write_footer_magic, footer[0..4]);
-    try std.testing.expectEqual(@as(u8, 1), footer[4]);
+    try std.testing.expectEqualSlices(u8, footer_magic, footer[0..4]);
+    try std.testing.expectEqual(format_version, footer[4]);
     try std.testing.expectEqual(@as(u8, write_record_kind), footer[5]);
     try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, footer[6..8], .little));
     try std.testing.expectEqual(volume.volume_id, std.mem.readInt(u64, footer[8..16], .little));
@@ -1120,7 +1121,7 @@ test "checkpoint persists and activates the inactive slot" {
 
     var descriptor = descriptors[0..block_size];
     try std.testing.expectEqualSlices(u8, checkpoint_magic, descriptor[0..4]);
-    try std.testing.expectEqual(@as(u8, 1), descriptor[4]);
+    try std.testing.expectEqual(format_version, descriptor[4]);
     try std.testing.expectEqual(@as(u8, @intFromEnum(checkpoint_slot)), descriptor[5]);
     try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, descriptor[6..8], .little));
     try std.testing.expectEqual(volume.volume_id, std.mem.readInt(u64, descriptor[8..16], .little));

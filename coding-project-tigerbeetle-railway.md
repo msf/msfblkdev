@@ -55,6 +55,7 @@ V0 is the standalone local storage engine before ublk integration. It uses a pre
 - Maximum virtual volume: 8 TiB = `2^31` logical blocks. Logical block address (LBA) IDs and the volume block count use `u32`. An LBA ID must have its high bit zero. The volume block count can equal `2^31`. Validate a logical range with `start <= volume_blocks` and `count <= volume_blocks - start`. Byte sizes, byte offsets, ublk's 512-byte sector addresses and local sequence numbers (LSNs) use `u64`.
 - Physical addresses are 4 KiB block indexes encoded as `u32`; physical block zero never stores payload and is the unmapped sentinel in the LBA map.
 - All persistent integers are little-endian. Persistent structures are encoded explicitly rather than written from compiler-layout structs.
+- Each checkpoint descriptor starts with the `VBLC` magic bytes. Each write footer starts with the `VBLF` magic bytes. A shared 8-bit format-version field follows the magic bytes in both structures. Readers reject unsupported versions before interpreting the remaining fields.
 
 ```text
 4 KiB physical block 0          green checkpoint descriptor
@@ -78,7 +79,7 @@ The allocation follows the configured volume size, not the 8 TiB format maximum.
 
 ### Checksums
 
-V0 uses XXH3-64 checksums. The persistent format version defines the checksum algorithm and its inputs. These checksums detect accidental corruption. They do not authenticate data from a malicious block client.
+V0 uses XXH3-64 checksums. The shared persistent format version defines the checksum algorithm and its inputs. These checksums detect accidental corruption. They do not authenticate data from a malicious block client.
 
 A payload checksum binds the volume, logical and physical addresses to the bytes:
 
