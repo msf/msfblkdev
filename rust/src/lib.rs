@@ -332,7 +332,7 @@ fn encode_write_footer(
     footer.fill(0);
     footer[..4].copy_from_slice(FOOTER_MAGIC);
     footer[4] = FORMAT_VERSION;
-    footer[5] = 1;
+    footer[5] = 1;  // FIXME: what's this field?
     footer[8..16].copy_from_slice(&volume_id.to_le_bytes());
     footer[16..24].copy_from_slice(&lsn.to_le_bytes());
     footer[24..28].copy_from_slice(&previous_footer_block.to_le_bytes());
@@ -562,7 +562,7 @@ fn is_expected_tail_footer(
     {
         return false;
     }
-    (0..payload_count).all(|index| {
+    (0..payload_count).all(|index| { // FIXME: what's this loop?
         read_u32(
             footer,
             FOOTER_LBA_OFFSET + index as usize * size_of::<u32>(),
