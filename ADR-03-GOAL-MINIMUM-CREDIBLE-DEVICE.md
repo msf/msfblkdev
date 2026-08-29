@@ -172,13 +172,13 @@ Acceptance tests:
   Evidence (2026-08-29): `recover_after_descriptor_write_boundary` passes 20 parent-driven `SIGKILL` runs after exact descriptor-write completion and before descriptor fsync; public `open` selects the complete newer root and returns every flushed latest value.
 - [x] Recover after the descriptor-fsync boundary.
   Evidence (2026-08-29): `recover_after_descriptor_fsync_boundary` passes 20 parent-driven `SIGKILL` runs after descriptor fsync and before in-memory publication; public `open` selects the durable newer root and returns every flushed latest value.
-- [ ] Recover after each stale-tail clearing boundary.
-  Partial evidence (2026-08-29): `recover_after_each_stale_tail_clear_block_boundary` passes 20 parent-driven `SIGKILL` runs after each of the current two clear writes, and `recover_after_stale_tail_fsync_boundary` passes 20 runs after the final clear fsync. The implementation still clears only the one-payload record size of two blocks, so this does not prove every boundary in the required 339-block window.
+- [x] Recover after each stale-tail clearing boundary.
+  Evidence (2026-08-29): `recover_after_each_stale_tail_clear_block_boundary` passes 20 parent-driven `SIGKILL` runs after each of all 339 completed clear writes, and `recover_after_stale_tail_fsync_boundary` passes 20 runs after the final clear fsync. Each recovery preserves the valid prefix and completes the full bounded clear before opening.
 - [ ] Fall back independently from a deliberately corrupted newest descriptor and checkpoint body.
 - [x] Stop at an invalid tail and never resurrect a valid-looking later record.
   Evidence (2026-08-29): `invalid_gap_stops_replay_and_clears_only_bounded_window` writes a valid record, an invalid gap and a checksummed valid-looking later record; public recovery stops at LSN 1, returns zeroes for the later LBA and leaves the ignored later record outside the clear window intact.
-- [ ] Clear the complete bounded stale-tail window durably before serving requests.
-  Partial evidence (2026-08-29): the invalid-gap test verifies the current two-block window is zero while the following blocks and file length are unchanged. `stale_tail_clear_stops_at_backing_eof` verifies a one-block remainder without extending the file, and the fsync crash test reads the zeroed window after `SIGKILL` and before another recovery open. The implementation must expand this proof to the 339-block format maximum.
+- [x] Clear the complete bounded stale-tail window durably before serving requests.
+  Evidence (2026-08-29): `recovery_accepts_every_format_one_payload_count` replays valid format-version-1 records containing every payload count from 1 through 338. `invalid_gap_stops_replay_and_clears_only_bounded_window` verifies all 339 stale blocks are zero while a valid-looking later record remains ignored and intact. `stale_tail_clear_stops_at_backing_eof` verifies the clear is bounded to a 17-block remainder without extending the file, and `recover_after_stale_tail_fsync_boundary` verifies the full window is durable after 20 parent-driven `SIGKILL` runs at the final fsync.
 - [ ] Reconstruct every recovery cursor from replayed state.
 - [ ] Reject two unusable checkpoint roots with a corruption error, not a panic.
 - [ ] Reject invalid footer ranges, duplicate LBAs and non-zero unused entries.

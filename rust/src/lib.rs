@@ -21,7 +21,8 @@ const CHECKPOINT_BODY_CHECKSUM_OFFSET: usize = 44;
 const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
 const MAX_VOLUME_BLOCKS: u64 = 1 << 31;
 const MAX_BACKING_BLOCKS: u64 = u32::MAX as u64 + 1;
-const MAXIMUM_RECORD_BLOCKS: u64 = 2;
+const MAXIMUM_RECORD_BLOCKS: u64 = 339;
+const MAXIMUM_PAYLOAD_BLOCKS: usize = MAXIMUM_RECORD_BLOCKS as usize - 1;
 
 #[cfg(test)]
 const TEST_FAILPOINT_ENV: &str = "BLOCK_STORAGE_TEST_FAILPOINT";
@@ -94,6 +95,18 @@ struct Checkpoint {
     last_footer_block: u32,
     layout: Layout,
     body_checksum: u64,
+}
+
+struct RecoveredWrite {
+    lba: u32,
+    checksum: u64,
+    payload_block: u32,
+}
+
+struct RecoveredRecord {
+    writes: Vec<RecoveredWrite>,
+    lsn: u64,
+    footer_block: u32,
 }
 
 pub struct Volume {
@@ -592,16 +605,22 @@ fn read_checkpoint_body_block(
     submit_exact(ring, read, u64::from(physical_block), BLOCK_SIZE as i32)
 }
 
-fn decode_one_block_tail_footer(
+fn decode_write_tail_footer(
     footer: &mut [u8],
     checkpoint: Checkpoint,
     footer_block: u32,
-) -> Option<(u32, u64)> {
+) -> Option<Vec<RecoveredWrite>> {
+    let payload_count = footer_block
+        .checked_sub(checkpoint.last_footer_block)?
+        .checked_sub(1)?;
+    if payload_count == 0 || payload_count as usize > MAXIMUM_PAYLOAD_BLOCKS {
+        return None;
+    }
+
     let stored_checksum = read_u64(footer, FOOTER_CHECKSUM_OFFSET);
     footer[FOOTER_CHECKSUM_OFFSET..].fill(0);
     let checksum_valid = xxh3_64(footer) == stored_checksum;
     footer[FOOTER_CHECKSUM_OFFSET..].copy_from_slice(&stored_checksum.to_le_bytes());
-    let lba = read_u32(footer, FOOTER_LBA_OFFSET);
     if !checksum_valid
         || &footer[..4] != FOOTER_MAGIC
         || footer[4] != FORMAT_VERSION
@@ -611,17 +630,42 @@ fn decode_one_block_tail_footer(
         || read_u64(footer, 16) != checkpoint.checkpoint_lsn.checked_add(1)?
         || read_u32(footer, 24) != checkpoint.last_footer_block
         || read_u32(footer, 28) != footer_block
-        || lba >= checkpoint.volume_blocks
-        || footer[FOOTER_LBA_OFFSET + size_of::<u32>()..FOOTER_PAYLOAD_CHECKSUM_OFFSET]
-            .iter()
-            .any(|byte| *byte != 0)
-        || footer[FOOTER_PAYLOAD_CHECKSUM_OFFSET + size_of::<u64>()..FOOTER_CHECKSUM_OFFSET]
+    {
+        return None;
+    }
+
+    let payload_count = payload_count as usize;
+    let used_lba_end = FOOTER_LBA_OFFSET + payload_count * size_of::<u32>();
+    let used_checksum_end = FOOTER_PAYLOAD_CHECKSUM_OFFSET + payload_count * size_of::<u64>();
+    if footer[used_lba_end..FOOTER_PAYLOAD_CHECKSUM_OFFSET]
+        .iter()
+        .any(|byte| *byte != 0)
+        || footer[used_checksum_end..FOOTER_CHECKSUM_OFFSET]
             .iter()
             .any(|byte| *byte != 0)
     {
         return None;
     }
-    Some((lba, read_u64(footer, FOOTER_PAYLOAD_CHECKSUM_OFFSET)))
+
+    let mut entries = Vec::with_capacity(payload_count);
+    for index in 0..payload_count {
+        let lba_offset = FOOTER_LBA_OFFSET + index * size_of::<u32>();
+        let checksum_offset = FOOTER_PAYLOAD_CHECKSUM_OFFSET + index * size_of::<u64>();
+        let lba = read_u32(footer, lba_offset);
+        if lba >= checkpoint.volume_blocks
+            || entries
+                .iter()
+                .any(|entry: &RecoveredWrite| entry.lba == lba)
+        {
+            return None;
+        }
+        entries.push(RecoveredWrite {
+            lba,
+            checksum: read_u64(footer, checksum_offset),
+            payload_block: checkpoint.last_footer_block + 1 + index as u32,
+        });
+    }
+    Some(entries)
 }
 
 fn clear_stale_tail(
@@ -658,26 +702,28 @@ fn read_one_tail_record(
     ring: &mut Option<IoUring>,
     backing: &File,
     checkpoint: Checkpoint,
-) -> io::Result<Option<(u32, u64, u64, u32)>> {
-    let footer_block = u64::from(checkpoint.last_footer_block) + 2;
-    if footer_block >= checkpoint.backing_blocks {
+) -> io::Result<Option<RecoveredRecord>> {
+    let first_footer_block = u64::from(checkpoint.last_footer_block) + 2;
+    let footer_limit = (u64::from(checkpoint.last_footer_block) + MAXIMUM_RECORD_BLOCKS)
+        .min(checkpoint.backing_blocks.saturating_sub(1));
+    if first_footer_block > footer_limit {
         return Ok(None);
     }
 
     let mut footer = AlignedBlock([0; BLOCK_SIZE]);
-    read_checkpoint_body_block(ring, backing, footer_block as u32, &mut footer)?;
-    Ok(
-        decode_one_block_tail_footer(&mut footer.0, checkpoint, footer_block as u32).map(
-            |(lba, checksum)| {
-                (
-                    lba,
-                    checksum,
-                    checkpoint.checkpoint_lsn + 1,
-                    footer_block as u32,
-                )
-            },
-        ),
-    )
+    for footer_block in first_footer_block..=footer_limit {
+        read_checkpoint_body_block(ring, backing, footer_block as u32, &mut footer)?;
+        if let Some(entries) =
+            decode_write_tail_footer(&mut footer.0, checkpoint, footer_block as u32)
+        {
+            return Ok(Some(RecoveredRecord {
+                writes: entries,
+                lsn: checkpoint.checkpoint_lsn + 1,
+                footer_block: footer_block as u32,
+            }));
+        }
+    }
+    Ok(None)
 }
 
 fn submit_exact(
@@ -811,15 +857,16 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
         recovered.ok_or_else(|| invalid_data("no valid checkpoint body"))?;
     let mut replay_cursor = checkpoint;
     let mut log_bytes_since_checkpoint = 0_u64;
-    while let Some((lba, checksum, lsn, footer_block)) =
-        read_one_tail_record(&mut ring, &backing, replay_cursor)?
-    {
-        physical_blocks[lba as usize] = replay_cursor.last_footer_block + 1;
-        checksums[lba as usize] = checksum;
-        replay_cursor.checkpoint_lsn = lsn;
-        replay_cursor.last_footer_block = footer_block;
+    while let Some(record) = read_one_tail_record(&mut ring, &backing, replay_cursor)? {
+        for write in record.writes {
+            physical_blocks[write.lba as usize] = write.payload_block;
+            checksums[write.lba as usize] = write.checksum;
+        }
+        let record_blocks = record.footer_block - replay_cursor.last_footer_block;
+        replay_cursor.checkpoint_lsn = record.lsn;
+        replay_cursor.last_footer_block = record.footer_block;
         log_bytes_since_checkpoint = log_bytes_since_checkpoint
-            .checked_add((2 * BLOCK_SIZE) as u64)
+            .checked_add(u64::from(record_blocks) * BLOCK_SIZE as u64)
             .ok_or_else(|| invalid_data("replayed log byte count overflow"))?;
     }
     let last_lsn = replay_cursor.checkpoint_lsn;
@@ -1056,6 +1103,41 @@ mod tests {
         submit_exact(ring, entry, 3, BLOCK_SIZE as i32)
     }
 
+    fn write_raw_record_payloads(
+        file: &File,
+        volume_id: u64,
+        lsn: u64,
+        previous_footer_block: u32,
+        payloads: &[(u32, u8)],
+    ) -> io::Result<[u8; BLOCK_SIZE]> {
+        assert!(!payloads.is_empty() && payloads.len() <= MAXIMUM_PAYLOAD_BLOCKS);
+        let footer_block = previous_footer_block + 1 + payloads.len() as u32;
+        let mut footer = [0; BLOCK_SIZE];
+        footer[..4].copy_from_slice(FOOTER_MAGIC);
+        footer[4] = FORMAT_VERSION;
+        footer[5] = RECORD_KIND_WRITE;
+        footer[8..16].copy_from_slice(&volume_id.to_le_bytes());
+        footer[16..24].copy_from_slice(&lsn.to_le_bytes());
+        footer[24..28].copy_from_slice(&previous_footer_block.to_le_bytes());
+        footer[28..32].copy_from_slice(&footer_block.to_le_bytes());
+
+        for (index, &(lba, byte)) in payloads.iter().enumerate() {
+            let payload_block = previous_footer_block + 1 + index as u32;
+            let payload = [byte; BLOCK_SIZE];
+            let lba_offset = FOOTER_LBA_OFFSET + index * size_of::<u32>();
+            let checksum_offset = FOOTER_PAYLOAD_CHECKSUM_OFFSET + index * size_of::<u64>();
+            footer[lba_offset..lba_offset + size_of::<u32>()].copy_from_slice(&lba.to_le_bytes());
+            footer[checksum_offset..checksum_offset + size_of::<u64>()].copy_from_slice(
+                &payload_checksum(volume_id, lba, payload_block, &payload).to_le_bytes(),
+            );
+            file.write_all_at(&payload, u64::from(payload_block) * BLOCK_SIZE as u64)?;
+        }
+        let footer_checksum = xxh3_64(&footer);
+        footer[FOOTER_CHECKSUM_OFFSET..].copy_from_slice(&footer_checksum.to_le_bytes());
+        file.write_all_at(&footer, u64::from(footer_block) * BLOCK_SIZE as u64)?;
+        Ok(footer)
+    }
+
     fn write_raw_record(
         file: &File,
         volume_id: u64,
@@ -1065,21 +1147,15 @@ mod tests {
         lba: u32,
         byte: u8,
     ) -> io::Result<[u8; BLOCK_SIZE]> {
-        let payload = [byte; BLOCK_SIZE];
-        let footer_block = payload_block + 1;
-        let mut footer = [0; BLOCK_SIZE];
-        encode_write_footer(
-            &mut footer,
-            volume_id,
-            lsn,
-            previous_footer_block,
-            footer_block,
-            lba,
-            payload_checksum(volume_id, lba, payload_block, &payload),
-        );
-        file.write_all_at(&payload, u64::from(payload_block) * BLOCK_SIZE as u64)?;
-        file.write_all_at(&footer, u64::from(footer_block) * BLOCK_SIZE as u64)?;
-        Ok(footer)
+        assert_eq!(payload_block, previous_footer_block + 1);
+        write_raw_record_payloads(file, volume_id, lsn, previous_footer_block, &[(lba, byte)])
+    }
+
+    fn formatted_volume_id(backing: &TemporaryBacking) -> io::Result<u64> {
+        let file = OpenOptions::new().read(true).open(&backing.0)?;
+        let mut descriptor = [0; BLOCK_SIZE];
+        file.read_exact_at(&mut descriptor, 0)?;
+        Ok(read_u64(&descriptor, 8))
     }
 
     struct InvalidGapFixture {
@@ -1094,12 +1170,12 @@ mod tests {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 2_u32;
         let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-        let backing_bytes = u64::from(layout.log_start + 6) * BLOCK_SIZE as u64;
+        let clear_start = layout.log_start + 2;
+        let later_payload_block = clear_start + MAXIMUM_RECORD_BLOCKS as u32;
+        let backing_bytes = u64::from(later_payload_block + 2) * BLOCK_SIZE as u64;
         backing.create_sized(backing_bytes)?;
         format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-        let volume = open(&backing.0)?;
-        let volume_id = volume.volume_id;
-        drop(volume);
+        let volume_id = formatted_volume_id(&backing)?;
 
         let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
         let first_footer = layout.log_start + 1;
@@ -1112,21 +1188,14 @@ mod tests {
             0,
             0xa5,
         )?;
-        let clear_start = first_footer + 1;
-        file.write_all_at(
-            &[0x7e; BLOCK_SIZE],
-            u64::from(clear_start) * BLOCK_SIZE as u64,
-        )?;
-        file.write_all_at(
-            &[0x6d; BLOCK_SIZE],
-            u64::from(clear_start + 1) * BLOCK_SIZE as u64,
-        )?;
-        let later_payload_block = clear_start + 2;
+        assert_eq!(clear_start, first_footer + 1);
+        let stale_window = vec![0x7e; MAXIMUM_RECORD_BLOCKS as usize * BLOCK_SIZE];
+        file.write_all_at(&stale_window, u64::from(clear_start) * BLOCK_SIZE as u64)?;
         let later_footer = write_raw_record(
             &file,
             volume_id,
             3,
-            clear_start + 1,
+            clear_start + MAXIMUM_RECORD_BLOCKS as u32 - 1,
             later_payload_block,
             1,
             0x5a,
@@ -1930,6 +1999,53 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn recovery_accepts_every_format_one_payload_count() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = MAXIMUM_PAYLOAD_BLOCKS as u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let record_blocks = (1..=MAXIMUM_PAYLOAD_BLOCKS as u64)
+            .map(|payload_blocks| payload_blocks + 1)
+            .sum::<u64>();
+        let backing_blocks = u64::from(layout.log_start) + record_blocks + MAXIMUM_RECORD_BLOCKS;
+        backing.create_sized(backing_blocks * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let volume_id = formatted_volume_id(&backing)?;
+
+        let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
+        let mut previous_footer_block = layout.log_start - 1;
+        for payload_count in 1..=MAXIMUM_PAYLOAD_BLOCKS {
+            let payloads = (0..payload_count)
+                .map(|index| (index as u32, ((payload_count + index) % 251 + 1) as u8))
+                .collect::<Vec<_>>();
+            write_raw_record_payloads(
+                &file,
+                volume_id,
+                payload_count as u64,
+                previous_footer_block,
+                &payloads,
+            )?;
+            previous_footer_block += payload_count as u32 + 1;
+        }
+        file.sync_all()?;
+        drop(file);
+
+        let mut volume = open(&backing.0)?;
+        assert_eq!(volume.last_lsn, MAXIMUM_PAYLOAD_BLOCKS as u64);
+        assert_eq!(volume.last_footer_block, previous_footer_block);
+        assert_eq!(
+            volume.log_bytes_since_checkpoint,
+            record_blocks * BLOCK_SIZE as u64
+        );
+        for lba in 0..volume_blocks {
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(lba, &mut actual)?;
+            let byte = ((MAXIMUM_PAYLOAD_BLOCKS + lba as usize) % 251 + 1) as u8;
+            assert_eq!(actual, [byte; BLOCK_SIZE]);
+        }
+        Ok(())
+    }
+
     fn recover_after_stale_tail_crash(test_name: &str, failpoint: &str) -> io::Result<()> {
         if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
             let _volume = open(PathBuf::from(backing))?;
@@ -1977,14 +2093,15 @@ mod tests {
 
     #[test]
     fn stale_tail_clear_stops_at_backing_eof() -> io::Result<()> {
+        const EOF_REMAINDER_BLOCKS: u32 = 17;
+
         let backing = TemporaryBacking::new()?;
         let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-        let backing_bytes = u64::from(layout.log_start + 3) * BLOCK_SIZE as u64;
+        let clear_start = layout.log_start + 2;
+        let backing_bytes = u64::from(clear_start + EOF_REMAINDER_BLOCKS) * BLOCK_SIZE as u64;
         backing.create_sized(backing_bytes)?;
         format(&backing.0, BLOCK_SIZE as u64)?;
-        let volume = open(&backing.0)?;
-        let volume_id = volume.volume_id;
-        drop(volume);
+        let volume_id = formatted_volume_id(&backing)?;
 
         let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
         write_raw_record(
@@ -1997,8 +2114,8 @@ mod tests {
             0xa5,
         )?;
         file.write_all_at(
-            &[0x7e; BLOCK_SIZE],
-            u64::from(layout.log_start + 2) * BLOCK_SIZE as u64,
+            &vec![0x7e; EOF_REMAINDER_BLOCKS as usize * BLOCK_SIZE],
+            u64::from(clear_start) * BLOCK_SIZE as u64,
         )?;
         file.sync_all()?;
         drop(file);
@@ -2008,12 +2125,11 @@ mod tests {
         drop(volume);
         let file = OpenOptions::new().read(true).open(&backing.0)?;
         assert_eq!(file.metadata()?.len(), backing_bytes);
-        let mut final_block = [0xa5; BLOCK_SIZE];
-        file.read_exact_at(
-            &mut final_block,
-            u64::from(layout.log_start + 2) * BLOCK_SIZE as u64,
-        )?;
-        assert_eq!(final_block, [0; BLOCK_SIZE]);
+        for block in clear_start..clear_start + EOF_REMAINDER_BLOCKS {
+            let mut bytes = [0xa5; BLOCK_SIZE];
+            file.read_exact_at(&mut bytes, u64::from(block) * BLOCK_SIZE as u64)?;
+            assert_eq!(bytes, [0; BLOCK_SIZE]);
+        }
         Ok(())
     }
 
