@@ -1009,13 +1009,21 @@ mod tests {
         format(&backing.0, BLOCK_SIZE as u64)?;
         let mut volume = open(&backing.0)?;
 
-        for expected in [[0xa5; BLOCK_SIZE], [0x5a; BLOCK_SIZE], [0xc3; BLOCK_SIZE]] {
+        let values = [[0xa5; BLOCK_SIZE], [0x5a; BLOCK_SIZE], [0xc3; BLOCK_SIZE]];
+        for expected in values {
             volume.write_block(0, &expected)?;
             let mut actual = [0; BLOCK_SIZE];
             volume.read_block(0, &mut actual)?;
             assert_eq!(actual, expected);
         }
-        Ok(())
+        volume.flush()?;
+        volume.close()?;
+
+        let mut volume = open(&backing.0)?;
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, values[2]);
+        volume.close()
     }
 
     #[test]
