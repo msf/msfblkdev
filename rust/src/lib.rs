@@ -1130,6 +1130,24 @@ mod tests {
         let expected = [0xa5; BLOCK_SIZE];
         let mut volume = open(&backing.0)?;
         volume.write_block(0, &expected)?;
+        let physical_blocks = volume.physical_blocks.clone();
+        let checksums = volume.checksums.clone();
+        let cursors = (
+            volume.last_lsn,
+            volume.durable_lsn,
+            volume.checkpoint_lsn,
+            volume.last_footer_block,
+            volume.log_bytes_since_checkpoint,
+            volume.next_checkpoint_slot,
+            volume.failed,
+        );
+        let file = File::open(&backing.0)?;
+        let mut log_bytes = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(
+            &mut log_bytes,
+            u64::from(layout.log_start) * BLOCK_SIZE as u64,
+        )?;
+
         assert_eq!(
             volume
                 .write_block(0, &[0x5a; BLOCK_SIZE])
@@ -1137,6 +1155,28 @@ mod tests {
                 .to_string(),
             "log full"
         );
+
+        assert_eq!(volume.physical_blocks, physical_blocks);
+        assert_eq!(volume.checksums, checksums);
+        assert_eq!(
+            (
+                volume.last_lsn,
+                volume.durable_lsn,
+                volume.checkpoint_lsn,
+                volume.last_footer_block,
+                volume.log_bytes_since_checkpoint,
+                volume.next_checkpoint_slot,
+                volume.failed,
+            ),
+            cursors
+        );
+        let mut unchanged_log_bytes = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(
+            &mut unchanged_log_bytes,
+            u64::from(layout.log_start) * BLOCK_SIZE as u64,
+        )?;
+        assert_eq!(unchanged_log_bytes, log_bytes);
+
         let mut actual = [0; BLOCK_SIZE];
         volume.read_block(0, &mut actual)?;
         assert_eq!(actual, expected);

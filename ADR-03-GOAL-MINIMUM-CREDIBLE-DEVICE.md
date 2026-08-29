@@ -95,7 +95,7 @@ Acceptance tests:
 - [x] An out-of-range write leaves mapping and cursors unchanged.
   Evidence (2026-08-29): `cargo test out_of_range_write_leaves_mapping_and_cursors_unchanged` passes through `Volume::write_block`, preserving the physical and checksum maps, all LSN/durability/footer/checkpoint-byte cursors, checkpoint slot, failed state and prior readable value.
 - [x] A log-full write leaves the last successful value readable after reopen.
-  Evidence (2026-08-29): `cargo test log_full_write_leaves_last_successful_value_readable_after_reopen` passes with the one-record backing profile, preserving the first value before and after clean close/reopen when the next write reports log full.
+  Evidence (2026-08-29): `cargo test log_full_write_leaves_last_successful_value_readable_after_reopen` passes with the one-record backing profile, proving the rejected second write leaves the physical and checksum maps, all LSNs, footer position, raw log bytes, checkpoint-byte cursor, checkpoint slot and failed state unchanged, while preserving the first value before and after clean close/reopen.
 - [ ] All work is git committed with sensible commit messages.
 - [ ] All new tests and code run through the top-level `make test` target.
 - [ ] `make lint` and `make test` pass.
