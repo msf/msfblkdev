@@ -182,7 +182,8 @@ Acceptance tests:
   Evidence (2026-08-29): `recovery_accepts_every_format_one_payload_count` replays valid format-version-1 records containing every payload count from 1 through 338. `invalid_gap_stops_replay_and_clears_only_bounded_window` verifies all 339 stale blocks are zero while a valid-looking later record remains ignored and intact. `stale_tail_clear_stops_at_backing_eof` verifies the clear is bounded to a 17-block remainder without extending the file, and `recover_after_stale_tail_fsync_boundary` verifies the full window is durable after 20 parent-driven `SIGKILL` runs at the final fsync.
 - [x] Reconstruct every recovery cursor from replayed state.
   Evidence (2026-08-29): `cargo test --lib tests::reconstructs_every_recovery_cursor_from_replayed_state -- --exact` passes through public `open` from a valid older checkpoint plus three replayed records, including a three-payload format-version-1 record. It verifies exact final LSN, footer, durability, selected-checkpoint, physical-byte and next-slot cursors, append-position derivation, latest physical/checksum mappings and readable values.
-- [ ] Reject two unusable checkpoint roots with a corruption error, not a panic.
+- [x] Reject two unusable checkpoint roots with a corruption error, not a panic.
+  Evidence (2026-08-29): `cargo test --lib tests::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation -- --exact` corrupts the newest descriptor and the older checkpoint body through synced raw bytes. Two public `open` attempts inside `catch_unwind` return `InvalidData` without serving the image, panicking or changing any backing bytes.
 - [ ] Reject invalid footer ranges, duplicate LBAs and non-zero unused entries.
 - [ ] Checkpoint before accepting a record that would exceed the replay bound.
 - [ ] Reject invalid `checkpoint_after_bytes` values.

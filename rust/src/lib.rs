@@ -2121,6 +2121,42 @@ mod tests {
     }
 
     #[test]
+    fn rejects_two_unusable_checkpoint_roots_without_panic_or_mutation() -> io::Result<()> {
+        let fixture = prepare_checkpoint_fallback_fixture()?;
+        let newest_descriptor_offset = fixture.newest.slot as u64 * BLOCK_SIZE as u64 + 100;
+        let older_body_start = match fixture.newest.slot {
+            CheckpointSlot::Green => fixture.newest.layout.blue_physical_map_start,
+            CheckpointSlot::Blue => fixture.newest.layout.green_physical_map_start,
+        };
+        let older_body_offset = u64::from(older_body_start) * BLOCK_SIZE as u64 + 100;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&fixture.backing.0)?;
+        for offset in [newest_descriptor_offset, older_body_offset] {
+            let mut byte = [0; 1];
+            file.read_exact_at(&mut byte, offset)?;
+            byte[0] ^= 0xff;
+            file.write_all_at(&byte, offset)?;
+        }
+        file.sync_all()?;
+        drop(file);
+
+        let corrupted = std::fs::read(&fixture.backing.0)?;
+        for _ in 0..2 {
+            let opened = std::panic::catch_unwind(|| open(&fixture.backing.0))
+                .map_err(|_| io::Error::other("public open panicked on checkpoint corruption"))?;
+            let error = match opened {
+                Ok(_) => return Err(io::Error::other("corrupted checkpoint roots were served")),
+                Err(error) => error,
+            };
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert_eq!(std::fs::read(&fixture.backing.0)?, corrupted);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn reconstructs_every_recovery_cursor_from_replayed_state() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 4_u32;
