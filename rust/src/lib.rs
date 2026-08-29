@@ -1113,6 +1113,54 @@ mod tests {
     }
 
     #[test]
+    fn out_of_range_write_leaves_mapping_and_cursors_unchanged() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let mut volume = open(&backing.0)?;
+
+        let expected = [0xa5; BLOCK_SIZE];
+        volume.write_block(0, &expected)?;
+        volume.flush()?;
+        let physical_blocks = volume.physical_blocks.clone();
+        let checksums = volume.checksums.clone();
+        let cursors = (
+            volume.last_lsn,
+            volume.durable_lsn,
+            volume.checkpoint_lsn,
+            volume.last_footer_block,
+            volume.next_checkpoint_slot,
+            volume.log_bytes_since_checkpoint,
+            volume.failed,
+        );
+
+        let error = volume
+            .write_block(volume.volume_blocks, &[0x5a; BLOCK_SIZE])
+            .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(volume.physical_blocks, physical_blocks);
+        assert_eq!(volume.checksums, checksums);
+        assert_eq!(
+            (
+                volume.last_lsn,
+                volume.durable_lsn,
+                volume.checkpoint_lsn,
+                volume.last_footer_block,
+                volume.next_checkpoint_slot,
+                volume.log_bytes_since_checkpoint,
+                volume.failed,
+            ),
+            cursors
+        );
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[test]
     fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 2_u32;
