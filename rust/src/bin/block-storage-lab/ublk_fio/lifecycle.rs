@@ -6,7 +6,7 @@ pub fn run(repo: &Path, timeout: Duration) -> io::Result<()> {
 }
 
 pub(super) fn run_at(paths: Paths, timeout: Duration) -> io::Result<()> {
-    // Nothing that needs cleanup or preservation may be created before this returns.
+    // Preflight validates every fio shape before creating evidence or owned resources.
     let preflight = preflight(&paths, timeout)?;
     let mut evidence = Evidence::create_ublk(&paths.repo, &preflight.fio_version)?;
     println!("evidence: {}", evidence.path().display());
@@ -14,16 +14,12 @@ pub(super) fn run_at(paths: Paths, timeout: Duration) -> io::Result<()> {
     let geometry = Geometry::expected();
     evidence.line(&format!(
         "backing geometry: block_bytes={} volume_blocks={} record_capacity={} log_start_blocks={} backing_blocks={} backing_bytes={}",
-        geometry.block_bytes,
-        geometry.volume_blocks,
-        geometry.record_capacity,
-        geometry.log_start_blocks,
-        geometry.backing_blocks,
-        geometry.backing_bytes()
+        geometry.block_bytes, geometry.volume_blocks, geometry.record_capacity,
+        geometry.log_start_blocks, geometry.backing_blocks, geometry.backing_bytes()
     ))?;
 
     let mut resources = Resources::default();
-    let scenario = run_scenario(
+    let scenarios = scenario_run::run_all(
         &paths,
         &preflight,
         timeout,
@@ -31,17 +27,8 @@ pub(super) fn run_at(paths: Paths, timeout: Duration) -> io::Result<()> {
         &mut evidence,
         started,
     );
-
-    let result = match scenario {
-        Ok(()) => {
-            match finish_success(&paths, &preflight, timeout, &mut resources, &mut evidence) {
-                Ok(()) => Ok(()),
-                Err(error) => combine_with_cleanup(
-                    error,
-                    cleanup_error(&paths, &preflight, timeout, &mut resources, &mut evidence),
-                ),
-            }
-        }
+    let result = match scenarios {
+        Ok(()) => Ok(()),
         Err(error) => combine_with_cleanup(
             error,
             cleanup_error(&paths, &preflight, timeout, &mut resources, &mut evidence),
@@ -55,201 +42,18 @@ pub(super) fn run_at(paths: Paths, timeout: Duration) -> io::Result<()> {
     result
 }
 
-fn run_scenario(
-    paths: &Paths,
+pub(super) fn prove_backing_lock(
     preflight: &Preflight,
-    timeout: Duration,
-    resources: &mut Resources,
-    evidence: &mut Evidence,
-    started: Instant,
-) -> io::Result<()> {
-    let owned = OwnedTempDir::create(&paths.temp_root)?;
-    let backing_path = owned.path().join("backing.img");
-    resources.temp = Some(owned);
-
-    let mut format = format_command(&preflight.daemon, &backing_path);
-    evidence_command(evidence, "format", &format, started)?;
-    let format_result = run_command_separate(
-        &mut format,
-        &resources
-            .temp
-            .as_ref()
-            .unwrap()
-            .path()
-            .join("format.stdout"),
-        &resources
-            .temp
-            .as_ref()
-            .unwrap()
-            .path()
-            .join("format.stderr"),
-        Instant::now() + timeout,
-    )?;
-    require_success("format", format_result)?;
-    evidence.line(&format!(
-        "result format: exit=0 at_ms={}",
-        started.elapsed().as_millis()
-    ))?;
-    let backing = validate_backing(
-        &backing_path,
-        resources.temp.as_ref().unwrap(),
-        Geometry::expected().backing_bytes(),
-        None,
-    )?;
-    backing.validate(resources.temp.as_ref().unwrap())?;
-    resources.backing = Some(backing);
-
-    let daemon_stdout = resources
-        .temp
-        .as_ref()
-        .unwrap()
-        .path()
-        .join("daemon.stdout");
-    let daemon_stderr = resources
-        .temp
-        .as_ref()
-        .unwrap()
-        .path()
-        .join("daemon.stderr");
-    let stdout = create_output(&daemon_stdout)?;
-    let stderr = create_output(&daemon_stderr)?;
-    let mut serve = serve_command(&preflight.daemon, &resources.backing.as_ref().unwrap().path);
-    evidence_command(evidence, "serve", &serve, started)?;
-    serve
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr));
-    resources.child = Some(ManagedChild::spawn(&mut serve)?);
-    resources.daemon_stdout = Some(daemon_stdout.clone());
-    resources.daemon_stderr = Some(daemon_stderr);
-
-    let device = poll_readiness(
-        resources.child.as_mut().unwrap(),
-        &daemon_stdout,
-        paths,
-        Instant::now() + timeout,
-    )?;
-    evidence.line(&format!(
-        "ready: path={} id={} at_ms={}",
-        device.path.as_path().display(),
-        device.id(),
-        started.elapsed().as_millis()
-    ))?;
-    resources.device = Some(device);
-
-    let fio_stdout = resources.temp.as_ref().unwrap().path().join("fio.stdout");
-    let fio_stderr = resources.temp.as_ref().unwrap().path().join("fio.stderr");
-    match resources.device.as_ref().unwrap().still_matches(paths)? {
-        DeviceIdentityState::Matching => {}
-        DeviceIdentityState::Absent => {
-            return Err(io::Error::other("recorded device disappeared before fio"));
-        }
-        DeviceIdentityState::IdentityChanged => {
-            return Err(io::Error::other(
-                "recorded device identity changed before fio",
-            ));
-        }
-    }
-    resources
-        .backing
-        .as_ref()
-        .unwrap()
-        .validate(resources.temp.as_ref().unwrap())?;
-    let mut fio = sequential_fio_command(resources.device.as_ref().unwrap().path.as_path());
-    evidence_command(evidence, "fio", &fio, started)?;
-    let fio_result =
-        run_command_separate(&mut fio, &fio_stdout, &fio_stderr, Instant::now() + timeout)?;
-    require_success("fio sequential write+flush+verify", fio_result)?;
-    evidence.line(&format!(
-        "result fio: exit=0 at_ms={}",
-        started.elapsed().as_millis()
-    ))?;
-    evidence_file(evidence, "fio stdout", &fio_stdout)?;
-    evidence_file(evidence, "fio stderr", &fio_stderr)?;
-
-    prove_backing_lock(
-        paths,
-        preflight,
-        resources.backing.as_ref().unwrap(),
-        resources,
-        evidence,
-        timeout,
-        started,
-    )?;
-    resources
-        .backing
-        .as_ref()
-        .unwrap()
-        .validate(resources.temp.as_ref().unwrap())?;
-    Ok(())
-}
-
-fn finish_success(
-    paths: &Paths,
-    _preflight: &Preflight,
-    timeout: Duration,
-    resources: &mut Resources,
-    evidence: &mut Evidence,
-) -> io::Result<()> {
-    let child = resources
-        .child
-        .as_mut()
-        .ok_or_else(|| io::Error::other("daemon child is missing"))?;
-    child.terminate()?;
-    match child.wait_bounded(Instant::now() + timeout)? {
-        Outcome::Exit(status) if status.success() => {}
-        Outcome::Exit(status) => {
-            return Err(io::Error::other(format!(
-                "daemon exited unsuccessfully after SIGTERM: {status}"
-            )));
-        }
-        Outcome::Timeout => {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "daemon SIGTERM timed out",
-            ));
-        }
-    }
-    child.cleanup()?;
-    resources.child = None;
-    let id = resources.device.as_ref().unwrap().id();
-    wait_for_disappearance(paths, id, Instant::now() + timeout)?;
-    evidence.line(&format!(
-        "shutdown: daemon exit=0 device ublkb{id} disappeared"
-    ))?;
-    log_daemon_files(evidence, resources)?;
-    resources.device = None;
-    resources
-        .backing
-        .as_ref()
-        .unwrap()
-        .validate(resources.temp.as_ref().unwrap())?;
-    resources.backing = None;
-    resources.temp.as_mut().unwrap().cleanup()?;
-    resources.temp = None;
-    Ok(())
-}
-
-fn prove_backing_lock(
-    _paths: &Paths,
-    preflight: &Preflight,
-    backing: &OwnedBacking,
     resources: &Resources,
     evidence: &mut Evidence,
     timeout: Duration,
     started: Instant,
+    outputs: &mut scenario::OutputNames,
 ) -> io::Result<()> {
-    let second_out = resources
-        .temp
-        .as_ref()
-        .unwrap()
-        .path()
-        .join("second.stdout");
-    let second_err = resources
-        .temp
-        .as_ref()
-        .unwrap()
-        .path()
-        .join("second.stderr");
+    let backing = resources.backing.as_ref().unwrap();
+    let names = outputs.command("second");
+    let second_out = resources.temp.as_ref().unwrap().path().join(names.0);
+    let second_err = resources.temp.as_ref().unwrap().path().join(names.1);
     let mut second = serve_command(&preflight.daemon, &backing.path);
     evidence_command(
         evidence,
@@ -340,6 +144,21 @@ where
         return Err(io::Error::other(errors.join("; ")));
     }
     resources.child = None;
+
+    if resources.preserve_for_identity {
+        if let Err(error) = log_daemon_files(evidence, resources) {
+            errors.push(format!("daemon log capture: {error}"));
+        }
+        errors.push("preserving backing after ambiguous or changed device identity".to_owned());
+        if let Some(temp) = resources.temp.as_ref() {
+            errors.push(format!(
+                "preserving owned temporary directory {}",
+                temp.path().display()
+            ));
+        }
+        preserve_temp(resources);
+        return Err(io::Error::other(errors.join("; ")));
+    }
 
     let mut must_preserve_temp = false;
     if let Some(device) = resources.device.as_ref() {

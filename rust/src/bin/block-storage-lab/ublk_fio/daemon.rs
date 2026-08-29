@@ -4,6 +4,11 @@ pub(super) fn preflight(paths: &Paths, timeout: Duration) -> io::Result<Prefligh
     if !cfg!(target_os = "linux") {
         return Err(io::Error::other("ublk-fio requires Linux"));
     }
+    if !cfg!(feature = "test-failpoints") {
+        return Err(io::Error::other(
+            "ublk-fio requires --features test-failpoints; no resources created",
+        ));
+    }
     let daemon = paths
         .current_exe
         .parent()
@@ -22,8 +27,9 @@ pub(super) fn preflight(paths: &Paths, timeout: Duration) -> io::Result<Prefligh
         )));
     }
 
-    let fio = sequential_fio_command(Path::new("/nonexistent/block-storage-lab-preflight"));
-    validate_fio_bounded(&fio, Instant::now() + timeout)?;
+    for fio in scenario::all_fio_commands(Path::new("/nonexistent/block-storage-lab-preflight")) {
+        validate_fio_bounded(&fio, Instant::now() + timeout)?;
+    }
     let fio_version = fio_version_bounded(Instant::now() + timeout)?;
 
     let control_metadata = fs::symlink_metadata(&paths.control).map_err(|error| {
@@ -189,22 +195,6 @@ pub(super) fn delete_command(daemon: &Path, id: u32) -> Command {
     let mut command = Command::new(daemon);
     command.args([OsStr::new("delete"), OsStr::new(&id.to_string())]);
     command
-}
-
-pub(super) fn sequential_fio_command(target: &Path) -> Command {
-    ublk::fio_command(
-        target,
-        "sequential",
-        0x1357_9bdf,
-        FioRw::Write,
-        WRITE_BLOCKS * BLOCK_BYTES,
-        0,
-        FioOptions {
-            do_verify: Some(true),
-            fsync: Some(WRITE_BLOCKS),
-            ..FioOptions::default()
-        },
-    )
 }
 
 pub(super) fn run_command_separate(

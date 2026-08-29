@@ -1,5 +1,6 @@
 use super::daemon::*;
 use super::lifecycle::*;
+use super::scenario::Scenario;
 use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -54,7 +55,7 @@ fn command_construction_is_exact_and_bounded() {
         delete_command(daemon, 7).get_args().collect::<Vec<_>>(),
         ["delete", "7"].map(OsStr::new)
     );
-    let fio = sequential_fio_command(Path::new("/dev/ublkb7"));
+    let fio = Scenario::Sequential.fio_jobs()[0].command(Path::new("/dev/ublkb7"));
     let args = fio
         .get_args()
         .map(OsStr::to_string_lossy)

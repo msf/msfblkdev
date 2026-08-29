@@ -1,5 +1,7 @@
 use crate::evidence::Evidence;
 use crate::process::{ManagedChild, Outcome};
+#[cfg(test)]
+use crate::ublk::RECORD_CAPACITY;
 use crate::ublk::{
     self, BLOCK_BYTES, DevicePath, FileIdentity, FioOptions, FioRw, Geometry, OwnedTempDir,
 };
@@ -14,7 +16,6 @@ use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const LOCK_ERROR: &str = "block-storage-ublk: backing file is already locked\n";
-const WRITE_BLOCKS: u64 = 16;
 
 #[derive(Clone, Debug)]
 struct Paths {
@@ -111,10 +112,13 @@ struct Resources {
     backing: Option<OwnedBacking>,
     daemon_stdout: Option<PathBuf>,
     daemon_stderr: Option<PathBuf>,
+    preserve_for_identity: bool,
 }
 
 mod daemon;
 mod lifecycle;
+mod scenario;
+mod scenario_run;
 
 pub use lifecycle::run;
 

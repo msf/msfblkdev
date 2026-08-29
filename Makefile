@@ -46,8 +46,8 @@ test-acceptance:
 
 # Privileged and opt-in: preflight refuses to create resources without ublk access.
 test-ublk-fio:
-	@cd rust && cargo build --quiet --bin block-storage-ublk --bin block-storage-lab
-	@cd rust && cargo run --quiet --bin block-storage-lab -- ublk-fio
+	@cd rust && cargo build --quiet --features test-failpoints --bin block-storage-ublk --bin block-storage-lab
+	@cd rust && cargo run --quiet --features test-failpoints --bin block-storage-lab -- ublk-fio
 
 test-zig: setup
 	@$(ZIG) build test
