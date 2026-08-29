@@ -1002,6 +1002,23 @@ mod tests {
     }
 
     #[test]
+    fn repeated_overwrite_returns_only_latest_value() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 6) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let mut volume = open(&backing.0)?;
+
+        for expected in [[0xa5; BLOCK_SIZE], [0x5a; BLOCK_SIZE], [0xc3; BLOCK_SIZE]] {
+            volume.write_block(0, &expected)?;
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(0, &mut actual)?;
+            assert_eq!(actual, expected);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 2_u32;

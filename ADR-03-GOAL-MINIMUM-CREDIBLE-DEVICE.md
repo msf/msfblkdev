@@ -84,7 +84,8 @@ Acceptance tests:
 
 - [x] Multiple LBAs read correctly before and after reopen.
   Evidence (2026-08-29): `cargo test multiple_lbas_read_correctly_before_and_after_reopen` passes with two distinct LBAs before and after a clean reopen.
-- [ ] Repeated overwrite of one LBA returns only the latest value.
+- [x] Repeated overwrite of one LBA returns only the latest value.
+  Evidence (2026-08-29): `cargo test repeated_overwrite_returns_only_latest_value` passes after three writes to one LBA, reading each latest completed value.
 - [ ] Overwriting an LBA with zeroes returns zeroes before and after reopen.
 - [ ] Raw footer linkage and local sequence numbers are contiguous.
 - [ ] The clean checkpoint maps each LBA to its latest payload and checksum.
