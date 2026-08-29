@@ -10,8 +10,11 @@ use libublk::sys::{
 };
 use libublk::{BufDesc, UblkError, UblkFlags, UblkIORes};
 use std::ffi::{OsStr, OsString};
+use std::fs::{File, OpenOptions};
 use std::io;
-use std::path::PathBuf;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
@@ -21,6 +24,36 @@ const SECTOR_SHIFT: u8 = 9;
 const SECTORS_PER_BLOCK: u64 = 1 << (BLOCK_SHIFT - SECTOR_SHIFT);
 const QUEUE_COUNT: u16 = 1;
 const QUEUE_DEPTH: u16 = 1;
+const BACKING_LOCKED_MESSAGE: &str = "backing file is already locked";
+
+#[derive(Debug)]
+struct BackingLock {
+    _backing: File,
+}
+
+impl BackingLock {
+    fn acquire(path: &Path) -> io::Result<Self> {
+        let backing = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_CLOEXEC)
+            .open(path)?;
+        // SAFETY: flock only reads the valid file descriptor and lock operation flags.
+        if unsafe { libc::flock(backing.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(Self { _backing: backing });
+        }
+
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::WouldBlock {
+            Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                BACKING_LOCKED_MESSAGE,
+            ))
+        } else {
+            Err(error)
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct Args {
@@ -275,6 +308,7 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState) {
 
 fn run() -> io::Result<()> {
     let args = parse_args(std::env::args_os())?;
+    let _backing_lock = BackingLock::acquire(&args.backing_path)?;
     let controller = controller_builder(args.device_id)
         .build()
         .map_err(ublk_error)?;
@@ -329,13 +363,16 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{OpenOptions, remove_file};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::fs::{hard_link, remove_file};
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::process::{Child, Command, ExitStatus, Stdio};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     struct TemporaryBacking(PathBuf);
 
     impl TemporaryBacking {
-        fn formatted(volume_blocks: u32) -> io::Result<Self> {
+        fn new() -> io::Result<Self> {
             let nonce = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_err(io::Error::other)?
@@ -344,12 +381,20 @@ mod tests {
                 std::env::temp_dir()
                     .join(format!("block-storage-ublk-{}-{nonce}", std::process::id())),
             );
-            let file = OpenOptions::new()
+            OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create_new(true)
                 .open(&backing.0)?;
-            file.set_len(1024 * 1024)?;
+            Ok(backing)
+        }
+
+        fn formatted(volume_blocks: u32) -> io::Result<Self> {
+            let backing = Self::new()?;
+            OpenOptions::new()
+                .write(true)
+                .open(&backing.0)?
+                .set_len(1024 * 1024)?;
             block_storage::format(
                 &backing.0,
                 u64::from(volume_blocks) * u64::from(IO_BUFFER_BYTES),
@@ -364,6 +409,42 @@ mod tests {
         }
     }
 
+    struct TemporaryLink(PathBuf);
+
+    impl Drop for TemporaryLink {
+        fn drop(&mut self) {
+            let _ = remove_file(&self.0);
+        }
+    }
+
+    struct TestChild {
+        child: Child,
+        output_reader: Option<std::thread::JoinHandle<io::Result<()>>>,
+    }
+
+    impl Drop for TestChild {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            if let Some(reader) = self.output_reader.take() {
+                let _ = reader.join();
+            }
+        }
+    }
+
+    fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> io::Result<ExitStatus> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(status) = child.try_wait()? {
+                return Ok(status);
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::other("timed out waiting for lock owner exit"));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     fn descriptor(operation: u32, start_sector: u64, nr_sectors: u32) -> ublksrv_io_desc {
         ublksrv_io_desc {
             op_flags: operation,
@@ -371,6 +452,96 @@ mod tests {
             start_sector,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn exclusive_backing_lock_tracks_the_inode_and_owner_process() -> io::Result<()> {
+        const CHILD_BACKING_ENV: &str = "BLOCK_STORAGE_LOCK_TEST_BACKING";
+        const HANDSHAKE: &str = "backing-locked";
+        const TIMEOUT: Duration = Duration::from_secs(10);
+
+        if let Some(path) = std::env::var_os(CHILD_BACKING_ENV) {
+            let _lock = BackingLock::acquire(Path::new(&path))?;
+            println!("{HANDSHAKE}");
+            io::stdout().flush()?;
+            let mut input = [0; 1];
+            let _ = io::stdin().read(&mut input)?;
+            return Ok(());
+        }
+
+        let backing = TemporaryBacking::new()?;
+        let alias = TemporaryLink(backing.0.with_extension("same-inode"));
+        hard_link(&backing.0, &alias.0)?;
+        let different_backing = TemporaryBacking::new()?;
+
+        let child = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "tests::exclusive_backing_lock_tracks_the_inode_and_owner_process",
+                "--nocapture",
+            ])
+            .env(CHILD_BACKING_ENV, &backing.0)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let mut child = TestChild {
+            child,
+            output_reader: None,
+        };
+        let stdout = child
+            .child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("lock owner stdout unavailable"))?;
+        let (handshake_sender, handshake_receiver) = mpsc::sync_channel(1);
+        let output_reader = std::thread::spawn(move || {
+            let mut handshake_sent = false;
+            for line in BufReader::new(stdout).lines() {
+                match line {
+                    Ok(line) if line == HANDSHAKE && !handshake_sent => {
+                        handshake_sender
+                            .send(Ok(()))
+                            .map_err(|_| io::Error::other("lock handshake receiver dropped"))?;
+                        handshake_sent = true;
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        if !handshake_sent {
+                            let _ = handshake_sender.send(Err(error));
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+            if !handshake_sent {
+                let _ = handshake_sender
+                    .send(Err(io::Error::other("lock owner exited before handshake")));
+            }
+            Ok(())
+        });
+        child.output_reader = Some(output_reader);
+        handshake_receiver
+            .recv_timeout(TIMEOUT)
+            .map_err(|_| io::Error::other("timed out waiting for lock owner handshake"))??;
+
+        let competing_error = BackingLock::acquire(&alias.0).unwrap_err();
+        assert_eq!(competing_error.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(competing_error.to_string(), BACKING_LOCKED_MESSAGE);
+        let different_lock = BackingLock::acquire(&different_backing.0)?;
+
+        drop(child.child.stdin.take());
+        let status = wait_for_child_exit(&mut child.child, TIMEOUT)?;
+        assert!(status.success(), "lock owner failed: {status}");
+        child
+            .output_reader
+            .take()
+            .unwrap()
+            .join()
+            .map_err(|_| io::Error::other("lock owner output reader panicked"))??;
+
+        let released_lock = BackingLock::acquire(&alias.0)?;
+        drop((released_lock, different_lock));
+        Ok(())
     }
 
     #[test]
