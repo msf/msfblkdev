@@ -1019,6 +1019,28 @@ mod tests {
     }
 
     #[test]
+    fn overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
+        volume.write_block(0, &[0; BLOCK_SIZE])?;
+        let mut actual = [0xa5; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, [0; BLOCK_SIZE]);
+        volume.close()?;
+
+        let mut volume = open(&backing.0)?;
+        actual.fill(0xa5);
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, [0; BLOCK_SIZE]);
+        volume.close()
+    }
+
+    #[test]
     fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 2_u32;
