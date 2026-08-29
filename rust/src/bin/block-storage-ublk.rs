@@ -1,16 +1,19 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("block-storage-ublk requires Linux");
 
-use libublk::UblkFlags;
 use libublk::ctrl::UblkCtrlBuilder;
+use libublk::helpers::IoBuf;
+use libublk::io::{BufDescList, UblkDev, UblkQueue};
 use libublk::sys::{
     UBLK_ATTR_VOLATILE_CACHE, UBLK_IO_F_FUA, UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE,
     UBLK_PARAM_TYPE_BASIC, ublk_param_basic, ublk_params, ublksrv_io_desc,
 };
+use libublk::{BufDesc, UblkError, UblkFlags, UblkIORes};
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 
 const BLOCK_SHIFT: u8 = 12;
 const IO_BUFFER_BYTES: u32 = 1 << BLOCK_SHIFT;
@@ -176,19 +179,141 @@ fn handle_request(
     }
 }
 
+fn handle_buffered_request(
+    volume: &mut block_storage::Volume,
+    descriptor: &ublksrv_io_desc,
+    buffer: &mut [u8],
+) -> i32 {
+    match <&mut [u8; IO_BUFFER_BYTES as usize]>::try_from(buffer) {
+        Ok(buffer) => handle_request(volume, descriptor, buffer),
+        Err(_) => -libc::EIO,
+    }
+}
+
+fn combine_shutdown_results(
+    queue_result: io::Result<()>,
+    close_result: io::Result<()>,
+) -> io::Result<()> {
+    match (queue_result, close_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(queue_error), Err(close_error)) => Err(io::Error::other(format!(
+            "queue failed: {queue_error}; volume close failed: {close_error}"
+        ))),
+    }
+}
+
+struct QueueState {
+    volume: Option<block_storage::Volume>,
+    result: Option<io::Result<()>>,
+}
+
+type SharedQueueState = Arc<Mutex<QueueState>>;
+
+fn ublk_error(error: UblkError) -> io::Error {
+    io::Error::other(error)
+}
+
+fn store_queue_result(state: &SharedQueueState, result: io::Result<()>) {
+    match state.lock() {
+        Ok(mut state) => state.result = Some(result),
+        Err(_) => eprintln!("block-storage-ublk: queue state lock poisoned"),
+    }
+}
+
+fn close_after_queue(
+    state: &SharedQueueState,
+    volume: block_storage::Volume,
+    queue_result: io::Result<()>,
+) {
+    store_queue_result(
+        state,
+        combine_shutdown_results(queue_result, volume.close()),
+    );
+}
+
+fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState) {
+    let volume = match state.lock() {
+        Ok(mut state) => state.volume.take(),
+        Err(_) => {
+            eprintln!("block-storage-ublk: queue state lock poisoned");
+            return;
+        }
+    };
+    let Some(mut volume) = volume else {
+        store_queue_result(&state, Err(io::Error::other("volume is not available")));
+        return;
+    };
+
+    let mut buffers = vec![IoBuf::<u8>::new(IO_BUFFER_BYTES as usize)];
+    let queue = match UblkQueue::new(qid, dev)
+        .and_then(|queue| queue.submit_fetch_commands_unified(BufDescList::Slices(Some(&buffers))))
+    {
+        Ok(queue) => queue,
+        Err(error) => {
+            close_after_queue(&state, volume, Err(ublk_error(error)));
+            return;
+        }
+    };
+
+    let mut queue_error = None;
+    queue.wait_and_handle_io(|queue, tag, _context| {
+        let completion =
+            handle_buffered_request(&mut volume, queue.get_iod(tag), buffers[0].as_mut_slice());
+        if let Err(error) = queue.complete_io_cmd_unified(
+            tag,
+            BufDesc::Slice(buffers[0].as_slice()),
+            Ok(UblkIORes::Result(completion)),
+        ) && queue_error.is_none()
+        {
+            queue_error = Some(ublk_error(error));
+        }
+    });
+
+    close_after_queue(&state, volume, queue_error.map_or(Ok(()), Err));
+}
+
 fn run() -> io::Result<()> {
     let args = parse_args(std::env::args_os())?;
+    let controller = controller_builder(args.device_id)
+        .build()
+        .map_err(ublk_error)?;
     let volume = block_storage::open(&args.backing_path)?;
-    let _controller = controller_builder(args.device_id);
     let target = target_configuration(volume.volume_blocks());
-    let _device_bytes = target.device_bytes;
-    let _parameters = target.parameters;
-    let _request_handler = handle_request;
+    let state = Arc::new(Mutex::new(QueueState {
+        volume: Some(volume),
+        result: None,
+    }));
+    let queue_state = Arc::clone(&state);
 
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "ublk request handling is not implemented",
-    ))
+    let target_result = controller
+        .run_target(
+            move |dev| {
+                dev.tgt.dev_size = target.device_bytes;
+                dev.tgt.params = target.parameters;
+                Ok(())
+            },
+            move |qid, dev| run_queue(qid, dev, Arc::clone(&queue_state)),
+            |controller| println!("{}", controller.get_bdev_path()),
+        )
+        .map(|_| ())
+        .map_err(ublk_error);
+
+    let (remaining_volume, queue_result) = match state.lock() {
+        Ok(mut state) => (state.volume.take(), state.result.take()),
+        Err(_) => {
+            return combine_shutdown_results(
+                target_result,
+                Err(io::Error::other("queue state lock poisoned")),
+            );
+        }
+    };
+    let shutdown_result = match (remaining_volume, queue_result) {
+        (Some(volume), _) => volume.close(),
+        (None, Some(result)) => result,
+        (None, None) => Err(io::Error::other("queue stopped without a result")),
+    };
+    combine_shutdown_results(target_result, shutdown_result)
 }
 
 fn main() -> ExitCode {
@@ -425,5 +550,52 @@ mod tests {
             -libc::EIO
         );
         assert_eq!(engine_error(io::Error::other("volume failed")), -libc::EIO);
+    }
+
+    #[test]
+    fn rejects_an_unexpected_libublk_buffer_size_without_engine_io() -> io::Result<()> {
+        let backing = TemporaryBacking::formatted(1)?;
+        let mut volume = block_storage::open(&backing.0)?;
+        let mut short_buffer = [0xa5; IO_BUFFER_BYTES as usize - 1];
+
+        assert_eq!(
+            handle_buffered_request(
+                &mut volume,
+                &descriptor(UBLK_IO_OP_WRITE, 0, 8),
+                &mut short_buffer
+            ),
+            -libc::EIO
+        );
+
+        let mut block = [0xff; IO_BUFFER_BYTES as usize];
+        assert_eq!(
+            handle_request(&mut volume, &descriptor(UBLK_IO_OP_READ, 0, 8), &mut block),
+            IO_BUFFER_BYTES as i32
+        );
+        assert_eq!(block, [0; IO_BUFFER_BYTES as usize]);
+        Ok(())
+    }
+
+    #[test]
+    fn shutdown_reports_queue_and_close_errors() {
+        assert!(combine_shutdown_results(Ok(()), Ok(())).is_ok());
+
+        let queue_only =
+            combine_shutdown_results(Err(io::Error::other("queue")), Ok(())).unwrap_err();
+        assert_eq!(queue_only.to_string(), "queue");
+
+        let close_only =
+            combine_shutdown_results(Ok(()), Err(io::Error::other("close"))).unwrap_err();
+        assert_eq!(close_only.to_string(), "close");
+
+        let both = combine_shutdown_results(
+            Err(io::Error::other("completion")),
+            Err(io::Error::other("checkpoint")),
+        )
+        .unwrap_err();
+        assert_eq!(
+            both.to_string(),
+            "queue failed: completion; volume close failed: checkpoint"
+        );
     }
 }
