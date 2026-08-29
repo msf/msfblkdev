@@ -1,286 +1,341 @@
-# Block Storage Design Domains
+# Distributed reliable block storage
 
-This focusses on design from first principles and very simple building blocks a full implementation of block devices for Railway.
-It minimizes the focus on the "storage-peer" that implements a local-only thinly provisioned blockdevice, it maximizes the focus on the distributed systems problem.
+Date: 2026-08-27
+Last reviewed: 2026-08-29
+Author: Miguel Filipe
+Status: exploratory
+Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md)
+
+A storage node can hold tens of thousands of volume replicas. Losing one dense node therefore creates a fleet-wide repair event, not a local disk-replacement problem.
+
+This note decomposes a distributed block-storage system for Railway into state-owning domains. It gives more detail to distributed coordination than to the local storage peer described by ADR-01 and ADR-04. It is a non-authoritative future design note, not an implementation plan and not a change to the local-device roadmap.
 
 Use **domain boundaries for ownership** and **workflows for overlap**.
 
+## What scale must the design handle?
 
-## 0. Requirements imposed:
+These are design targets, not measured limits:
 
-Cardinality of volumes: hundreds of thousands to millions
+- Hundreds of thousands to millions of volumes.
+- 100 to 3,000 storage nodes.
+- Approximately 5 to 50 NVMe devices per storage node.
+- Approximately 1,000 to 100,000 NVMe devices across the fleet as it grows by up to 100 times.
+- Approximately 1,000 volume replicas per NVMe device.
+- Expected logical volume sizes between roughly 1 GB and 8 TB.
+- Parallel repair of the replicas lost with one NVMe device or storage node.
+- Thin provisioning with a configured upper overcommit ratio such as 1:1, 2:1, or 3:1. A 1:1 policy does not overcommit capacity.
 
-Work for +100 to +3000 Storage Nodes, with ~5-50 NVMe nodes per node.
-Total NVMe counts: +1000 to 100_000 (growth for 100x)
-Store ~1k volumes per NVMe, expected volume size  1GB < N < 8TB
-Minimize MTTR on NVME loss, parallel repair of all volumes present on single NVME upon NVME loss.
-Must support storage overcommitment: sum of logical size of all volumes > (sum of physical size of all volumes/replication_factor)
-Design for defined upper commitment: 1, 2, 3,... (1 means no overcommitment)
-Volumes are "thinly privisioned"
+The principal failure modes are:
 
-Risks and key problems:
-- with storage dense nodes, a single node death creates a massive replication storm, and the amount of data to repair is extremely large.
+- **Repair storms:** one dense node failure can remove many replicas and require a large transfer volume.
+- **Consensus cardinality:** millions of replication groups make one process per group impractical. Each storage process must multiplex many Raft groups.
+- **Capacity exhaustion:** overcommitment can produce `ENOSPC` unless admission, reservation, and repair capacity remain consistent.
+- **Independent growth:** logical volume size, committed capacity, allocated extents, and used bytes change at different times.
 
- - aka, high ratio of volume-replica per storage node is a key problem to solve
- - at this scale of so many volumes, multi-raft must be implemented to reduce replication overheads of so many replication groups
-- E_NO_SPACE due to overcommitment on storage (running out of capacity)
-- Thin provisioning complicates volume management (support for demand-based and usage based growth)
+Mean time to recovery (MTTR) depends on bytes and available repair bandwidth, not only on replica count.
 
-## 1. Functional domains
+## Who owns which state?
 
-### 1.1 Service and user-resource domain
+### Service and user resources
 
-- Accounts, projects, volumes, names, logical sizes, and quotas.
-- User operations: create, grow, attach, detach, wipe, and delete.
-- User-visible lifecycle and durability/capacity contract.
-- Does not know about LVs, WALs, or replica placement.
+This domain owns:
 
-### 1.2 Compute-node presentation domain
+- accounts, projects, volume identity, names, quotas, and desired lifecycle state;
+- user operations such as create, grow, attach, detach, wipe, and delete;
+- the user-visible durability and capacity contract.
 
-- Creates and removes local block devices through `ublk`.
-- Routes I/O to the replication group.
-- Behaves like the Frontend Router/Gateway to a rep-vol-id + control-plane
-- Attachment state, fencing epochs, and reconnect behavior.
--  maintains a metadata lease for "attached" state, attached == ublk exists and available to userland + container
-- Makes devices available to container userland.
-- Does not select replicas or own durable volume state. - stateless, it always issues commands to the rep-vol-group 
+It does not know about logical volumes, write-ahead logs, or replica placement.
 
-### 1.3 Storage-node resource domain
+### Compute-node presentation
 
-- Node coordinator.
-- NVMe discovery, identity, health, and VG registration.
-- LV reservation, creation, extension, and deletion.
-- Starts and supervises the per-NVMe Multi-Raft/storage process.
-- Reports local capacity and health; does not make fleet placement decisions.
+This domain:
 
-### 1.4 Local replica storage-engine domain
+- creates and removes local block devices through `ublk`;
+- routes block I/O to the volume's replication group;
+- holds the runtime attachment configuration and renews the attachment lease;
+- makes the device available to the target container.
 
-- Persistent LBA-to-data mapping.
-- WAL, indexes, superblocks, checksums, and crash recovery.
-- Segment cleaning/compaction and physical watermarks on usage, reservation
-- Snapshot production and installation.
-- Operation for reservation size growth (uses storage-node api for LV growth, but controls this operation)
-- Operation for committed size growth
-- Operation for WIPE/clear
-- Owns one replica's physical representation, not distributed ordering.
+A volume is attached only while the replication group recognizes the current fencing epoch and the compute node exposes the corresponding `ublk` device. The compute frontend does not select replicas or own durable volume state. It can reconstruct its state from the replication group and control plane.
 
-### 1.5 Replication-group domain
+### Storage-node resources
 
-- Multi-Raft group lifecycle, elections, and write ordering.
-- all rep-vol-ids, all rep-vol-group-membership and metadata information
-- the leases for the attached client endpoint (which means ublk exists and is available to userland)
-- Quorum durability and committed LSN.
-- Bootstrap, learners, membership changes, and removal.
-- Group Snapshot boundary plus WAL catch-up, deterministic, requires quorum success
-- Group metadata operations such as: reservation or committed size growth, requires quorum success
-- Owns authoritative group membership and logical replicated metadata; does not choose hardware.
-- Owns authoritative information on all committments and reservations, all NVMEs in effective use
-- Owns heartbeats and health-checks on the rep-vol-group + nvme
+This domain owns actual local resource state:
 
-### 1.6 Fleet inventory and capacity-ledger domain
+- NVMe discovery, identity, health, endpoints, and fault-domain labels;
+- volume group (VG) registration;
+- logical volume (LV) reservation, creation, extension, and deletion;
+- startup and supervision of the per-NVMe Multi-Raft and storage process;
+- local capacity and health reports.
 
-- NVMes, (and nodes) topology/fault labels, endpoints, and health, commitments and reservations
-- Authoritative commitments and temporary reservations.
-- Eventually consistent physical-use observations.
-- Aggregates by NVMe, node, rack, DC, and fleet.
-- Provides facts; it does not choose placement, it isn't authoritative, it is advisory because the authoritative source is the sum of all rep-vol-groups and their metadata.
-  - rep-vol-ids (or multi-raft groups) run anti-entropy to update this information with the authoritative information they hold
+It does not make fleet-wide placement decisions.
 
-### 1.7 Admission and placement domain
+### Local replica storage engine
 
-- Enforces oversubscription policy.
-- Selects candidate NVMes under topology, capacity, heat, and membership constraints.
-- Bin-packs new and replacement peers.
-- Decides whether create, grow, or repair has a feasible placement.
-- Returns a placement plan; it does not create LVs or transfer data.
+This domain owns one replica's physical representation:
 
-### 1.8 Control-plane
+- the logical block address (LBA) to payload mapping;
+- the write-ahead log (WAL), indexes, roots, checksums, and crash recovery;
+- segment cleaning, compaction, and physical-use watermarks;
+- snapshot production and installation;
+- requests for LV growth through the storage-node API;
+- application of replicated grow and wipe operations.
 
-- Executes create, grow, wipe, delete, peer movement on rep-vol-groups.
-- Reconciles desired versus observed state.
-- Handles retries, idempotency, leases, and partial completion.
-- handles adding and removing nodes and deep node-nvme health checks
-- Prioritizes rep-vol-group repairs and controls concurrency.
-- handles also heat management and fleet-wide compactions, defrags, etc..
-- handle fleet wide metric or resource collection
-- Calls the placement, node-resource, and replication domains without owning their truths.
+It does not authorize logical growth, choose group membership, or define distributed write order.
 
-Observability, security, upgrades, and SLOs are cross-cutting concerns, not additional owners of state.
+### Replication group
 
-## 2. Shared object and capacity model
+Each volume has one Raft group. A Multi-Raft process multiplexes many of these groups.
 
-Use separate entities rather than combining volume, group, and replica state:
+The replication group owns:
+
+- authoritative membership, roles, and configuration epoch;
+- elections, write order, quorum durability, and committed local sequence number (LSN);
+- bootstrap, learner promotion, membership changes, and removal;
+- the committed logical size and per-replica capacity commitment;
+- attachment fencing epochs and client leases;
+- deterministic snapshot boundaries and WAL catch-up state;
+- replication health and peer reachability.
+
+Logical growth, capacity commitment, wipe, and membership changes require quorum agreement. The group records which NVMe device hosts each current member, but it does not choose that hardware. It consumes physical-health reports from the storage-node domain.
+
+### Fleet inventory and reservation ledger
+
+This domain contains two different kinds of state:
+
+- **Authoritative temporary reservations:** short-lived claims issued for create, grow, migration, and repair workflows.
+- **Derived inventory:** nodes, NVMe devices, topology, endpoints, accepted commitments, observed allocations, physical use, heat, and health.
+
+Replication groups and storage nodes publish anti-entropy updates to the derived inventory. The inventory aggregates by NVMe device, node, rack, data center, and fleet. It does not replace group membership or local resource authority, and it does not choose placement.
+
+### Admission and placement
+
+This domain:
+
+- enforces the configured overcommit policy;
+- evaluates current commitments, reservations, repair reserve, topology, heat, and membership constraints;
+- selects candidate NVMe devices for new and replacement replicas;
+- decides whether create, grow, or repair has a feasible placement;
+- returns a placement plan.
+
+It does not create LVs, change Raft membership, or transfer data.
+
+### Control plane
+
+The control plane executes cross-domain workflows:
+
+- create, grow, attach, detach, wipe, delete, migration, and repair;
+- desired-versus-observed reconciliation;
+- retries, idempotency, leases, and partial-completion recovery;
+- node admission and removal;
+- deep NVMe health checks and the repairs they trigger;
+- repair prioritization and transfer-concurrency control;
+- fleet-wide heat management, compaction scheduling, and resource collection.
+
+It calls the other domains without taking ownership of their authoritative state.
+
+Observability, security, upgrades, and service-level objectives (SLOs) are cross-cutting concerns, not additional state owners.
+
+## What objects cross domain boundaries?
+
+Keep volume, replication-group, and replica state separate:
 
 ```text
 Volume
   volume_id, account_id, project_id, name
-  logical_size, generation, lifecycle_state
-  replication_group_id
+  desired_logical_size, observed_logical_size
+  generation, lifecycle_state, replication_group_id
 
 ReplicationGroup
   group_id, volume_id, replication_factor
-  committed_capacity_per_replica,
-  allocated_capacity_per_replica,
-  membership, last_snapshot_id, LSNs 
-  config_epoch, group_state
-  attachment_state
+  logical_size, peer_commitment_bytes
+  membership, config_epoch, group_state
+  committed_lsn, last_snapshot_id
+  attachment_epoch, attachment_lease
 
 Replica
   group_id, replica_id, nvme_id
-  role, applied_lsn, health,
-  peer_commitment,
-  allocated_bytes, physical_used_bytes, observed_at
+  role, applied_lsn, replication_health
+  allocated_bytes, used_bytes, observed_at
 
 StorageNode
-  node_id, endpoint, fault-domain labels, health
+  node_id, endpoint, fault_domain_labels, health
 
 NVMe
   nvme_id, serial_number, node_id, endpoint
-  total_bytes, committed_bytes
-  allocated_bytes_observed, used_bytes_observed (observed because authoritative is the sum of ReplicationGroups on that nvme)
+  total_bytes, allocatable_bytes
+  committed_bytes, commitments_observed_at
+  allocated_bytes_observed, used_bytes_observed
   health, report_epoch, observed_at
-  reservations
 
 CapacityReservation
   reservation_id, operation_id, group_id, nvme_id
   bytes, expires_at, state
-
 ```
 
-Use unambiguous capacity terms:
+Use one capacity term for each concept:
 
 ```text
-logical_size       User-visible addressable bytes.
-peer_commitment    logical_size + bounded per-replica overhead.
-allocated_bytes    Physical LV extents currently assigned.
-used_bytes         Bytes currently occupied by data and metadata.
-reservation        Short-lived claim for an imminent allocation.
-repair_reserve     Capacity withheld for migration and failures.
-overcommit_ratio   committed_bytes / allocatable_bytes.
+logical_size              User-visible addressable bytes committed by the replication group.
+peer_commitment_bytes      logical_size plus bounded per-replica overhead.
+allocated_bytes           Physical LV extents assigned to one replica.
+used_bytes                Assigned bytes occupied by replica data and metadata.
+reservation               Short-lived claim for an imminent allocation or transfer.
+repair_reserve            Capacity withheld from normal admission for migration and failures.
+allocatable_bytes         Total bytes minus system overhead and repair reserve.
+committed_bytes           Sum of accepted peer_commitment_bytes at the observation time.
+overcommit_ratio          committed_bytes divided by allocatable_bytes.
 ```
 
 For a 3:1 policy:
 
 ```text
-device_committed_bytes <= 3 × device_allocatable_bytes
-fleet_committed_bytes  <= 3 × fleet_allocatable_bytes
+nvme_committed_bytes  <= 3 × nvme_allocatable_bytes
+fleet_committed_bytes <= 3 × fleet_allocatable_bytes
 ```
 
-Keep state ownership explicit:
+The commitment totals sum per-replica commitments, so the replication factor is already represented in the numerator.
 
-- Control-plane DB: identity, ownership, commitments, reservations, and workflow intent.
-    rep-vol-group creation, repairs (membership adds, deletes), migrations
-    nvme-deep healthcheck and repairs (drives requests for rep-vol-group changes)
-- Raft group: membership, configuration epoch, logical metadata, and committed LSN.
-- Storage node: actual LV state, physical use, local health, and multiplexer to nvme-centric rep-vol-peers and local volume state
-- Derived views: fleet totals, heat, overcommit ratios, and repair queue.
+State authority is explicit:
 
-Physical use belongs to each **replica**, because replicas can temporarily differ. Group-level logical live data is a separate value.
+- The service database owns identity, user intent, desired lifecycle state, and workflow intent.
+- The reservation ledger owns unexpired temporary reservations.
+- The Raft group owns accepted membership, `logical_size`, `peer_commitment_bytes`, attachment epoch, and committed LSN.
+- The storage node owns actual LV state and local hardware health.
+- Replica reports own observed physical use at their stated observation time.
+- Fleet totals, heat, overcommit ratios, and repair queues are derived views.
 
-## 3. Cross-domain workflows
+Physical use belongs to each replica because replicas can temporarily differ. Group-level logical live data is a separate value.
 
+## How do workflows cross domains?
 
-### 3.1 Create
+### Create
 
 ```text
-Create volume
-→ capacity admission
-→ select three NVMes
-→ acquire capacity reservations
-→ create LVs/local replicas
-→ bootstrap replication group
-→ initialize logical volume
-→ mark volume active
-→ convert/release temporary reservations
+Create volume intent
+→ admit peer commitments and select replication_factor NVMe devices
+→ acquire temporary capacity reservations
+→ create LVs and local replicas
+→ bootstrap the replication group
+→ commit initial logical metadata
+→ mark the volume active
+→ release temporary reservations after commitments appear in derived inventory
 ```
 
-### 3.2 Attach
+### Attach
 
 ```text
-Create attachment and fencing epoch
-→ send routing/configuration to compute node
-→ create ublk device
-→ storage group accepts I/O carrying current epoch, registers compute-node-id and attachment lease
+Request attachment
+→ replication group commits a new fencing epoch and lease
+→ control plane sends routing configuration to the compute node
+→ compute node creates the ublk device and renews the lease
+→ replication group accepts I/O only with the current epoch
 ```
 
-### 3.3 User-requested grow
+### User-requested growth
 
 ```text
-Validate new logical size
-→ increase fleet commitment (validate fleet_allocatable_bytes)
-→ rep-vol-group command: update replicated logical metadata
-→ resize compute-side device
-→ physical replica capacity continues growing independently
+Validate the requested logical size
+→ admit the additional peer commitment
+→ replication group commits the new logical size and peer commitment
+→ compute node resizes or recreates the presented device
+→ physical replica allocation continues on its independent watermark policy
 ```
 
-### 3.4 Local capacity pressure
+### Local capacity pressure
+
+Admission first tries to extend the existing replica:
 
 ```text
-Replica crosses pressure watermark
-→ report projected exhaustion
-→ placement selects replacement destination
-→ reserve capacity and create learner
-→ transfer snapshot
-→ replay WAL tail
-→ promote learner
-→ remove old peer
-→ release old LV
+Replica crosses its pressure watermark
+→ replica reports projected exhaustion
+→ admission reserves capacity on the current NVMe device
+→ storage node extends the LV
+→ local replica adopts the larger provisioned bound
 ```
 
-### 3.5 Device or node failure
+If the current device cannot support the extension, migration is the fallback:
+
+```text
+Placement selects a replacement destination
+→ control plane reserves capacity and creates a learner
+→ learner installs a snapshot and replays the WAL tail
+→ replication group promotes the learner and removes the old peer
+→ storage node releases the old LV
+```
+
+### NVMe device or node failure
 
 ```text
 Failure detector identifies affected replicas
-→ repair controller builds risk-prioritized queue
-→ placement processes required sizes
+→ repair controller builds a risk-prioritized queue
+→ placement finds feasible destinations
 → scheduler admits transfers under resource budgets
-→ normal learner/catch-up/promotion workflow
+→ each group runs the learner, catch-up, and promotion workflow
 ```
 
-Separate three decisions that are easy to conflate:
+Do not conflate these three scheduling decisions:
 
 - **Repair priority:** quorum health, time to exhaustion, write rate, and customer tier.
 - **Packing order:** commonly decreasing required capacity to preserve placeability.
 - **Transfer concurrency:** source-read, target-write, host-network, and rack-network budgets.
 
-## 4. Fermi and validation domain
+## What must we measure?
 
-Treat this as a workbook of models and experiments, not component design.
+Treat capacity and repair analysis as a workbook of models and experiments, not as component design.
 
-For the example fleet:
+For this example fleet, the inputs are assumptions:
 
 ```text
-nodes                          = 200
-NVMes per node                 = 20
-peers per NVMe                 = 1,000
-total NVMes                    = 4,000
-total replica peers            = 4,000,000
-groups at replication factor 3 ≈ 1,333,333
-
-replicas affected by node loss = 20,000
-remaining NVMes                = 3,980
-mean replacements per NVMe     ≈ 20,000 / 3,980 ≈ 5.0
+storage nodes                  = 200
+NVMe devices per node          = 20
+replicas per NVMe device       = 1,000
+replication factor             = 3
 ```
 
-Five is only the unconstrained average; topology, existing membership, capacity, and heat reduce eligible destinations.
+The derived cardinalities are:
 
-Repair time should be modeled in bytes, not replica count:
+```text
+total NVMe devices             = 4,000
+total replicas                 = 4,000,000
+replication groups             ≈ 1,333,333
+replicas affected by node loss = 20,000
+remaining NVMe devices         = 3,980
+mean replacements per device   ≈ 20,000 / 3,980 ≈ 5.0
+```
+
+Five replacements per remaining device is only the unconstrained average. Topology, existing membership, capacity, heat, and repair budgets reduce the eligible destination set.
+
+Model repair time in bytes:
 
 ```text
 bytes_to_seed = sum(live snapshot bytes for affected replicas)
 
-minimum repair time = max(
+minimum_seed_time = max(
   bytes_to_seed / aggregate source-read budget,
   bytes_to_seed / aggregate target-write budget,
   bytes_to_seed / repair-network budget
-) + WAL catch-up time
+)
+
+minimum_repair_time = minimum_seed_time + WAL catch-up time
 ```
 
-Benchmark buckets:
+This is a lower bound. It excludes detection, scheduling, elections, placement retries, and learner promotion.
 
-- **Cardinality:** LVs per NVMe, Raft groups per process, metadata memory per group, startup time, and enumeration time.
-- **Repair:** snapshot throughput, WAL catch-up rate, source/target contention, and placement success.
-- **Capacity:** overcommit distribution, largest-placeable peer, repair reserve, and time to full.
-- **Failure scenarios:** NVMe, storage process, node, rack, network partition, and control-plane outage.
+Benchmark these areas:
 
-Keep Go/Rust, gRPC, LVM, `io_uring`, `ublk`, and Kubernetes in a final **implementation mapping** section. They implement these domains; they should not define the problem decomposition.
+- **Cardinality:** LVs per NVMe device, Raft groups per process, metadata memory per group, startup time, and enumeration time.
+- **Repair:** snapshot throughput, WAL catch-up rate, source and target contention, and placement success.
+- **Capacity:** overcommit distribution, largest placeable peer, repair reserve, and time to exhaustion.
+- **Failure scenarios:** NVMe device, storage process, node, rack, network partition, and control-plane outage.
+
+## How do implementation tools map to the domains?
+
+Implementation choices must follow the domain boundaries rather than define them:
+
+- `ublk` implements compute-node block-device presentation.
+- Logical Volume Manager (LVM) implements storage-node allocation and extension of local replica backing.
+- `io_uring` can implement local replica I/O.
+- Raft provides replication-group ordering and membership; Multi-Raft multiplexes groups per storage process.
+- gRPC can carry control, placement, health, and replication traffic across explicit domain APIs.
+- Kubernetes can deploy and supervise control-plane, compute-node, and storage-node processes.
+- Go or Rust is an implementation choice for each component, not a domain boundary.

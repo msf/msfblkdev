@@ -3,6 +3,7 @@
 Date: 2026-08-29
 Author: Miguel Filipe
 Status: accepted
+On-disk format: 1
 
 ## Context
 
@@ -46,7 +47,7 @@ A local file or dedicated logical volume is sufficient for the backing store. Th
 
 ## Local storage-engine design
 
-This section specifies the persistent format and recovery invariants. The goal ADRs define when each behavior becomes required.
+This section specifies on-disk format version 1 and its recovery invariants. `V0` names the implementation milestone family, not the on-disk version. The goal ADRs define when each behavior becomes required.
 
 The engine uses a pre-sized file or raw block device through `io_uring`. It supports one serialized writer and has no compaction or log wraparound. The caller creates and pre-sizes the backing store. The formatter formats it in place.
 
@@ -56,7 +57,7 @@ The engine uses a pre-sized file or raw block device through `io_uring`. It supp
 - Maximum virtual volume: 8 TiB = `2^31` logical blocks. Logical block address (LBA) IDs and the volume block count use `u32`. An LBA ID must have its high bit zero. The volume block count can equal `2^31`. Validate a logical range with `start <= volume_blocks` and `count <= volume_blocks - start`. Byte sizes, byte offsets, ublk's 512-byte sector addresses and local sequence numbers (LSNs) use `u64`.
 - Physical addresses are 4 KiB block indexes encoded as `u32`; physical block zero never stores payload and is the unmapped sentinel in the LBA map.
 - All persistent integers are little-endian. Persistent structures are encoded explicitly rather than written from compiler-layout structs.
-- Each checkpoint descriptor starts with the `VBLC` magic bytes. Each write footer starts with the `VBLF` magic bytes. A shared 8-bit format-version field follows the magic bytes in both structures. Readers reject unsupported versions before interpreting the remaining fields.
+- Each checkpoint descriptor starts with the `VBLC` magic bytes. Each write footer starts with the `VBLF` magic bytes. Both structures store on-disk format version `1` in the following 8-bit field. Readers reject unsupported versions before interpreting the remaining fields.
 
 ```text
 4 KiB physical block 0          green checkpoint descriptor
@@ -80,7 +81,7 @@ The allocation follows the configured volume size, not the 8 TiB format maximum.
 
 ### Checksums
 
-V0 uses XXH3-64 checksums. The shared persistent format version defines the checksum algorithm and its inputs. These checksums detect accidental corruption. They do not authenticate data from a malicious block client.
+On-disk format version 1 uses XXH3-64 checksums. The format version defines the checksum algorithm and its inputs. These checksums detect accidental corruption. They do not authenticate data from a malicious block client.
 
 A payload checksum binds the volume, logical and physical addresses to the bytes:
 
@@ -88,7 +89,9 @@ A payload checksum binds the volume, logical and physical addresses to the bytes
 XXH3-64(seed=volume_id, little_endian(lba, physical_block) || payload[4096])
 ```
 
-Metadata checksums cover the complete 4 KiB structure with its checksum field set to zero. Unused array entries and alignment padding must be zero.
+Metadata checksums use unseeded XXH3-64 over the complete 4 KiB structure with its checksum field set to zero. Unused array entries and alignment padding must be zero.
+
+A checkpoint-body checksum uses unseeded XXH3-64 over every padded physical-map block followed by every padded checksum-map block. An initial empty checkpoint stores a zero body checksum and has no body to read.
 
 ### Write-record footer
 
@@ -103,8 +106,8 @@ The footer has fixed-position, zero-padded arrays. Entry `i` describes payload b
 | offset | size | field |
 |---:|---:|---|
 | 0 | 4 | magic (`VBLF`) |
-| 4 | 1 | format version |
-| 5 | 1 | record kind (`write` in V0) |
+| 4 | 1 | format version (`1`) |
+| 5 | 1 | record kind (`write = 1`) |
 | 6 | 2 | zero padding |
 | 8 | 8 | volume ID |
 | 16 | 8 | local sequence number |
@@ -114,7 +117,9 @@ The footer has fixed-position, zero-padded arrays. Entry `i` describes payload b
 | 1384 | 2704 | `checksums[338]`, each `u64` |
 | 4088 | 8 | footer checksum |
 
-The footer bounds a record to 338 payload blocks. This is 1.3203125 MiB of payload and 339 physical blocks including the footer. The payload count is `footer_block - previous_footer_block - 1`. The initial checkpoint uses `log_start_block - 1` as the previous-footer boundary sentinel. LBA IDs must be unique within a record. V0 writes one block per record. The format can support batching later without changing recovery.
+The footer bounds a record to 338 payload blocks. This is 1.3203125 MiB of payload and 339 physical blocks including the footer. In this ADR, `maximum_record_blocks` is therefore 339. The payload count is `footer_block - previous_footer_block - 1`. The initial checkpoint uses `log_start_block - 1` as the previous-footer boundary sentinel. LBA IDs must be unique within a record.
+
+V0 writes one payload block per record. V0.6 recovery must nevertheless accept every valid format-version-1 record containing 1 to 338 payload blocks. Later batching can then use the existing encoding without changing recovery.
 
 There are no speculative reserved fields. A future footer version can add replication terms. Separate record kinds can represent membership changes. Checkpoint state can contain durable, committed and applied watermarks if replication requires them. Async writes require runtime state, not new footer fields. Compaction, compression or a smaller footer requires a new format version.
 
@@ -138,7 +143,7 @@ Volume
   checkpoint_lsn            u64
   last_footer_block         u32
   next_checkpoint_slot      green | blue
-  log_bytes_since_checkpoint u64    # added with bounded recovery in v0.6
+  log_bytes_since_checkpoint u64    # added with bounded recovery in V0.6
 ```
 
 No LBA is stored in the mapping because its array index is the LBA. With one serialized writer, the next append block is always `last_footer_block + 1` and is not stored separately.
@@ -147,17 +152,27 @@ No LBA is stored in the mapping because its array index is the LBA. With one ser
 
 Green and blue are fixed checkpoint slots used alternately. Their 4 KiB descriptors live at physical blocks zero and one; their body regions are reserved at format time.
 
-A descriptor contains only the state required to identify and recover a checkpoint:
+A descriptor has this exact layout:
 
-- magic, format version and slot ID;
-- volume identity and geometry;
-- checkpoint LSN and last footer block;
-- body checksum and descriptor checksum;
-- zero-filled padding to complete the 4 KiB descriptor.
+| offset | size | field |
+|---:|---:|---|
+| 0 | 4 | magic (`VBLC`) |
+| 4 | 1 | format version (`1`) |
+| 5 | 1 | checkpoint slot (`green = 0`, `blue = 1`) |
+| 6 | 2 | zero padding |
+| 8 | 8 | volume ID |
+| 16 | 4 | logical block size (`4096`) |
+| 20 | 4 | volume block count |
+| 24 | 8 | backing block count |
+| 32 | 8 | checkpoint LSN |
+| 40 | 4 | last footer physical block |
+| 44 | 8 | checkpoint-body checksum |
+| 52 | 4036 | zero padding |
+| 4088 | 8 | descriptor checksum |
 
-The slot and volume geometry determine the checkpoint-body location and length. The format version determines the checksum algorithm.
+The slot and volume geometry determine the checkpoint-body location and length. The body is an exact snapshot of `physical_blocks` followed by `checksums`. Each array is rounded independently to 4 KiB.
 
-The body is an exact snapshot of `physical_blocks` followed by `checksums`. Each array is rounded independently to 4 KiB. An initial descriptor has checkpoint LSN zero and `last_footer_block = log_start_block - 1`. This state implies an empty mapping, so format does not need to write an all-zero checkpoint body. Startup does not read the body for this initial state.
+An initial descriptor has checkpoint LSN zero, `last_footer_block = log_start_block - 1`, and body checksum zero. This state implies an empty mapping, so format does not write an all-zero checkpoint body. Startup does not read the body for this initial state.
 
 V0 creates a checkpoint synchronously:
 
@@ -236,15 +251,15 @@ If `last_lsn > checkpoint_lsn`, `close()` creates a checkpoint, which includes t
 
 Startup reads both checkpoint descriptors. It considers valid candidates in descending checkpoint-LSN order. For each candidate, startup reads the body into the mapping arrays and verifies the complete body checksum. If a body is invalid, startup tries the next candidate. If no candidate is valid, V0 refuses to open. Full-log salvage is a separate future tool.
 
-The following tail-recovery algorithm is the v0.6 target. Earlier milestones reject a valid unreplayed tail.
+The following tail-recovery algorithm is the V0.6 target. Earlier milestones reject a valid unreplayed tail.
 
 Tail recovery starts at `last_footer_block + 1`. The selected checkpoint supplies the expected LSN and footer position:
 
-1. Probe each 4 KiB-aligned candidate footer position up to the 338-block payload maximum.
-2. Derive payload count from the candidate and previous footer positions. Accept only a footer whose metadata checksum, volume, LSN, self-position, previous-footer link and LBA bounds all match expectations.
+1. Probe each candidate footer from `previous_footer_block + 2` through `previous_footer_block + 339`, bounded by the backing store. These positions represent 1 to 338 payload blocks.
+2. Derive the payload count from the candidate and previous footer positions. Accept only a footer whose metadata checksum, volume, LSN, self-position, previous-footer link and LBA bounds all match expectations.
 3. Apply each LBA's derived payload position and checksum to the arrays, then continue after that footer.
-4. If no valid footer exists within one maximum record, stop. Records after this gap are ignored.
-5. Zero and flush `min(maximum_record_blocks, backing_blocks - append_block)` blocks from the recovered append position so stale records cannot reappear.
+4. If no valid footer exists within one maximum record, stop. Ignore records after this gap.
+5. Zero and flush `min(339, backing_blocks - append_block)` blocks from the recovered append position so stale records cannot reappear.
 6. Set `last_lsn` and `last_footer_block` to the final replayed record. Set `durable_lsn = last_lsn` after the stale-tail flush. Keep `checkpoint_lsn` from the selected checkpoint and set `log_bytes_since_checkpoint` to the replayed physical bytes.
 7. Serve requests only after these steps complete.
 
@@ -292,19 +307,19 @@ Goal 1 is complete. V0.4 behavior and its Rust closure gate are green.
 1. V0.5 multiple-write and overwrite semantics.
 2. V0.6 bounded crash-tail recovery, including interrupted checkpoint publication.
 3. V0.7 serialized 4 KiB ublk frontend supporting READ, WRITE and FLUSH.
-4. V0.8 vertical fio validation through graceful restarts and deterministic hard process termination.
+4. V0.8 vertical `fio` validation through graceful restarts and deterministic hard process termination.
 
 Automated tests use `SIGKILL` at coordinated points to model process-level fail-stop without cleanup. This covers user `kill -9` and OOM termination from the process's perspective. It does not model loss of the kernel, controller cache or power while an I/O is in flight. The V0.6 durability contract therefore depends on the backing device honoring successful fsync.
 
 ### Goal 3: backing-medium fault resilience
 
-Keep ublk and fio as the vertical workload while injecting deterministic, non-adversarial backing faults:
+Keep ublk and `fio` as the vertical workload while injecting deterministic, non-adversarial backing faults:
 
 - `EIO`, short I/O, timeouts, `ENOSPC` and device disappearance;
 - torn writes, bit flips, stale reads, misdirected I/O and reordering;
 - errors during normal I/O, checkpoint publication and recovery.
 
-The daemon must remain alive and diagnosable. The affected volume fails closed or transitions offline, and ublk completes requests with an error instead of hanging. We will evaluate `dm-flakey`, `dm-log-writes`, `dm-error` and existing fio facilities before writing a custom faulting backend.
+The daemon must remain alive and diagnosable. The affected volume fails closed or transitions offline, and ublk completes requests with an error instead of hanging. We will evaluate `dm-flakey`, `dm-log-writes`, `dm-error` and existing `fio` facilities before writing a custom faulting backend.
 
 Deterministic describes the test mechanism. These faults need not be deterministic on real hardware.
 
@@ -323,7 +338,7 @@ Database workloads remain optional until filesystem semantics are reliable.
 
 Only after the functional base is robust:
 
-- establish fio latency, throughput and CPU baselines;
+- establish `fio` latency, throughput and CPU baselines;
 - support multi-block requests and batching;
 - increase queue depth and add controlled concurrency;
 - profile before changing the format or adding caching;

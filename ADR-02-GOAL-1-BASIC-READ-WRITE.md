@@ -2,7 +2,9 @@
 
 Date: 2026-08-29
 Author: Miguel Filipe
-Status: completed
+Status: accepted
+Goal status: completed
+On-disk format: 1
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md)
 
 ## Context
@@ -92,7 +94,7 @@ Goal 1 required one cleanup delivery:
 
 Closure gate:
 
-```sh
+```bash
 cd rust
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
