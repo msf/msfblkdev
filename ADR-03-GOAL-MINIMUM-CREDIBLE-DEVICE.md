@@ -190,7 +190,8 @@ Acceptance tests:
   Evidence (2026-08-29): `checkpoints_before_write_exceeding_replay_bound` uses the public options-based open API with a valid 340-block bound. It accepts the exact-bound write without checkpointing, rejects an invalid intervening write without side effects, checkpoints before the next valid write, verifies raw blue/green descriptors and mapping bodies, post-write tail and cursors, alternating live slots, and reopen/read correctness. `log_full_write_does_not_publish_live_checkpoint` proves a write rejected at the same boundary leaves descriptors, mapping, cursors, and readable data unchanged.
 - [x] Reject invalid `checkpoint_after_bytes` values.
   Evidence (2026-08-29): `cargo test --lib tests::rejects_invalid_checkpoint_after_bytes_before_touching_backing -- --exact` rejects zero, the aligned and unaligned boundaries below `339 × 4 KiB`, and unaligned values above the minimum with `InvalidInput` through public `open_with_options`. Every invalid value takes precedence over a missing path and leaves a deliberately non-zero formatted backing image byte-for-byte unchanged. The exact 339-block minimum and the 64 MiB default both open successfully.
-- [ ] Recover after one uncaught unwinding Rust panic in a child process.
+- [x] Recover after one uncaught unwinding Rust panic in a child process.
+  Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_after_uncaught_unwinding_panic_without_close -- --exact` passes 20 fresh-image repetitions. The child writes and flushes five known writes, then panics without `Volume::close`; the parent bounds exit waiting to 10 seconds, kills and reaps only that child on timeout, requires panic exit code 101 instead of `SIGKILL`, and verifies every latest flushed value through public `open`.
 - [ ] All new tests and code pass through the top-level `make lint test` targets.
 
 ## How do we test finite logs?

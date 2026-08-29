@@ -1001,7 +1001,7 @@ mod tests {
     use std::path::PathBuf;
     use std::process::{Child, Command, ExitStatus, Stdio};
     use std::sync::mpsc;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
     use xxhash_rust::xxh3::xxh3_64_with_seed;
 
     struct TemporaryBacking(PathBuf);
@@ -1115,6 +1115,42 @@ mod tests {
         handshake_result?;
         if status.signal() != Some(libc::SIGKILL) {
             return Err(io::Error::other("child was not terminated by SIGKILL"));
+        }
+        Ok(())
+    }
+
+    fn wait_for_child_exit(child: &mut Child) -> io::Result<ExitStatus> {
+        let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return Ok(status),
+                Ok(None) => {}
+                Err(wait_error) => {
+                    kill_and_reap(child)?;
+                    return Err(wait_error);
+                }
+            }
+            if Instant::now() >= deadline {
+                kill_and_reap(child)?;
+                return Err(io::Error::other("timed out waiting for child exit"));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn run_unwinding_panic_child(test_name: &str, backing: &Path) -> io::Result<()> {
+        let mut child = Command::new(std::env::current_exe()?)
+            .args(["--exact", test_name, "--nocapture"])
+            .env(CRASH_TEST_BACKING, backing)
+            .spawn()?;
+        let status = wait_for_child_exit(&mut child)?;
+        if status.signal() == Some(libc::SIGKILL) {
+            return Err(io::Error::other("panic child was terminated by SIGKILL"));
+        }
+        if status.code() != Some(101) {
+            return Err(io::Error::other(format!(
+                "panic child did not exit with the Rust test failure code: {status}"
+            )));
         }
         Ok(())
     }
@@ -2015,6 +2051,39 @@ mod tests {
         )?;
 
         let expected = [[0xd4; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
+        let mut volume = open(&backing.0)?;
+        for (lba, expected) in expected.iter().enumerate() {
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(&actual, expected);
+        }
+        volume.close()
+    }
+
+    #[test]
+    fn recover_after_uncaught_unwinding_panic_without_close() -> io::Result<()> {
+        let writes = [(0, 0xa5), (1, 0x5a), (0, 0xc3), (2, 0x3c), (1, 0xe7)];
+        if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
+            let mut volume = open(PathBuf::from(backing))?;
+            for (lba, byte) in writes {
+                volume.write_block(lba, &[byte; BLOCK_SIZE])?;
+            }
+            volume.flush()?;
+            panic!("intentional uncaught panic after flushing test values");
+        }
+
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 3_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+
+        run_unwinding_panic_child(
+            "tests::recover_after_uncaught_unwinding_panic_without_close",
+            &backing.0,
+        )?;
+
+        let expected = [[0xc3; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
         let mut volume = open(&backing.0)?;
         for (lba, expected) in expected.iter().enumerate() {
             let mut actual = [0; BLOCK_SIZE];
