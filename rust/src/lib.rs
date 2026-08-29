@@ -22,6 +22,29 @@ const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
 const MAX_VOLUME_BLOCKS: u64 = 1 << 31;
 const MAX_BACKING_BLOCKS: u64 = u32::MAX as u64 + 1;
 
+#[cfg(test)]
+const TEST_FAILPOINT_ENV: &str = "BLOCK_STORAGE_TEST_FAILPOINT";
+#[cfg(test)]
+const RECORD_WRITE_COMPLETE_FAILPOINT: &str = "record-write-complete";
+#[cfg(test)]
+const MAPPING_PUBLISHED_FAILPOINT: &str = "mapping-published";
+#[cfg(test)]
+const LOG_FSYNC_COMPLETE_FAILPOINT: &str = "log-fsync-complete";
+
+#[cfg(test)]
+fn pause_at_test_failpoint(name: &str) -> io::Result<()> {
+    if std::env::var(TEST_FAILPOINT_ENV).as_deref() != Ok(name) {
+        return Ok(());
+    }
+
+    println!("{name}");
+    let mut stdout = io::stdout();
+    std::io::Write::flush(&mut stdout)?;
+    loop {
+        std::thread::park();
+    }
+}
+
 #[repr(align(4096))]
 struct AlignedBlock([u8; BLOCK_SIZE]);
 
@@ -88,6 +111,8 @@ impl Volume {
             self.failed = true;
             return Err(error);
         }
+        #[cfg(test)]
+        pause_at_test_failpoint(LOG_FSYNC_COMPLETE_FAILPOINT)?;
         self.durable_lsn = self.last_lsn;
         Ok(())
     }
@@ -279,12 +304,16 @@ impl Volume {
             self.failed = true;
             return Err(error);
         }
+        #[cfg(test)]
+        pause_at_test_failpoint(RECORD_WRITE_COMPLETE_FAILPOINT)?;
 
         self.physical_blocks[lba as usize] = payload_block;
         self.checksums[lba as usize] = checksum;
         self.last_lsn = lsn;
         self.last_footer_block = footer_block;
         self.log_bytes_since_checkpoint += record.0.len() as u64;
+        #[cfg(test)]
+        pause_at_test_failpoint(MAPPING_PUBLISHED_FAILPOINT)?;
         Ok(())
     }
 }
@@ -863,6 +892,73 @@ mod tests {
         }
     }
 
+    const CRASH_TEST_BACKING: &str = "BLOCK_STORAGE_CRASH_TEST_BACKING";
+    const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn kill_and_reap(child: &mut Child) -> io::Result<ExitStatus> {
+        match child.kill() {
+            Ok(()) => child.wait(),
+            Err(kill_error) => child.try_wait()?.ok_or(kill_error),
+        }
+    }
+
+    fn sigkill_child_at_handshake(
+        test_name: &str,
+        backing: &Path,
+        handshake: &str,
+        failpoint: Option<&str>,
+    ) -> io::Result<()> {
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .args(["--exact", test_name, "--nocapture"])
+            .env(CRASH_TEST_BACKING, backing)
+            .stdout(Stdio::piped());
+        if let Some(failpoint) = failpoint {
+            command.env(TEST_FAILPOINT_ENV, failpoint);
+        }
+        let mut child = command.spawn()?;
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                kill_and_reap(&mut child)?;
+                return Err(io::Error::other("child stdout unavailable"));
+            }
+        };
+        let expected_handshake = handshake.to_owned();
+        let (handshake_sender, handshake_receiver) = mpsc::sync_channel(1);
+        let stdout_reader = std::thread::spawn(move || {
+            let result = BufReader::new(stdout)
+                .lines()
+                .find_map(|line| match line {
+                    Ok(line) if line == expected_handshake => Some(Ok(())),
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error)),
+                })
+                .unwrap_or_else(|| Err(io::Error::other("child exited before handshake")));
+            handshake_sender.send(result)
+        });
+
+        let handshake_result = match handshake_receiver.recv_timeout(HANDSHAKE_TIMEOUT) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                Err(io::Error::other("timed out waiting for child handshake"))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err(io::Error::other("child handshake reader disconnected"))
+            }
+        };
+        let status = kill_and_reap(&mut child)?;
+        stdout_reader
+            .join()
+            .map_err(|_| io::Error::other("child handshake reader panicked"))?
+            .map_err(|_| io::Error::other("child handshake receiver disconnected"))?;
+        handshake_result?;
+        if status.signal() != Some(libc::SIGKILL) {
+            return Err(io::Error::other("child was not terminated by SIGKILL"));
+        }
+        Ok(())
+    }
+
     fn write_exact(
         ring: &mut Option<IoUring>,
         file: &File,
@@ -1409,18 +1505,9 @@ mod tests {
 
     #[test]
     fn recover_one_flushed_write_after_sigkill_without_close() -> io::Result<()> {
-        const CHILD_BACKING: &str = "BLOCK_STORAGE_CRASH_TEST_BACKING";
         const HANDSHAKE: &str = "write-flushed";
-        const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
-        fn kill_and_reap(child: &mut Child) -> io::Result<ExitStatus> {
-            match child.kill() {
-                Ok(()) => child.wait(),
-                Err(kill_error) => child.try_wait()?.ok_or(kill_error),
-            }
-        }
-
-        if let Some(backing) = std::env::var_os(CHILD_BACKING) {
+        if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
             let mut volume = open(PathBuf::from(backing))?;
             volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
             volume.flush()?;
@@ -1436,53 +1523,12 @@ mod tests {
         backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
         format(&backing.0, BLOCK_SIZE as u64)?;
 
-        let mut child = Command::new(std::env::current_exe()?)
-            .args([
-                "--exact",
-                "tests::recover_one_flushed_write_after_sigkill_without_close",
-                "--nocapture",
-            ])
-            .env(CHILD_BACKING, &backing.0)
-            .stdout(Stdio::piped())
-            .spawn()?;
-        let stdout = match child.stdout.take() {
-            Some(stdout) => stdout,
-            None => {
-                kill_and_reap(&mut child)?;
-                return Err(io::Error::other("child stdout unavailable"));
-            }
-        };
-        let (handshake_sender, handshake_receiver) = mpsc::sync_channel(1);
-        let stdout_reader = std::thread::spawn(move || {
-            let result = BufReader::new(stdout)
-                .lines()
-                .find_map(|line| match line {
-                    Ok(line) if line == HANDSHAKE => Some(Ok(())),
-                    Ok(_) => None,
-                    Err(error) => Some(Err(error)),
-                })
-                .unwrap_or_else(|| Err(io::Error::other("child exited before flush handshake")));
-            handshake_sender.send(result)
-        });
-
-        let handshake_result = match handshake_receiver.recv_timeout(HANDSHAKE_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                Err(io::Error::other("timed out waiting for flush handshake"))
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                Err(io::Error::other("flush handshake reader disconnected"))
-            }
-        };
-        let status = kill_and_reap(&mut child)?;
-        stdout_reader
-            .join()
-            .map_err(|_| io::Error::other("flush handshake reader panicked"))?
-            .map_err(|_| io::Error::other("flush handshake receiver disconnected"))?;
-        handshake_result?;
-        if status.signal() != Some(libc::SIGKILL) {
-            return Err(io::Error::other("child was not terminated by SIGKILL"));
-        }
+        sigkill_child_at_handshake(
+            "tests::recover_one_flushed_write_after_sigkill_without_close",
+            &backing.0,
+            HANDSHAKE,
+            None,
+        )?;
 
         let mut volume = open(&backing.0)?;
         let mut actual = [0; BLOCK_SIZE];
@@ -1493,16 +1539,7 @@ mod tests {
 
     #[test]
     fn recover_multiple_flushed_writes_and_overwrites_after_sigkill() -> io::Result<()> {
-        const CHILD_BACKING: &str = "BLOCK_STORAGE_MULTI_WRITE_CRASH_TEST_BACKING";
         const HANDSHAKE: &str = "all-writes-flushed";
-        const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-
-        fn kill_and_reap(child: &mut Child) -> io::Result<ExitStatus> {
-            match child.kill() {
-                Ok(()) => child.wait(),
-                Err(kill_error) => child.try_wait()?.ok_or(kill_error),
-            }
-        }
 
         let writes = [
             (0, 0xa5),
@@ -1512,7 +1549,7 @@ mod tests {
             (0, 0xd4),
             (1, 0xe7),
         ];
-        if let Some(backing) = std::env::var_os(CHILD_BACKING) {
+        if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
             let mut volume = open(PathBuf::from(backing))?;
             for (lba, byte) in writes {
                 volume.write_block(lba, &[byte; BLOCK_SIZE])?;
@@ -1531,53 +1568,12 @@ mod tests {
         backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
         format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
 
-        let mut child = Command::new(std::env::current_exe()?)
-            .args([
-                "--exact",
-                "tests::recover_multiple_flushed_writes_and_overwrites_after_sigkill",
-                "--nocapture",
-            ])
-            .env(CHILD_BACKING, &backing.0)
-            .stdout(Stdio::piped())
-            .spawn()?;
-        let stdout = match child.stdout.take() {
-            Some(stdout) => stdout,
-            None => {
-                kill_and_reap(&mut child)?;
-                return Err(io::Error::other("child stdout unavailable"));
-            }
-        };
-        let (handshake_sender, handshake_receiver) = mpsc::sync_channel(1);
-        let stdout_reader = std::thread::spawn(move || {
-            let result = BufReader::new(stdout)
-                .lines()
-                .find_map(|line| match line {
-                    Ok(line) if line == HANDSHAKE => Some(Ok(())),
-                    Ok(_) => None,
-                    Err(error) => Some(Err(error)),
-                })
-                .unwrap_or_else(|| Err(io::Error::other("child exited before flush handshake")));
-            handshake_sender.send(result)
-        });
-
-        let handshake_result = match handshake_receiver.recv_timeout(HANDSHAKE_TIMEOUT) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                Err(io::Error::other("timed out waiting for flush handshake"))
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                Err(io::Error::other("flush handshake reader disconnected"))
-            }
-        };
-        let status = kill_and_reap(&mut child)?;
-        stdout_reader
-            .join()
-            .map_err(|_| io::Error::other("flush handshake reader panicked"))?
-            .map_err(|_| io::Error::other("flush handshake receiver disconnected"))?;
-        handshake_result?;
-        if status.signal() != Some(libc::SIGKILL) {
-            return Err(io::Error::other("child was not terminated by SIGKILL"));
-        }
+        sigkill_child_at_handshake(
+            "tests::recover_multiple_flushed_writes_and_overwrites_after_sigkill",
+            &backing.0,
+            HANDSHAKE,
+            None,
+        )?;
 
         let expected = [[0xd4; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
         let mut volume = open(&backing.0)?;
@@ -1587,6 +1583,74 @@ mod tests {
             assert_eq!(&actual, expected);
         }
         volume.close()
+    }
+
+    fn recover_after_write_crash(
+        test_name: &str,
+        failpoint: &str,
+        flush_write: bool,
+        require_new_state: bool,
+    ) -> io::Result<()> {
+        let old = [0xa5; BLOCK_SIZE];
+        let new = [0x5a; BLOCK_SIZE];
+        if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
+            let mut volume = open(PathBuf::from(backing))?;
+            volume.write_block(0, &new)?;
+            if flush_write {
+                volume.flush()?;
+            }
+            return Err(io::Error::other("test failpoint did not pause child"));
+        }
+
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 6) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &old)?;
+        volume.close()?;
+
+        sigkill_child_at_handshake(test_name, &backing.0, failpoint, Some(failpoint))?;
+
+        let mut volume = open(&backing.0)?;
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        if require_new_state {
+            assert_eq!(actual, new);
+        } else {
+            assert!(actual == old || actual == new);
+        }
+        volume.close()
+    }
+
+    #[test]
+    fn recover_after_kill_at_record_write_boundary() -> io::Result<()> {
+        recover_after_write_crash(
+            "tests::recover_after_kill_at_record_write_boundary",
+            RECORD_WRITE_COMPLETE_FAILPOINT,
+            false,
+            false,
+        )
+    }
+
+    #[test]
+    fn recover_after_kill_at_mapping_publication_boundary() -> io::Result<()> {
+        recover_after_write_crash(
+            "tests::recover_after_kill_at_mapping_publication_boundary",
+            MAPPING_PUBLISHED_FAILPOINT,
+            false,
+            false,
+        )
+    }
+
+    #[test]
+    fn recover_after_kill_at_log_fsync_boundary() -> io::Result<()> {
+        recover_after_write_crash(
+            "tests::recover_after_kill_at_log_fsync_boundary",
+            LOG_FSYNC_COMPLETE_FAILPOINT,
+            true,
+            true,
+        )
     }
 
     #[test]

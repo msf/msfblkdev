@@ -154,10 +154,14 @@ Acceptance tests:
   Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_multiple_flushed_writes_and_overwrites_after_sigkill -- --exact` passes 20 consecutive runs after one flush covering six contiguous records; the parent then kills and reaps only its child, verifies `SIGKILL`, and public `open` recovers three distinct LBAs including two latest overwrite values.
 - [x] Preserve every write covered by the last successful flush.
   Evidence (2026-08-29): the same 20-run crash test writes all three LBAs and three overwrites before its single successful flush, reports the post-flush boundary, and after parent-driven `SIGKILL` verifies every covered LBA and latest value through public `open` and `read_block`.
-- [ ] Accept either the old or new state for writes not covered by flush.
-- [ ] Recover after a kill at the record-write boundary.
-- [ ] Recover after a kill at the mapping-publication boundary.
-- [ ] Recover after a kill at the log-fsync boundary.
+- [x] Accept either the old or new state for writes not covered by flush.
+  Evidence (2026-08-29): `recover_after_kill_at_record_write_boundary` and `recover_after_kill_at_mapping_publication_boundary` each pass 20 consecutive runs after starting from a flushed old value; public `open` and `read_block` accept only the complete old or new value after the unflushed overwrite is killed.
+- [x] Recover after a kill at the record-write boundary.
+  Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_after_kill_at_record_write_boundary -- --exact` passes 20 consecutive runs with `SIGKILL` after exact record-write completion and before mapping publication.
+- [x] Recover after a kill at the mapping-publication boundary.
+  Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_after_kill_at_mapping_publication_boundary -- --exact` passes 20 consecutive runs with `SIGKILL` after mapping publication and before flush.
+- [x] Recover after a kill at the log-fsync boundary.
+  Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_after_kill_at_log_fsync_boundary -- --exact` passes 20 consecutive runs with `SIGKILL` after backing fsync completion and before durable-cursor advance; recovery requires the flushed new value.
 - [ ] Recover after each checkpoint-body block boundary.
 - [ ] Recover after the checkpoint-body fsync boundary.
 - [ ] Recover after the descriptor-write boundary.
