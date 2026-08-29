@@ -150,8 +150,10 @@ Acceptance tests:
 
 - [x] Recover one flushed write after `SIGKILL` without close.
   Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_one_flushed_write_after_sigkill_without_close -- --exact` passes 20 consecutive runs; the parent bounds the child's post-flush handshake wait to 10 seconds, kills and reaps only that child, verifies `SIGKILL`, and reads the block through public `open` without `Volume::close`.
-- [ ] Recover multiple flushed writes and overwrites after `SIGKILL`.
-- [ ] Preserve every write covered by the last successful flush.
+- [x] Recover multiple flushed writes and overwrites after `SIGKILL`.
+  Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_multiple_flushed_writes_and_overwrites_after_sigkill -- --exact` passes 20 consecutive runs after one flush covering six contiguous records; the parent then kills and reaps only its child, verifies `SIGKILL`, and public `open` recovers three distinct LBAs including two latest overwrite values.
+- [x] Preserve every write covered by the last successful flush.
+  Evidence (2026-08-29): the same 20-run crash test writes all three LBAs and three overwrites before its single successful flush, reports the post-flush boundary, and after parent-driven `SIGKILL` verifies every covered LBA and latest value through public `open` and `read_block`.
 - [ ] Accept either the old or new state for writes not covered by flush.
 - [ ] Recover after a kill at the record-write boundary.
 - [ ] Recover after a kill at the mapping-publication boundary.

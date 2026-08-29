@@ -725,23 +725,21 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
     }
     let (checkpoint, mut physical_blocks, mut checksums) =
         recovered.ok_or_else(|| invalid_data("no valid checkpoint body"))?;
-    let replayed = read_one_tail_record(&mut ring, &backing, checkpoint)?;
-    let (last_lsn, last_footer_block, log_bytes_since_checkpoint) =
-        if let Some((lba, checksum, lsn, footer_block)) = replayed {
-            let next = Checkpoint {
-                checkpoint_lsn: lsn,
-                last_footer_block: footer_block,
-                ..checkpoint
-            };
-            if read_one_tail_record(&mut ring, &backing, next)?.is_some() {
-                return Err(invalid_data("multiple-record tail replay required"));
-            }
-            physical_blocks[lba as usize] = checkpoint.last_footer_block + 1;
-            checksums[lba as usize] = checksum;
-            (lsn, footer_block, (2 * BLOCK_SIZE) as u64)
-        } else {
-            (checkpoint.checkpoint_lsn, checkpoint.last_footer_block, 0)
-        };
+    let mut replay_cursor = checkpoint;
+    let mut log_bytes_since_checkpoint = 0_u64;
+    while let Some((lba, checksum, lsn, footer_block)) =
+        read_one_tail_record(&mut ring, &backing, replay_cursor)?
+    {
+        physical_blocks[lba as usize] = replay_cursor.last_footer_block + 1;
+        checksums[lba as usize] = checksum;
+        replay_cursor.checkpoint_lsn = lsn;
+        replay_cursor.last_footer_block = footer_block;
+        log_bytes_since_checkpoint = log_bytes_since_checkpoint
+            .checked_add((2 * BLOCK_SIZE) as u64)
+            .ok_or_else(|| invalid_data("replayed log byte count overflow"))?;
+    }
+    let last_lsn = replay_cursor.checkpoint_lsn;
+    let last_footer_block = replay_cursor.last_footer_block;
 
     Ok(Volume {
         backing,
@@ -1490,6 +1488,104 @@ mod tests {
         let mut actual = [0; BLOCK_SIZE];
         volume.read_block(0, &mut actual)?;
         assert_eq!(actual, [0xa5; BLOCK_SIZE]);
+        volume.close()
+    }
+
+    #[test]
+    fn recover_multiple_flushed_writes_and_overwrites_after_sigkill() -> io::Result<()> {
+        const CHILD_BACKING: &str = "BLOCK_STORAGE_MULTI_WRITE_CRASH_TEST_BACKING";
+        const HANDSHAKE: &str = "all-writes-flushed";
+        const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+        fn kill_and_reap(child: &mut Child) -> io::Result<ExitStatus> {
+            match child.kill() {
+                Ok(()) => child.wait(),
+                Err(kill_error) => child.try_wait()?.ok_or(kill_error),
+            }
+        }
+
+        let writes = [
+            (0, 0xa5),
+            (1, 0x5a),
+            (0, 0xc3),
+            (2, 0x3c),
+            (0, 0xd4),
+            (1, 0xe7),
+        ];
+        if let Some(backing) = std::env::var_os(CHILD_BACKING) {
+            let mut volume = open(PathBuf::from(backing))?;
+            for (lba, byte) in writes {
+                volume.write_block(lba, &[byte; BLOCK_SIZE])?;
+            }
+            volume.flush()?;
+            println!("{HANDSHAKE}");
+            io::stdout().flush()?;
+            loop {
+                std::thread::sleep(Duration::from_secs(60));
+            }
+        }
+
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 3_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+
+        let mut child = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "tests::recover_multiple_flushed_writes_and_overwrites_after_sigkill",
+                "--nocapture",
+            ])
+            .env(CHILD_BACKING, &backing.0)
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                kill_and_reap(&mut child)?;
+                return Err(io::Error::other("child stdout unavailable"));
+            }
+        };
+        let (handshake_sender, handshake_receiver) = mpsc::sync_channel(1);
+        let stdout_reader = std::thread::spawn(move || {
+            let result = BufReader::new(stdout)
+                .lines()
+                .find_map(|line| match line {
+                    Ok(line) if line == HANDSHAKE => Some(Ok(())),
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error)),
+                })
+                .unwrap_or_else(|| Err(io::Error::other("child exited before flush handshake")));
+            handshake_sender.send(result)
+        });
+
+        let handshake_result = match handshake_receiver.recv_timeout(HANDSHAKE_TIMEOUT) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                Err(io::Error::other("timed out waiting for flush handshake"))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err(io::Error::other("flush handshake reader disconnected"))
+            }
+        };
+        let status = kill_and_reap(&mut child)?;
+        stdout_reader
+            .join()
+            .map_err(|_| io::Error::other("flush handshake reader panicked"))?
+            .map_err(|_| io::Error::other("flush handshake receiver disconnected"))?;
+        handshake_result?;
+        if status.signal() != Some(libc::SIGKILL) {
+            return Err(io::Error::other("child was not terminated by SIGKILL"));
+        }
+
+        let expected = [[0xd4; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
+        let mut volume = open(&backing.0)?;
+        for (lba, expected) in expected.iter().enumerate() {
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(&actual, expected);
+        }
         volume.close()
     }
 
