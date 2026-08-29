@@ -4,7 +4,7 @@ ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
-.PHONY: setup build build-zig build-rust lint lint-zig lint-rust test test-zig test-rust run
+.PHONY: setup build build-zig build-rust lint lint-zig lint-rust test test-acceptance test-zig test-rust run
 
 build: build-rust
 
@@ -40,11 +40,17 @@ lint-rust:
 
 test: test-rust
 
+test-acceptance:
+	@BLOCK_STORAGE_CRASH_TEST_MODE=acceptance \
+	TEST_PER_TEST_SECONDS="$${TEST_PER_TEST_SECONDS:-1800}" \
+	TEST_SUITE_SECONDS="$${TEST_SUITE_SECONDS:-3600}" \
+	./scripts/test.sh
+
 test-zig: setup
 	@$(ZIG) build test
 
 test-rust:
-	@cd rust && cargo test
+	@./scripts/test.sh
 
 run: setup
 	@$(ZIG) test src/root.zig --test-filter "V0.4 black-box acceptance"

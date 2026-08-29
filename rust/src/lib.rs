@@ -998,8 +998,9 @@ pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::fs::remove_file;
-    use std::io::{BufRead, BufReader, Write};
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::os::fd::FromRawFd;
     use std::os::unix::fs::FileExt;
     use std::os::unix::process::ExitStatusExt;
@@ -1057,8 +1058,40 @@ mod tests {
     }
 
     const CRASH_TEST_BACKING: &str = "BLOCK_STORAGE_CRASH_TEST_BACKING";
-    const CRASH_REPETITIONS: usize = 20;
+    const CRASH_TEST_MODE: &str = "BLOCK_STORAGE_CRASH_TEST_MODE";
+    const ACCEPTANCE_CRASH_TEST_MODE: &str = "acceptance";
+    const ACCEPTANCE_CRASH_REPETITIONS: usize = 20;
     const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+    struct CrashTestPlan {
+        boundary_indices: Vec<u64>,
+        repetitions: usize,
+    }
+
+    fn crash_test_plan(mode: Option<&OsStr>, boundary_count: u64) -> io::Result<CrashTestPlan> {
+        if mode.is_none() {
+            let mut boundary_indices = vec![0, boundary_count / 2, boundary_count - 1];
+            boundary_indices.dedup();
+            return Ok(CrashTestPlan {
+                boundary_indices,
+                repetitions: 1,
+            });
+        }
+        if mode == Some(OsStr::new(ACCEPTANCE_CRASH_TEST_MODE)) {
+            return Ok(CrashTestPlan {
+                boundary_indices: (0..boundary_count).collect(),
+                repetitions: ACCEPTANCE_CRASH_REPETITIONS,
+            });
+        }
+        Err(io::Error::other(format!(
+            "unsupported {CRASH_TEST_MODE}: {}",
+            mode.unwrap_or_default().to_string_lossy()
+        )))
+    }
+
+    fn configured_crash_test_plan(boundary_count: u64) -> io::Result<CrashTestPlan> {
+        crash_test_plan(std::env::var_os(CRASH_TEST_MODE).as_deref(), boundary_count)
+    }
 
     fn kill_and_reap(child: &mut Child) -> io::Result<ExitStatus> {
         match child.kill() {
@@ -1147,14 +1180,26 @@ mod tests {
         let mut child = Command::new(std::env::current_exe()?)
             .args(["--exact", test_name, "--nocapture"])
             .env(CRASH_TEST_BACKING, backing)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()?;
-        let status = wait_for_child_exit(&mut child)?;
-        if status.signal() == Some(libc::SIGKILL) {
-            return Err(io::Error::other("panic child was terminated by SIGKILL"));
-        }
-        if status.code() != Some(101) {
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| io::Error::other("panic child stderr unavailable"))?;
+        let stderr_reader = std::thread::spawn(move || {
+            let mut output = Vec::new();
+            stderr.read_to_end(&mut output).map(|_| output)
+        });
+        let status_result = wait_for_child_exit(&mut child);
+        let stderr = stderr_reader
+            .join()
+            .map_err(|_| io::Error::other("panic child stderr reader panicked"))??;
+        let status = status_result?;
+        if status.signal() == Some(libc::SIGKILL) || status.code() != Some(101) {
             return Err(io::Error::other(format!(
-                "panic child did not exit with the Rust test failure code: {status}"
+                "panic child exited unexpectedly ({status}); stderr:\n{}",
+                String::from_utf8_lossy(&stderr)
             )));
         }
         Ok(())
@@ -2207,12 +2252,26 @@ mod tests {
     }
 
     #[test]
+    fn crash_test_modes_select_smoke_and_exhaustive_work() -> io::Result<()> {
+        let smoke = crash_test_plan(None, 339)?;
+        assert_eq!(smoke.boundary_indices, [0, 169, 338]);
+        assert_eq!(smoke.repetitions, 1);
+
+        let acceptance = crash_test_plan(Some(OsStr::new(ACCEPTANCE_CRASH_TEST_MODE)), 339)?;
+        assert_eq!(acceptance.boundary_indices, (0..339).collect::<Vec<_>>());
+        assert_eq!(acceptance.repetitions, 20);
+        assert!(crash_test_plan(Some(OsStr::new("invalid")), 339).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn recover_after_each_checkpoint_body_block_boundary() -> io::Result<()> {
         let (_, layout) = layout_for(1025 * BLOCK_SIZE as u64)?;
         let body_blocks = layout.physical_map_blocks + layout.checksum_map_blocks;
-        for block_index in 0..body_blocks {
+        let plan = configured_crash_test_plan(u64::from(body_blocks))?;
+        for block_index in plan.boundary_indices {
             let failpoint = format!("{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{block_index}");
-            for _ in 0..CRASH_REPETITIONS {
+            for _ in 0..plan.repetitions {
                 recover_after_checkpoint_crash(
                     "tests::recover_after_each_checkpoint_body_block_boundary",
                     &failpoint,
@@ -2225,7 +2284,7 @@ mod tests {
 
     #[test]
     fn recover_after_checkpoint_body_fsync_boundary() -> io::Result<()> {
-        for _ in 0..CRASH_REPETITIONS {
+        for _ in 0..configured_crash_test_plan(1)?.repetitions {
             recover_after_checkpoint_crash(
                 "tests::recover_after_checkpoint_body_fsync_boundary",
                 CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT,
@@ -2237,7 +2296,7 @@ mod tests {
 
     #[test]
     fn recover_after_descriptor_write_boundary() -> io::Result<()> {
-        for _ in 0..CRASH_REPETITIONS {
+        for _ in 0..configured_crash_test_plan(1)?.repetitions {
             recover_after_checkpoint_crash(
                 "tests::recover_after_descriptor_write_boundary",
                 DESCRIPTOR_WRITE_COMPLETE_FAILPOINT,
@@ -2249,7 +2308,7 @@ mod tests {
 
     #[test]
     fn recover_after_descriptor_fsync_boundary() -> io::Result<()> {
-        for _ in 0..CRASH_REPETITIONS {
+        for _ in 0..configured_crash_test_plan(1)?.repetitions {
             recover_after_checkpoint_crash(
                 "tests::recover_after_descriptor_fsync_boundary",
                 DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT,
@@ -2753,9 +2812,10 @@ mod tests {
 
     #[test]
     fn recover_after_each_stale_tail_clear_block_boundary() -> io::Result<()> {
-        for block_index in 0..MAXIMUM_RECORD_BLOCKS {
+        let plan = configured_crash_test_plan(MAXIMUM_RECORD_BLOCKS)?;
+        for block_index in plan.boundary_indices {
             let failpoint = format!("{STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT}-{block_index}");
-            for _ in 0..CRASH_REPETITIONS {
+            for _ in 0..plan.repetitions {
                 recover_after_stale_tail_crash(
                     "tests::recover_after_each_stale_tail_clear_block_boundary",
                     &failpoint,
@@ -2767,7 +2827,7 @@ mod tests {
 
     #[test]
     fn recover_after_stale_tail_fsync_boundary() -> io::Result<()> {
-        for _ in 0..CRASH_REPETITIONS {
+        for _ in 0..configured_crash_test_plan(1)?.repetitions {
             recover_after_stale_tail_crash(
                 "tests::recover_after_stale_tail_fsync_boundary",
                 STALE_TAIL_FSYNC_COMPLETE_FAILPOINT,
