@@ -186,12 +186,22 @@ impl BackingLock {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct Args {
-    backing_path: PathBuf,
-    device_id: i32,
+enum CliCommand {
+    Serve {
+        backing_path: PathBuf,
+        device_id: i32,
+    },
+    Delete {
+        device_id: i32,
+    },
+    Format {
+        backing_path: PathBuf,
+        backing_bytes: u64,
+        volume_bytes: u64,
+    },
 }
 
-fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<Args> {
+fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand> {
     let mut args = args.into_iter();
     let program = args
         .next()
@@ -200,37 +210,70 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<Args> {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} <backing-path> <device-id>",
+                "usage: {} serve <backing> <device-id> | delete <device-id> | format <new-regular-file> <backing-bytes> <volume-bytes>",
                 PathBuf::from(&program).display()
             ),
         )
     };
 
-    let backing_path = PathBuf::from(args.next().ok_or_else(&usage)?);
-    let device_id = parse_device_id(&args.next().ok_or_else(&usage)?)?;
+    let command = args.next().ok_or_else(&usage)?;
+    let command = match command.to_str() {
+        Some("serve") => CliCommand::Serve {
+            backing_path: PathBuf::from(args.next().ok_or_else(&usage)?),
+            device_id: parse_serve_device_id(&args.next().ok_or_else(&usage)?)?,
+        },
+        Some("delete") => CliCommand::Delete {
+            device_id: parse_delete_device_id(&args.next().ok_or_else(&usage)?)?,
+        },
+        Some("format") => CliCommand::Format {
+            backing_path: PathBuf::from(args.next().ok_or_else(&usage)?),
+            backing_bytes: parse_bytes(&args.next().ok_or_else(&usage)?)?,
+            volume_bytes: parse_bytes(&args.next().ok_or_else(&usage)?)?,
+        },
+        _ => return Err(usage()),
+    };
     if args.next().is_some() {
         return Err(usage());
     }
-
-    Ok(Args {
-        backing_path,
-        device_id,
-    })
+    Ok(command)
 }
 
-fn parse_device_id(value: &OsStr) -> io::Result<i32> {
-    let id = value
+fn parse_i32(value: &OsStr) -> io::Result<i32> {
+    value
         .to_str()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid device ID"))?
         .parse::<i32>()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid device ID"))?;
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid device ID"))
+}
+
+fn parse_serve_device_id(value: &OsStr) -> io::Result<i32> {
+    let id = parse_i32(value)?;
     if id < -1 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "device ID must be -1 or non-negative",
+            "serve device ID must be -1 or non-negative",
         ));
     }
     Ok(id)
+}
+
+fn parse_delete_device_id(value: &OsStr) -> io::Result<i32> {
+    let id = parse_i32(value)?;
+    if id < 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "delete device ID must be non-negative",
+        ));
+    }
+    Ok(id)
+}
+
+fn parse_bytes(value: &OsStr) -> io::Result<u64> {
+    value
+        .to_str()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid byte size"))?
+        .parse::<u64>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid byte size"))
 }
 
 fn controller_builder(device_id: i32) -> UblkCtrlBuilder<'static> {
@@ -517,13 +560,12 @@ fn wait_for_device_removal(device_id: u32) -> io::Result<()> {
     Ok(())
 }
 
-fn run() -> io::Result<()> {
-    let args = parse_args(std::env::args_os())?;
-    let _backing_lock = BackingLock::acquire(&args.backing_path)?;
+fn serve(backing_path: &Path, device_id: i32) -> io::Result<()> {
+    let _backing_lock = BackingLock::acquire(backing_path)?;
     let signal_guard = SignalGuard::install()?;
     let drain = Arc::new(DrainState::new());
     let state = Arc::new(Mutex::new(QueueState {
-        volume: Some(block_storage::open(&args.backing_path)?),
+        volume: Some(block_storage::open(backing_path)?),
         result: None,
     }));
     let target = {
@@ -540,9 +582,7 @@ fn run() -> io::Result<()> {
     };
 
     let (target_result, stop_result, shutdown_result, device_id) = {
-        let controller = controller_builder(args.device_id)
-            .build()
-            .map_err(ublk_error)?;
+        let controller = controller_builder(device_id).build().map_err(ublk_error)?;
         let device_id = controller.dev_info().dev_id;
         let queue_state = Arc::clone(&state);
         let queue_drain = Arc::clone(&drain);
@@ -600,6 +640,54 @@ fn run() -> io::Result<()> {
     )
 }
 
+fn delete(device_id: i32) -> io::Result<()> {
+    UblkCtrlBuilder::default()
+        .id(device_id)
+        .build()
+        .map_err(ublk_error)?
+        .del_dev()
+        .map(|_| ())
+        .map_err(ublk_error)
+}
+
+fn format_new(backing_path: &Path, backing_bytes: u64, volume_bytes: u64) -> io::Result<()> {
+    let backing = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(backing_path)?;
+    let format_error = match backing
+        .set_len(backing_bytes)
+        .and_then(|()| block_storage::format(backing_path, volume_bytes))
+    {
+        Ok(()) => return Ok(()),
+        Err(error) => error,
+    };
+
+    drop(backing);
+    match std::fs::remove_file(backing_path) {
+        Ok(()) => Err(format_error),
+        Err(cleanup_error) => Err(io::Error::other(format!(
+            "{format_error}; failed to remove newly created backing file: {cleanup_error}"
+        ))),
+    }
+}
+
+fn run() -> io::Result<()> {
+    match parse_args(std::env::args_os())? {
+        CliCommand::Serve {
+            backing_path,
+            device_id,
+        } => serve(&backing_path, device_id),
+        CliCommand::Delete { device_id } => delete(device_id),
+        CliCommand::Format {
+            backing_path,
+            backing_bytes,
+            volume_bytes,
+        } => format_new(&backing_path, backing_bytes, volume_bytes),
+    }
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -654,6 +742,27 @@ mod tests {
     }
 
     impl Drop for TemporaryBacking {
+        fn drop(&mut self) {
+            let _ = remove_file(&self.0);
+        }
+    }
+
+    struct TemporaryPath(PathBuf);
+
+    impl TemporaryPath {
+        fn new() -> io::Result<Self> {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(io::Error::other)?
+                .as_nanos();
+            Ok(Self(std::env::temp_dir().join(format!(
+                "block-storage-ublk-new-{}-{nonce}",
+                std::process::id()
+            ))))
+        }
+    }
+
+    impl Drop for TemporaryPath {
         fn drop(&mut self) {
             let _ = remove_file(&self.0);
         }
@@ -795,42 +904,71 @@ mod tests {
     }
 
     #[test]
-    fn parses_backing_path_and_device_id() {
-        let args = parse_args([
-            OsString::from("daemon"),
-            OsString::from("volume.img"),
-            OsString::from("7"),
-        ])
-        .unwrap();
-
+    fn parses_explicit_commands() {
         assert_eq!(
-            args,
-            Args {
+            parse_args(["daemon", "serve", "volume.img", "-1"].map(OsString::from)).unwrap(),
+            CliCommand::Serve {
                 backing_path: PathBuf::from("volume.img"),
-                device_id: 7,
+                device_id: -1,
+            }
+        );
+        assert_eq!(
+            parse_args(["daemon", "delete", "7"].map(OsString::from)).unwrap(),
+            CliCommand::Delete { device_id: 7 }
+        );
+        assert_eq!(
+            parse_args(["daemon", "format", "volume.img", "1048576", "16384"].map(OsString::from))
+                .unwrap(),
+            CliCommand::Format {
+                backing_path: PathBuf::from("volume.img"),
+                backing_bytes: 1_048_576,
+                volume_bytes: 16_384,
             }
         );
     }
 
     #[test]
-    fn accepts_auto_allocated_device_id() {
-        assert_eq!(parse_device_id(OsStr::new("-1")).unwrap(), -1);
+    fn rejects_invalid_arguments_and_negative_delete_ids() {
+        assert!(parse_serve_device_id(OsStr::new("-2")).is_err());
+        assert!(parse_delete_device_id(OsStr::new("-1")).is_err());
+        assert!(parse_delete_device_id(OsStr::new("-2")).is_err());
+        assert!(parse_delete_device_id(OsStr::new("not-a-number")).is_err());
+        assert!(parse_args([OsString::from("daemon")]).is_err());
+        assert!(parse_args(["daemon", "unknown"].map(OsString::from)).is_err());
+        assert!(parse_args(["daemon", "delete", "1", "extra"].map(OsString::from)).is_err());
     }
 
     #[test]
-    fn rejects_invalid_arguments() {
-        assert!(parse_device_id(OsStr::new("-2")).is_err());
-        assert!(parse_device_id(OsStr::new("not-a-number")).is_err());
-        assert!(parse_args([OsString::from("daemon")]).is_err());
-        assert!(
-            parse_args([
-                OsString::from("daemon"),
-                OsString::from("volume.img"),
-                OsString::from("1"),
-                OsString::from("extra"),
-            ])
-            .is_err()
-        );
+    fn format_new_sizes_formats_and_opens_exact_image() -> io::Result<()> {
+        let backing = TemporaryPath::new()?;
+        format_new(&backing.0, 1024 * 1024, 4 * u64::from(IO_BUFFER_BYTES))?;
+
+        assert_eq!(std::fs::metadata(&backing.0)?.len(), 1024 * 1024);
+        let volume = block_storage::open(&backing.0)?;
+        assert_eq!(volume.volume_blocks(), 4);
+        volume.close()
+    }
+
+    #[test]
+    fn format_new_never_overwrites_an_existing_path() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        std::fs::write(&backing.0, b"preserve me")?;
+
+        let error = format_new(&backing.0, 1024 * 1024, 4096).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&backing.0)?, b"preserve me");
+        Ok(())
+    }
+
+    #[test]
+    fn format_new_removes_created_file_after_engine_validation_failure() -> io::Result<()> {
+        for (backing_bytes, volume_bytes) in [(1024 * 1024 + 1, 4096), (1024 * 1024, 4097)] {
+            let backing = TemporaryPath::new()?;
+            let error = format_new(&backing.0, backing_bytes, volume_bytes).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert!(!backing.0.exists());
+        }
+        Ok(())
     }
 
     #[test]
