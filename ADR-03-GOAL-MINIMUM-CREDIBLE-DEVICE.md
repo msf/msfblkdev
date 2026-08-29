@@ -170,10 +170,13 @@ Acceptance tests:
   Evidence (2026-08-29): `recover_after_descriptor_write_boundary` passes 20 parent-driven `SIGKILL` runs after exact descriptor-write completion and before descriptor fsync; public `open` selects the complete newer root and returns every flushed latest value.
 - [x] Recover after the descriptor-fsync boundary.
   Evidence (2026-08-29): `recover_after_descriptor_fsync_boundary` passes 20 parent-driven `SIGKILL` runs after descriptor fsync and before in-memory publication; public `open` selects the durable newer root and returns every flushed latest value.
-- [ ] Recover after each stale-tail clearing boundary.
+- [x] Recover after each stale-tail clearing boundary.
+  Evidence (2026-08-29): `recover_after_each_stale_tail_clear_block_boundary` passes 20 parent-driven `SIGKILL` runs after each of the two one-block-record clear writes, and `recover_after_stale_tail_fsync_boundary` passes 20 runs after the final clear fsync; every public reopen completes recovery and preserves only pre-gap state.
 - [ ] Fall back from an unusable newest descriptor or checkpoint body.
-- [ ] Stop at an invalid tail and never resurrect a valid-looking later record.
-- [ ] Clear the bounded stale-tail window durably before serving requests.
+- [x] Stop at an invalid tail and never resurrect a valid-looking later record.
+  Evidence (2026-08-29): `invalid_gap_stops_replay_and_clears_only_bounded_window` writes a valid record, an invalid gap and a checksummed valid-looking later record; public recovery stops at LSN 1, returns zeroes for the later LBA and leaves the ignored later record outside the clear window intact.
+- [x] Clear the bounded stale-tail window durably before serving requests.
+  Evidence (2026-08-29): the invalid-gap test verifies both stale blocks are zero while the following blocks and file length are unchanged; `stale_tail_clear_stops_at_backing_eof` verifies a one-block remainder is zeroed without extending the file, and the fsync crash test reads the zeroed window raw after `SIGKILL` and before another recovery open.
 - [ ] Reconstruct every recovery cursor from replayed state.
 - [ ] Reject two unusable checkpoint roots with a corruption error, not a panic.
 - [ ] Reject invalid footer ranges, duplicate LBAs and non-zero unused entries.

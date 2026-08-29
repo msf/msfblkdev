@@ -21,6 +21,7 @@ const CHECKPOINT_BODY_CHECKSUM_OFFSET: usize = 44;
 const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
 const MAX_VOLUME_BLOCKS: u64 = 1 << 31;
 const MAX_BACKING_BLOCKS: u64 = u32::MAX as u64 + 1;
+const MAXIMUM_RECORD_BLOCKS: u64 = 2;
 
 #[cfg(test)]
 const TEST_FAILPOINT_ENV: &str = "BLOCK_STORAGE_TEST_FAILPOINT";
@@ -38,6 +39,10 @@ const CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT: &str = "checkpoint-body-fsync-co
 const DESCRIPTOR_WRITE_COMPLETE_FAILPOINT: &str = "descriptor-write-complete";
 #[cfg(test)]
 const DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT: &str = "descriptor-fsync-complete";
+#[cfg(test)]
+const STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT: &str = "stale-tail-clear-block-complete";
+#[cfg(test)]
+const STALE_TAIL_FSYNC_COMPLETE_FAILPOINT: &str = "stale-tail-fsync-complete";
 
 #[cfg(test)]
 fn pause_at_test_failpoint(name: &str) -> io::Result<()> {
@@ -619,6 +624,36 @@ fn decode_one_block_tail_footer(
     Some((lba, read_u64(footer, FOOTER_PAYLOAD_CHECKSUM_OFFSET)))
 }
 
+fn clear_stale_tail(
+    ring: &mut Option<IoUring>,
+    backing: &File,
+    append_block: u64,
+    backing_blocks: u64,
+) -> io::Result<()> {
+    let clear_blocks = MAXIMUM_RECORD_BLOCKS.min(backing_blocks.saturating_sub(append_block));
+    let zero = AlignedBlock([0; BLOCK_SIZE]);
+    for block_index in 0..clear_blocks {
+        let write = opcode::Write::new(
+            types::Fd(backing.as_raw_fd()),
+            zero.0.as_ptr(),
+            BLOCK_SIZE as u32,
+        )
+        .offset((append_block + block_index) * BLOCK_SIZE as u64)
+        .build();
+        submit_exact(ring, write, append_block + block_index, BLOCK_SIZE as i32)?;
+        #[cfg(test)]
+        pause_at_test_failpoint(&format!(
+            "{STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT}-{block_index}"
+        ))?;
+    }
+
+    let fsync = opcode::Fsync::new(types::Fd(backing.as_raw_fd())).build();
+    submit_exact(ring, fsync, append_block, 0)?;
+    #[cfg(test)]
+    pause_at_test_failpoint(STALE_TAIL_FSYNC_COMPLETE_FAILPOINT)?;
+    Ok(())
+}
+
 fn read_one_tail_record(
     ring: &mut Option<IoUring>,
     backing: &File,
@@ -789,6 +824,12 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
     }
     let last_lsn = replay_cursor.checkpoint_lsn;
     let last_footer_block = replay_cursor.last_footer_block;
+    clear_stale_tail(
+        &mut ring,
+        &backing,
+        u64::from(last_footer_block) + 1,
+        checkpoint.backing_blocks,
+    )?;
 
     Ok(Volume {
         backing,
@@ -1013,6 +1054,128 @@ mod tests {
         .offset(0)
         .build();
         submit_exact(ring, entry, 3, BLOCK_SIZE as i32)
+    }
+
+    fn write_raw_record(
+        file: &File,
+        volume_id: u64,
+        lsn: u64,
+        previous_footer_block: u32,
+        payload_block: u32,
+        lba: u32,
+        byte: u8,
+    ) -> io::Result<[u8; BLOCK_SIZE]> {
+        let payload = [byte; BLOCK_SIZE];
+        let footer_block = payload_block + 1;
+        let mut footer = [0; BLOCK_SIZE];
+        encode_write_footer(
+            &mut footer,
+            volume_id,
+            lsn,
+            previous_footer_block,
+            footer_block,
+            lba,
+            payload_checksum(volume_id, lba, payload_block, &payload),
+        );
+        file.write_all_at(&payload, u64::from(payload_block) * BLOCK_SIZE as u64)?;
+        file.write_all_at(&footer, u64::from(footer_block) * BLOCK_SIZE as u64)?;
+        Ok(footer)
+    }
+
+    struct InvalidGapFixture {
+        backing: TemporaryBacking,
+        clear_start: u32,
+        later_payload_block: u32,
+        later_footer: [u8; BLOCK_SIZE],
+        backing_bytes: u64,
+    }
+
+    fn prepare_invalid_gap_fixture() -> io::Result<InvalidGapFixture> {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 2_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let backing_bytes = u64::from(layout.log_start + 6) * BLOCK_SIZE as u64;
+        backing.create_sized(backing_bytes)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let volume = open(&backing.0)?;
+        let volume_id = volume.volume_id;
+        drop(volume);
+
+        let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
+        let first_footer = layout.log_start + 1;
+        write_raw_record(
+            &file,
+            volume_id,
+            1,
+            layout.log_start - 1,
+            layout.log_start,
+            0,
+            0xa5,
+        )?;
+        let clear_start = first_footer + 1;
+        file.write_all_at(
+            &[0x7e; BLOCK_SIZE],
+            u64::from(clear_start) * BLOCK_SIZE as u64,
+        )?;
+        file.write_all_at(
+            &[0x6d; BLOCK_SIZE],
+            u64::from(clear_start + 1) * BLOCK_SIZE as u64,
+        )?;
+        let later_payload_block = clear_start + 2;
+        let later_footer = write_raw_record(
+            &file,
+            volume_id,
+            3,
+            clear_start + 1,
+            later_payload_block,
+            1,
+            0x5a,
+        )?;
+        file.sync_all()?;
+
+        Ok(InvalidGapFixture {
+            backing,
+            clear_start,
+            later_payload_block,
+            later_footer,
+            backing_bytes,
+        })
+    }
+
+    fn verify_cleared_window(fixture: &InvalidGapFixture) -> io::Result<()> {
+        let file = OpenOptions::new().read(true).open(&fixture.backing.0)?;
+        assert_eq!(file.metadata()?.len(), fixture.backing_bytes);
+        for block in fixture.clear_start..fixture.clear_start + MAXIMUM_RECORD_BLOCKS as u32 {
+            let mut bytes = [0xa5; BLOCK_SIZE];
+            file.read_exact_at(&mut bytes, u64::from(block) * BLOCK_SIZE as u64)?;
+            assert_eq!(bytes, [0; BLOCK_SIZE]);
+        }
+        let mut later_payload = [0; BLOCK_SIZE];
+        file.read_exact_at(
+            &mut later_payload,
+            u64::from(fixture.later_payload_block) * BLOCK_SIZE as u64,
+        )?;
+        assert_eq!(later_payload, [0x5a; BLOCK_SIZE]);
+        let mut later_footer = [0; BLOCK_SIZE];
+        file.read_exact_at(
+            &mut later_footer,
+            u64::from(fixture.later_payload_block + 1) * BLOCK_SIZE as u64,
+        )?;
+        assert_eq!(later_footer, fixture.later_footer);
+        Ok(())
+    }
+
+    fn verify_invalid_gap_recovery(fixture: &InvalidGapFixture) -> io::Result<()> {
+        let mut volume = open(&fixture.backing.0)?;
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, [0xa5; BLOCK_SIZE]);
+        volume.read_block(1, &mut actual)?;
+        assert_eq!(actual, [0; BLOCK_SIZE]);
+        assert_eq!(volume.last_lsn, 1);
+        assert_eq!(volume.last_footer_block + 1, fixture.clear_start);
+        drop(volume);
+        verify_cleared_window(fixture)
     }
 
     #[test]
@@ -1764,6 +1927,93 @@ mod tests {
                 5,
             )?;
         }
+        Ok(())
+    }
+
+    fn recover_after_stale_tail_crash(test_name: &str, failpoint: &str) -> io::Result<()> {
+        if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
+            let _volume = open(PathBuf::from(backing))?;
+            return Err(io::Error::other("test failpoint did not pause child"));
+        }
+
+        let fixture = prepare_invalid_gap_fixture()?;
+        sigkill_child_at_handshake(test_name, &fixture.backing.0, failpoint, Some(failpoint))?;
+        if failpoint == STALE_TAIL_FSYNC_COMPLETE_FAILPOINT {
+            verify_cleared_window(&fixture)?;
+        }
+        verify_invalid_gap_recovery(&fixture)
+    }
+
+    #[test]
+    fn recover_after_each_stale_tail_clear_block_boundary() -> io::Result<()> {
+        for block_index in 0..MAXIMUM_RECORD_BLOCKS {
+            let failpoint = format!("{STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT}-{block_index}");
+            for _ in 0..CRASH_REPETITIONS {
+                recover_after_stale_tail_crash(
+                    "tests::recover_after_each_stale_tail_clear_block_boundary",
+                    &failpoint,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn recover_after_stale_tail_fsync_boundary() -> io::Result<()> {
+        for _ in 0..CRASH_REPETITIONS {
+            recover_after_stale_tail_crash(
+                "tests::recover_after_stale_tail_fsync_boundary",
+                STALE_TAIL_FSYNC_COMPLETE_FAILPOINT,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_gap_stops_replay_and_clears_only_bounded_window() -> io::Result<()> {
+        let fixture = prepare_invalid_gap_fixture()?;
+        verify_invalid_gap_recovery(&fixture)
+    }
+
+    #[test]
+    fn stale_tail_clear_stops_at_backing_eof() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        let backing_bytes = u64::from(layout.log_start + 3) * BLOCK_SIZE as u64;
+        backing.create_sized(backing_bytes)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let volume = open(&backing.0)?;
+        let volume_id = volume.volume_id;
+        drop(volume);
+
+        let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
+        write_raw_record(
+            &file,
+            volume_id,
+            1,
+            layout.log_start - 1,
+            layout.log_start,
+            0,
+            0xa5,
+        )?;
+        file.write_all_at(
+            &[0x7e; BLOCK_SIZE],
+            u64::from(layout.log_start + 2) * BLOCK_SIZE as u64,
+        )?;
+        file.sync_all()?;
+        drop(file);
+
+        let volume = open(&backing.0)?;
+        assert_eq!(volume.last_lsn, 1);
+        drop(volume);
+        let file = OpenOptions::new().read(true).open(&backing.0)?;
+        assert_eq!(file.metadata()?.len(), backing_bytes);
+        let mut final_block = [0xa5; BLOCK_SIZE];
+        file.read_exact_at(
+            &mut final_block,
+            u64::from(layout.log_start + 2) * BLOCK_SIZE as u64,
+        )?;
+        assert_eq!(final_block, [0; BLOCK_SIZE]);
         Ok(())
     }
 
