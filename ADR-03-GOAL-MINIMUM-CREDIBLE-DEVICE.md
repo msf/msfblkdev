@@ -186,7 +186,8 @@ Acceptance tests:
   Evidence (2026-08-29): `cargo test --lib tests::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation -- --exact` corrupts the newest descriptor and the older checkpoint body through synced raw bytes. Two public `open` attempts inside `catch_unwind` return `InvalidData` without serving the image, panicking or changing any backing bytes.
 - [x] Reject invalid footer ranges, duplicate LBAs and non-zero unused entries.
   Evidence (2026-08-29): `cargo test rejects_invalid_footer_` passes seven fresh-image cases through public `open`, using checksum-valid raw footers for zero and 339 payloads, a declared footer position beyond backing EOF, an out-of-range LBA, duplicate LBAs, and non-zero unused LBA and checksum entries. Each case stops at the prior valid record, publishes no invalid mapping, does not panic or read out of bounds, clears and flushes exactly the backing-bounded stale-tail window, and preserves the first block beyond that window when present.
-- [ ] Checkpoint before accepting a record that would exceed the replay bound.
+- [x] Checkpoint before accepting a record that would exceed the replay bound.
+  Evidence (2026-08-29): `checkpoints_before_write_exceeding_replay_bound` uses the public options-based open API with a valid 340-block bound. It accepts the exact-bound write without checkpointing, rejects an invalid intervening write without side effects, checkpoints before the next valid write, verifies raw blue/green descriptors and mapping bodies, post-write tail and cursors, alternating live slots, and reopen/read correctness. `log_full_write_does_not_publish_live_checkpoint` proves a write rejected at the same boundary leaves descriptors, mapping, cursors, and readable data unchanged.
 - [ ] Reject invalid `checkpoint_after_bytes` values.
 - [ ] Recover after one uncaught unwinding Rust panic in a child process.
 - [ ] All new tests and code pass through the top-level `make lint test` targets.

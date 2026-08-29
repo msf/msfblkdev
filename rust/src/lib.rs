@@ -23,6 +23,7 @@ const MAX_VOLUME_BLOCKS: u64 = 1 << 31;
 const MAX_BACKING_BLOCKS: u64 = u32::MAX as u64 + 1;
 const MAXIMUM_RECORD_BLOCKS: u64 = 339;
 const MAXIMUM_PAYLOAD_BLOCKS: usize = MAXIMUM_RECORD_BLOCKS as usize - 1;
+const DEFAULT_CHECKPOINT_AFTER_BYTES: u64 = 64 * 1024 * 1024;
 
 #[cfg(test)]
 const TEST_FAILPOINT_ENV: &str = "BLOCK_STORAGE_TEST_FAILPOINT";
@@ -109,6 +110,21 @@ struct RecoveredRecord {
     footer_block: u32,
 }
 
+/// Configuration for opening a volume.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VolumeOpenOptions {
+    /// Maximum physical log bytes retained after the selected checkpoint.
+    pub checkpoint_after_bytes: u64,
+}
+
+impl Default for VolumeOpenOptions {
+    fn default() -> Self {
+        Self {
+            checkpoint_after_bytes: DEFAULT_CHECKPOINT_AFTER_BYTES,
+        }
+    }
+}
+
 pub struct Volume {
     backing: File,
     ring: Option<IoUring>,
@@ -123,6 +139,7 @@ pub struct Volume {
     last_footer_block: u32,
     next_checkpoint_slot: CheckpointSlot,
     log_bytes_since_checkpoint: u64,
+    checkpoint_after_bytes: u64,
     failed: bool,
 }
 
@@ -145,11 +162,15 @@ impl Volume {
 
     /// Flushes and checkpoints changed mapping state before releasing its resources.
     pub fn close(mut self) -> io::Result<()> {
-        self.flush()?;
         if self.last_lsn == self.checkpoint_lsn {
-            return Ok(());
+            self.flush()
+        } else {
+            self.publish_checkpoint()
         }
+    }
 
+    fn publish_checkpoint(&mut self) -> io::Result<()> {
+        self.flush()?;
         let body_checksum = self.persist_checkpoint_body()?;
         let mut descriptor = AlignedBlock([0; BLOCK_SIZE]);
         let checkpoint = Checkpoint {
@@ -181,6 +202,10 @@ impl Volume {
         pause_at_test_failpoint(DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT)?;
         self.checkpoint_lsn = self.last_lsn;
         self.log_bytes_since_checkpoint = 0;
+        self.next_checkpoint_slot = match self.next_checkpoint_slot {
+            CheckpointSlot::Green => CheckpointSlot::Blue,
+            CheckpointSlot::Blue => CheckpointSlot::Green,
+        };
         Ok(())
     }
 
@@ -306,6 +331,15 @@ impl Volume {
         if footer_block >= self.backing_blocks {
             return Err(io::Error::other("log full"));
         }
+        let record_bytes = (2 * BLOCK_SIZE) as u64;
+        let bytes_after_write = self
+            .log_bytes_since_checkpoint
+            .checked_add(record_bytes)
+            .ok_or_else(|| io::Error::other("checkpoint byte count overflow"))?;
+        if bytes_after_write > self.checkpoint_after_bytes {
+            self.publish_checkpoint()?;
+        }
+
         let payload_block = payload_block as u32;
         let footer_block = footer_block as u32;
         let checksum = payload_checksum(self.volume_id, lba, payload_block, data);
@@ -349,7 +383,7 @@ impl Volume {
         self.checksums[lba as usize] = checksum;
         self.last_lsn = lsn;
         self.last_footer_block = footer_block;
-        self.log_bytes_since_checkpoint += record.0.len() as u64;
+        self.log_bytes_since_checkpoint += record_bytes;
         #[cfg(test)]
         pause_at_test_failpoint(MAPPING_PUBLISHED_FAILPOINT)?;
         Ok(())
@@ -805,8 +839,24 @@ fn wait_exact_with(
     }
 }
 
-/// Opens a formatted volume from its two empty checkpoint roots.
+/// Opens a formatted volume using the default 64 MiB replay bound.
 pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
+    open_with_options(backing_path, VolumeOpenOptions::default())
+}
+
+/// Opens a formatted volume with the supplied replay-bound configuration.
+pub fn open_with_options(
+    backing_path: impl AsRef<Path>,
+    options: VolumeOpenOptions,
+) -> io::Result<Volume> {
+    if !options
+        .checkpoint_after_bytes
+        .is_multiple_of(BLOCK_SIZE as u64)
+        || options.checkpoint_after_bytes < MAXIMUM_RECORD_BLOCKS * BLOCK_SIZE as u64
+    {
+        return Err(invalid_input("invalid checkpoint_after_bytes"));
+    }
+
     let mut backing = OpenOptions::new()
         .read(true)
         .write(true)
@@ -895,6 +945,7 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
             CheckpointSlot::Blue => CheckpointSlot::Green,
         },
         log_bytes_since_checkpoint,
+        checkpoint_after_bytes: options.checkpoint_after_bytes,
         failed: false,
     })
 }
@@ -2696,6 +2747,211 @@ mod tests {
             file.read_exact_at(&mut bytes, u64::from(block) * BLOCK_SIZE as u64)?;
             assert_eq!(bytes, [0; BLOCK_SIZE]);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn checkpoints_before_write_exceeding_replay_bound() -> io::Result<()> {
+        const CHECKPOINT_BLOCKS: u64 = 340;
+        const FIRST_BOUND_LSN: u64 = CHECKPOINT_BLOCKS / 2;
+        const SECOND_BOUND_LSN: u64 = FIRST_BOUND_LSN * 2;
+
+        assert_eq!(
+            VolumeOpenOptions::default().checkpoint_after_bytes,
+            64 * 1024 * 1024
+        );
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 2_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 800) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let options = VolumeOpenOptions {
+            checkpoint_after_bytes: CHECKPOINT_BLOCKS * BLOCK_SIZE as u64,
+        };
+        let mut volume = open_with_options(&backing.0, options)?;
+
+        for lsn in 1..=FIRST_BOUND_LSN {
+            let lba = (lsn % u64::from(volume_blocks)) as u32;
+            volume.write_block(lba, &[lsn as u8; BLOCK_SIZE])?;
+        }
+        assert_eq!(volume.checkpoint_lsn, 0);
+        assert_eq!(volume.last_lsn, FIRST_BOUND_LSN);
+        assert_eq!(
+            volume.log_bytes_since_checkpoint,
+            options.checkpoint_after_bytes
+        );
+        assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Blue);
+
+        let file = File::open(&backing.0)?;
+        let mut descriptors = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(&mut descriptors, 0)?;
+        assert_eq!(read_u64(&descriptors[BLOCK_SIZE..], 32), 0);
+        let exact_footer = volume.last_footer_block;
+        let exact_physical_blocks = volume.physical_blocks.clone();
+        let exact_checksums = volume.checksums.clone();
+
+        assert_eq!(
+            volume
+                .write_block(volume_blocks, &[0xff; BLOCK_SIZE])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        let mut unchanged_descriptors = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(&mut unchanged_descriptors, 0)?;
+        assert_eq!(unchanged_descriptors, descriptors);
+        assert_eq!(volume.checkpoint_lsn, 0);
+        assert_eq!(
+            volume.log_bytes_since_checkpoint,
+            options.checkpoint_after_bytes
+        );
+
+        volume.write_block(1, &[(FIRST_BOUND_LSN + 1) as u8; BLOCK_SIZE])?;
+        assert_eq!(volume.last_lsn, FIRST_BOUND_LSN + 1);
+        assert_eq!(volume.durable_lsn, FIRST_BOUND_LSN);
+        assert_eq!(volume.checkpoint_lsn, FIRST_BOUND_LSN);
+        assert_eq!(volume.last_footer_block, exact_footer + 2);
+        assert_eq!(volume.log_bytes_since_checkpoint, (2 * BLOCK_SIZE) as u64);
+        assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Green);
+        assert_ne!(volume.physical_blocks[1], exact_physical_blocks[1]);
+
+        let mut blue_descriptor = [0; BLOCK_SIZE];
+        file.read_exact_at(&mut blue_descriptor, BLOCK_SIZE as u64)?;
+        assert_eq!(read_u64(&blue_descriptor, 32), FIRST_BOUND_LSN);
+        assert_eq!(read_u32(&blue_descriptor, 40), exact_footer);
+        let mut blue_body = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(
+            &mut blue_body,
+            u64::from(layout.blue_physical_map_start) * BLOCK_SIZE as u64,
+        )?;
+        for lba in 0..volume_blocks as usize {
+            assert_eq!(read_u32(&blue_body, lba * 4), exact_physical_blocks[lba]);
+            assert_eq!(
+                read_u64(&blue_body, BLOCK_SIZE + lba * 8),
+                exact_checksums[lba]
+            );
+        }
+        assert_eq!(
+            read_u64(&blue_descriptor, CHECKPOINT_BODY_CHECKSUM_OFFSET),
+            xxh3_64(&blue_body)
+        );
+
+        for lsn in FIRST_BOUND_LSN + 2..=SECOND_BOUND_LSN {
+            let lba = (lsn % u64::from(volume_blocks)) as u32;
+            volume.write_block(lba, &[lsn as u8; BLOCK_SIZE])?;
+        }
+        assert_eq!(volume.checkpoint_lsn, FIRST_BOUND_LSN);
+        assert_eq!(
+            volume.log_bytes_since_checkpoint,
+            options.checkpoint_after_bytes
+        );
+        assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Green);
+        let second_footer = volume.last_footer_block;
+        let second_physical_blocks = volume.physical_blocks.clone();
+        let second_checksums = volume.checksums.clone();
+
+        volume.write_block(1, &[(SECOND_BOUND_LSN + 1) as u8; BLOCK_SIZE])?;
+        assert_eq!(volume.last_lsn, SECOND_BOUND_LSN + 1);
+        assert_eq!(volume.durable_lsn, SECOND_BOUND_LSN);
+        assert_eq!(volume.checkpoint_lsn, SECOND_BOUND_LSN);
+        assert_eq!(volume.last_footer_block, second_footer + 2);
+        assert_eq!(volume.log_bytes_since_checkpoint, (2 * BLOCK_SIZE) as u64);
+        assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Blue);
+
+        let mut green_descriptor = [0; BLOCK_SIZE];
+        file.read_exact_at(&mut green_descriptor, 0)?;
+        assert_eq!(read_u64(&green_descriptor, 32), SECOND_BOUND_LSN);
+        assert_eq!(read_u32(&green_descriptor, 40), second_footer);
+        let mut green_body = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(
+            &mut green_body,
+            u64::from(layout.green_physical_map_start) * BLOCK_SIZE as u64,
+        )?;
+        for lba in 0..volume_blocks as usize {
+            assert_eq!(read_u32(&green_body, lba * 4), second_physical_blocks[lba]);
+            assert_eq!(
+                read_u64(&green_body, BLOCK_SIZE + lba * 8),
+                second_checksums[lba]
+            );
+        }
+        assert_eq!(
+            read_u64(&green_descriptor, CHECKPOINT_BODY_CHECKSUM_OFFSET),
+            xxh3_64(&green_body)
+        );
+
+        drop(volume);
+        let mut reopened = open_with_options(&backing.0, options)?;
+        assert_eq!(reopened.last_lsn, SECOND_BOUND_LSN + 1);
+        assert_eq!(reopened.durable_lsn, SECOND_BOUND_LSN + 1);
+        assert_eq!(reopened.checkpoint_lsn, SECOND_BOUND_LSN);
+        assert_eq!(reopened.last_footer_block, second_footer + 2);
+        assert_eq!(reopened.log_bytes_since_checkpoint, (2 * BLOCK_SIZE) as u64);
+        assert_eq!(reopened.next_checkpoint_slot, CheckpointSlot::Blue);
+        let mut actual = [0; BLOCK_SIZE];
+        reopened.read_block(0, &mut actual)?;
+        assert_eq!(actual, [SECOND_BOUND_LSN as u8; BLOCK_SIZE]);
+        reopened.read_block(1, &mut actual)?;
+        assert_eq!(actual, [(SECOND_BOUND_LSN + 1) as u8; BLOCK_SIZE]);
+        Ok(())
+    }
+
+    #[test]
+    fn log_full_write_does_not_publish_live_checkpoint() -> io::Result<()> {
+        const CHECKPOINT_BLOCKS: u64 = 340;
+
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(
+            u64::from(layout.log_start) * BLOCK_SIZE as u64 + CHECKPOINT_BLOCKS * BLOCK_SIZE as u64,
+        )?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let options = VolumeOpenOptions {
+            checkpoint_after_bytes: CHECKPOINT_BLOCKS * BLOCK_SIZE as u64,
+        };
+        let mut volume = open_with_options(&backing.0, options)?;
+        for lsn in 1..=CHECKPOINT_BLOCKS / 2 {
+            volume.write_block(0, &[lsn as u8; BLOCK_SIZE])?;
+        }
+
+        let state = (
+            volume.physical_blocks.clone(),
+            volume.checksums.clone(),
+            volume.last_lsn,
+            volume.durable_lsn,
+            volume.checkpoint_lsn,
+            volume.last_footer_block,
+            volume.next_checkpoint_slot,
+            volume.log_bytes_since_checkpoint,
+        );
+        let file = File::open(&backing.0)?;
+        let mut descriptors = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(&mut descriptors, 0)?;
+        assert_eq!(
+            volume
+                .write_block(0, &[0xff; BLOCK_SIZE])
+                .unwrap_err()
+                .to_string(),
+            "log full"
+        );
+        assert_eq!(
+            (
+                volume.physical_blocks.clone(),
+                volume.checksums.clone(),
+                volume.last_lsn,
+                volume.durable_lsn,
+                volume.checkpoint_lsn,
+                volume.last_footer_block,
+                volume.next_checkpoint_slot,
+                volume.log_bytes_since_checkpoint,
+            ),
+            state
+        );
+        let mut unchanged_descriptors = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(&mut unchanged_descriptors, 0)?;
+        assert_eq!(unchanged_descriptors, descriptors);
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, [(CHECKPOINT_BLOCKS / 2) as u8; BLOCK_SIZE]);
         Ok(())
     }
 
