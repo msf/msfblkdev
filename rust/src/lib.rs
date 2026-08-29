@@ -334,7 +334,7 @@ impl Volume {
         let payload_block = u64::from(self.last_footer_block) + 1;
         let footer_block = payload_block + 1;
         if footer_block >= self.backing_blocks {
-            return Err(io::Error::other("log full"));
+            return Err(io::Error::from_raw_os_error(libc::ENOSPC));
         }
         let record_bytes = (2 * BLOCK_SIZE) as u64;
         let bytes_after_write = self
@@ -1745,8 +1745,8 @@ mod tests {
             volume
                 .write_block(0, &[0x5a; BLOCK_SIZE])
                 .unwrap_err()
-                .to_string(),
-            "log full"
+                .raw_os_error(),
+            Some(libc::ENOSPC)
         );
 
         assert_eq!(volume.physical_blocks, physical_blocks);
@@ -3073,8 +3073,8 @@ mod tests {
             volume
                 .write_block(0, &[0xff; BLOCK_SIZE])
                 .unwrap_err()
-                .to_string(),
-            "log full"
+                .raw_os_error(),
+            Some(libc::ENOSPC)
         );
         assert_eq!(
             (

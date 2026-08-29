@@ -4,7 +4,8 @@ compile_error!("block-storage-ublk requires Linux");
 use libublk::UblkFlags;
 use libublk::ctrl::UblkCtrlBuilder;
 use libublk::sys::{
-    UBLK_ATTR_VOLATILE_CACHE, UBLK_PARAM_TYPE_BASIC, ublk_param_basic, ublk_params,
+    UBLK_ATTR_VOLATILE_CACHE, UBLK_IO_F_FUA, UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE,
+    UBLK_PARAM_TYPE_BASIC, ublk_param_basic, ublk_params, ublksrv_io_desc,
 };
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -101,6 +102,80 @@ fn target_configuration(volume_blocks: u32) -> TargetConfiguration {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Request {
+    Read(u32),
+    Write(u32),
+    Flush,
+}
+
+fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Request, i32> {
+    let operation = descriptor.op_flags & 0xff;
+    let flags = descriptor.op_flags & !0xff;
+    if flags & UBLK_IO_F_FUA != 0 {
+        return Err(-libc::EOPNOTSUPP);
+    }
+    if flags != 0 {
+        return Err(-libc::EOPNOTSUPP);
+    }
+
+    match operation {
+        UBLK_IO_OP_READ | UBLK_IO_OP_WRITE => {
+            if descriptor.nr_sectors != SECTORS_PER_BLOCK as u32
+                || !descriptor.start_sector.is_multiple_of(SECTORS_PER_BLOCK)
+                || descriptor.start_sector > dev_sectors
+                || SECTORS_PER_BLOCK > dev_sectors - descriptor.start_sector
+            {
+                return Err(-libc::EINVAL);
+            }
+            let lba = u32::try_from(descriptor.start_sector / SECTORS_PER_BLOCK)
+                .map_err(|_| -libc::EINVAL)?;
+            if operation == UBLK_IO_OP_READ {
+                Ok(Request::Read(lba))
+            } else {
+                Ok(Request::Write(lba))
+            }
+        }
+        UBLK_IO_OP_FLUSH if descriptor.nr_sectors == 0 && descriptor.start_sector == 0 => {
+            Ok(Request::Flush)
+        }
+        UBLK_IO_OP_FLUSH => Err(-libc::EINVAL),
+        _ => Err(-libc::EOPNOTSUPP),
+    }
+}
+
+fn engine_error(error: io::Error) -> i32 {
+    if error.raw_os_error() == Some(libc::ENOSPC) {
+        -libc::ENOSPC
+    } else {
+        -libc::EIO
+    }
+}
+
+fn handle_request(
+    volume: &mut block_storage::Volume,
+    descriptor: &ublksrv_io_desc,
+    buffer: &mut [u8; IO_BUFFER_BYTES as usize],
+) -> i32 {
+    let dev_sectors = u64::from(volume.volume_blocks()) * SECTORS_PER_BLOCK;
+    let request = match decode_request(descriptor, dev_sectors) {
+        Ok(request) => request,
+        Err(errno) => return errno,
+    };
+    let result = match request {
+        Request::Read(lba) => volume.read_block(lba, buffer),
+        Request::Write(lba) => volume.write_block(lba, buffer),
+        Request::Flush => volume.flush(),
+    };
+    match result {
+        Ok(()) => match request {
+            Request::Read(_) | Request::Write(_) => IO_BUFFER_BYTES as i32,
+            Request::Flush => 0,
+        },
+        Err(error) => engine_error(error),
+    }
+}
+
 fn run() -> io::Result<()> {
     let args = parse_args(std::env::args_os())?;
     let volume = block_storage::open(&args.backing_path)?;
@@ -108,6 +183,7 @@ fn run() -> io::Result<()> {
     let target = target_configuration(volume.volume_blocks());
     let _device_bytes = target.device_bytes;
     let _parameters = target.parameters;
+    let _request_handler = handle_request;
 
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
@@ -128,6 +204,49 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::{OpenOptions, remove_file};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TemporaryBacking(PathBuf);
+
+    impl TemporaryBacking {
+        fn formatted(volume_blocks: u32) -> io::Result<Self> {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(io::Error::other)?
+                .as_nanos();
+            let backing = Self(
+                std::env::temp_dir()
+                    .join(format!("block-storage-ublk-{}-{nonce}", std::process::id())),
+            );
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&backing.0)?;
+            file.set_len(1024 * 1024)?;
+            block_storage::format(
+                &backing.0,
+                u64::from(volume_blocks) * u64::from(IO_BUFFER_BYTES),
+            )?;
+            Ok(backing)
+        }
+    }
+
+    impl Drop for TemporaryBacking {
+        fn drop(&mut self) {
+            let _ = remove_file(&self.0);
+        }
+    }
+
+    fn descriptor(operation: u32, start_sector: u64, nr_sectors: u32) -> ublksrv_io_desc {
+        ublksrv_io_desc {
+            op_flags: operation,
+            nr_sectors,
+            start_sector,
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn parses_backing_path_and_device_id() {
@@ -216,5 +335,95 @@ mod tests {
             .io_buf_bytes(4096)
             .dev_flags(UblkFlags::UBLK_DEV_F_ADD_DEV);
         assert_eq!(controller_builder(4), expected);
+    }
+
+    #[test]
+    fn decodes_only_exact_supported_requests() {
+        let dev_sectors = 32;
+        assert_eq!(
+            decode_request(&descriptor(UBLK_IO_OP_READ, 24, 8), dev_sectors),
+            Ok(Request::Read(3))
+        );
+        assert_eq!(
+            decode_request(&descriptor(UBLK_IO_OP_WRITE, 0, 8), dev_sectors),
+            Ok(Request::Write(0))
+        );
+        assert_eq!(
+            decode_request(&descriptor(UBLK_IO_OP_FLUSH, 0, 0), dev_sectors),
+            Ok(Request::Flush)
+        );
+
+        for invalid in [
+            descriptor(UBLK_IO_OP_READ, 0, 7),
+            descriptor(UBLK_IO_OP_READ, 1, 8),
+            descriptor(UBLK_IO_OP_READ, 32, 8),
+            descriptor(UBLK_IO_OP_READ, 33, 8),
+            descriptor(UBLK_IO_OP_READ, u64::MAX, 8),
+            descriptor(UBLK_IO_OP_FLUSH, 8, 0),
+            descriptor(UBLK_IO_OP_FLUSH, 0, 8),
+        ] {
+            assert_eq!(decode_request(&invalid, dev_sectors), Err(-libc::EINVAL));
+        }
+
+        let mut fua = descriptor(UBLK_IO_OP_WRITE, 0, 8);
+        fua.op_flags |= UBLK_IO_F_FUA;
+        assert_eq!(decode_request(&fua, dev_sectors), Err(-libc::EOPNOTSUPP));
+        let mut unsupported_flag = descriptor(UBLK_IO_OP_READ, 0, 8);
+        unsupported_flag.op_flags |= libublk::sys::UBLK_IO_F_META;
+        assert_eq!(
+            decode_request(&unsupported_flag, dev_sectors),
+            Err(-libc::EOPNOTSUPP)
+        );
+        assert_eq!(
+            decode_request(
+                &descriptor(libublk::sys::UBLK_IO_OP_DISCARD, 0, 8),
+                dev_sectors
+            ),
+            Err(-libc::EOPNOTSUPP)
+        );
+    }
+
+    #[test]
+    fn adapter_targets_exact_lba_and_flushes_durable_data() -> io::Result<()> {
+        let backing = TemporaryBacking::formatted(4)?;
+        let mut volume = block_storage::open(&backing.0)?;
+        let write = descriptor(UBLK_IO_OP_WRITE, 16, 8);
+        let flush = descriptor(UBLK_IO_OP_FLUSH, 0, 0);
+        let read = descriptor(UBLK_IO_OP_READ, 16, 8);
+        let read_neighbor = descriptor(UBLK_IO_OP_READ, 8, 8);
+        let expected = [0xa5; IO_BUFFER_BYTES as usize];
+        let mut buffer = expected;
+
+        assert_eq!(handle_request(&mut volume, &write, &mut buffer), 4096);
+        assert_eq!(handle_request(&mut volume, &flush, &mut buffer), 0);
+        drop(volume);
+
+        let mut reopened = block_storage::open(&backing.0)?;
+        buffer.fill(0);
+        assert_eq!(handle_request(&mut reopened, &read, &mut buffer), 4096);
+        assert_eq!(buffer, expected);
+        buffer.fill(0xff);
+        assert_eq!(
+            handle_request(&mut reopened, &read_neighbor, &mut buffer),
+            4096
+        );
+        assert_eq!(buffer, [0; IO_BUFFER_BYTES as usize]);
+        Ok(())
+    }
+
+    #[test]
+    fn maps_engine_capacity_and_fatal_errors_to_stable_errno() {
+        assert_eq!(
+            engine_error(io::Error::from_raw_os_error(libc::ENOSPC)),
+            -libc::ENOSPC
+        );
+        assert_eq!(
+            engine_error(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "payload checksum mismatch"
+            )),
+            -libc::EIO
+        );
+        assert_eq!(engine_error(io::Error::other("volume failed")), -libc::EIO);
     }
 }
