@@ -90,7 +90,8 @@ Acceptance tests:
   Evidence (2026-08-29): `cargo test overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen` passes after a normal zero-block overwrite, both before and after a clean reopen.
 - [x] Raw footer linkage and local sequence numbers are contiguous.
   Evidence (2026-08-29): `cargo test raw_footer_linkage_and_lsns_are_contiguous` passes after three public API writes, inspecting each raw footer for exact previous/self block links and contiguous LSNs 1 through 3.
-- [ ] The clean checkpoint maps each LBA to its latest payload and checksum.
+- [x] The clean checkpoint maps each LBA to its latest payload and checksum.
+  Evidence (2026-08-29): `cargo test clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum` passes after public writes and an overwrite, inspecting the raw clean-checkpoint body to verify both LBAs' latest physical payloads and bound checksums.
 - [ ] An out-of-range write leaves mapping and cursors unchanged.
 - [ ] A log-full write leaves the last successful value readable after reopen.
 - [ ] All work is git committed with sensible commit messages.

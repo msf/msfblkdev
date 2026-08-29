@@ -1068,6 +1068,51 @@ mod tests {
     }
 
     #[test]
+    fn clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 2_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 6) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+
+        let mut volume = open(&backing.0)?;
+        let volume_id = volume.volume_id;
+        volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
+        volume.write_block(1, &[0x5a; BLOCK_SIZE])?;
+        volume.write_block(0, &[0xc3; BLOCK_SIZE])?;
+        volume.close()?;
+
+        let file = File::open(&backing.0)?;
+        let mut body = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(
+            &mut body,
+            u64::from(layout.blue_physical_map_start) * BLOCK_SIZE as u64,
+        )?;
+        let expected = [
+            (layout.log_start + 4, [0xc3; BLOCK_SIZE]),
+            (layout.log_start + 2, [0x5a; BLOCK_SIZE]),
+        ];
+        for (lba, (expected_physical_block, expected_payload)) in expected.iter().enumerate() {
+            let physical_block = read_u32(&body, lba * size_of::<u32>());
+            assert_eq!(physical_block, *expected_physical_block);
+
+            let mut payload = [0; BLOCK_SIZE];
+            file.read_exact_at(&mut payload, u64::from(physical_block) * BLOCK_SIZE as u64)?;
+            assert_eq!(payload, *expected_payload);
+
+            let mut checksum_input = [0; BLOCK_SIZE + 8];
+            checksum_input[..4].copy_from_slice(&(lba as u32).to_le_bytes());
+            checksum_input[4..8].copy_from_slice(&physical_block.to_le_bytes());
+            checksum_input[8..].copy_from_slice(&payload);
+            assert_eq!(
+                read_u64(&body, BLOCK_SIZE + lba * size_of::<u64>()),
+                xxh3_64_with_seed(&checksum_input, volume_id)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 2_u32;
