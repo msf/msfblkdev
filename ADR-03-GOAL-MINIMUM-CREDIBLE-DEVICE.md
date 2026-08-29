@@ -94,7 +94,8 @@ Acceptance tests:
   Evidence (2026-08-29): `cargo test clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum` passes after public writes and an overwrite, inspecting the raw clean-checkpoint body to verify both LBAs' latest physical payloads and bound checksums.
 - [x] An out-of-range write leaves mapping and cursors unchanged.
   Evidence (2026-08-29): `cargo test out_of_range_write_leaves_mapping_and_cursors_unchanged` passes through `Volume::write_block`, preserving the physical and checksum maps, all LSN/durability/footer/checkpoint-byte cursors, checkpoint slot, failed state and prior readable value.
-- [ ] A log-full write leaves the last successful value readable after reopen.
+- [x] A log-full write leaves the last successful value readable after reopen.
+  Evidence (2026-08-29): `cargo test log_full_write_leaves_last_successful_value_readable_after_reopen` passes with the one-record backing profile, preserving the first value before and after clean close/reopen when the next write reports log full.
 - [ ] All work is git committed with sensible commit messages.
 - [ ] All new tests and code run through the top-level `make test` target.
 - [ ] `make lint` and `make test` pass.

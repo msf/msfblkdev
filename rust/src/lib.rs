@@ -1113,6 +1113,35 @@ mod tests {
     }
 
     #[test]
+    fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+
+        let expected = [0xa5; BLOCK_SIZE];
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &expected)?;
+        assert_eq!(
+            volume
+                .write_block(0, &[0x5a; BLOCK_SIZE])
+                .unwrap_err()
+                .to_string(),
+            "log full"
+        );
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, expected);
+        volume.close()?;
+
+        let mut volume = open(&backing.0)?;
+        actual.fill(0);
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, expected);
+        volume.close()
+    }
+
+    #[test]
     fn out_of_range_write_leaves_mapping_and_cursors_unchanged() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
