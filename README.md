@@ -1,30 +1,32 @@
 # my-block-storage
 
-A Linux-only prototype of a 4 KiB log-structured block-storage engine. Separate Zig and Rust implementations complete V0.4; neither exposes a block device yet.
+A Linux-only log-structured block device experiment. The Rust storage engine implements basic 4 KiB read and write behavior through V0.4. It does not expose a Linux block device yet.
 
-## Prerequisites
+## Current status
 
-Linux x86_64, a kernel with `io_uring`, a backing filesystem or device that supports `O_DIRECT`, a Rust toolchain with Cargo, and `make`. Zig setup also needs `curl`, `sha256sum`, `tar`, and xz support.
+V0.4 behavior is implemented, but Goal 1 remains open until every ADR-02 closure item and its complete Rust gate pass.
 
-`make setup` downloads Zig 0.16.0 from ziglang.org into `.tools/` and verifies its pinned SHA-256 checksum. No system Zig installation is used.
+The active goal is a minimum credible device:
 
-## Implementations
-
-The Zig implementation is in `src/root.zig` and exposes `format`, `open`, `write_block`, `read_block`, `flush`, and `close`. The separate Rust crate is in `rust/` and exposes `format`, `open`, and `Volume::{write_block, read_block, flush, close}`.
-
-## Zig and combined edit loop
-
-```sh
-make build
-make lint
-make test
-make run
+```text
+V0.4 closure
+→ V0.5 overwrite semantics
+→ V0.6 crash recovery
+→ serialized ublk frontend
+→ fio validation and restart recovery
 ```
 
-- `make build`, `make lint`, and `make test` check both implementations; append `-zig` or `-rust` to target one.
-- `make run` runs the Zig V0.4 public-API scenario: format, open, zero-read, write/read, flush/close, reopen, and read again.
+Rust is authoritative. The Zig implementation is a completed initial experiment and may diverge.
 
-## Rust edit/test loop
+## Design and delivery specifications
+
+- [ADR-01: log-structured block device](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md) defines the architecture, persistent format and high-level roadmap.
+- [ADR-02: basic read and write](ADR-02-GOAL-1-BASIC-READ-WRITE.md) records V0.0 through V0.4 and its closure gate.
+- [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5, V0.6, ublk and vertical acceptance.
+- [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
+- [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
+
+## Rust edit loop
 
 ```sh
 cd rust
@@ -34,12 +36,35 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-The Rust acceptance test exercises the same V0.4 sequence through its public API.
+The crate exposes:
 
-There is no default container setup because the tests intentionally exercise the host kernel and direct-I/O path.
+```text
+format
+open
+Volume::write_block
+Volume::read_block
+Volume::flush
+Volume::close
+```
 
-## Boundaries
+Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT`.
 
-The prototype fails closed on invalid metadata, checksum mismatch, short or failed I/O, log exhaustion, and an unreplayed crash tail; an I/O failure poisons the open volume. V0.5+ defers overwrite workloads, crash-tail replay, A/B checkpoint fallback, broader fault injection, compaction/wraparound, concurrency, discard, replication, and the ublk frontend.
+## Historical Zig experiment
 
-See the [design and version roadmap](coding-project-tigerbeetle-railway.md). `ublksrv/` is optional, ignored reference material for the later V0.10 ublk milestone, not a current dependency.
+The Zig source remains in `src/root.zig`. Its explicit targets remain available:
+
+```sh
+make build-zig
+make lint-zig
+make test-zig
+```
+
+Future milestones do not require Zig changes or Zig/Rust image compatibility.
+
+## Safety
+
+Automated engine tests use disposable regular files. Future ublk and LVM tests must identify and validate an explicitly disposable target before writing. Never use the laptop's system NVMe, a mounted filesystem or an arbitrary block device.
+
+## Current limits
+
+The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.4 rejects an uncheckpointed crash tail. ADR-03 closes that recovery gap before the project claims a credible block device.

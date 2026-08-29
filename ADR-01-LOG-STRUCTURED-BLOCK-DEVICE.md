@@ -1,53 +1,54 @@
-# Coding project for TigerBeetle and Railway
+# ADR-01 Log-structured block device
 
-## Project thesis
+Date: 2026-08-29
+Author: Miguel Filipe
+Status: accepted
 
-This project builds a userspace, log-structured virtual block device. It initially uses one local backing store. The design supports deterministic fault testing and can later support quorum replication.
+## Context
 
-Linux exposes the device locally (for example, `/dev/my-vol`) through ublk, its framework for userspace block devices. A local filesystem such as ext4 or XFS can mount the device. An existing database such as PostgreSQL or a key-value store can then run unchanged on it.
+This project builds a Linux userspace block device backed by a local log-structured storage engine. We want correctness evidence before concurrency, performance work or distribution.
+
+Linux exposes the device through ublk. A later goal mounts ext4 or XFS on that device so an existing application can use it unchanged.
 
 ```text
-Database / key-value store
+Application
   ↓
 Filesystem
   ↓
-/dev/my-vol
+/dev/ublkbN
   ↓
 Linux ublk driver                 kernel
 ════════════════════════════════════════
 ublk userspace daemon             userspace
-  ├─ block protocol handling
+  ├─ block request handling
   ├─ log-structured storage engine
-  └─ backing store (initially a file or raw device)
+  └─ backing file or logical volume
 ```
 
-## Emphasis
+The first implementation experiment used Zig. It proved the low-level design through V0.4. The Rust implementation then proved the same behavior with simpler ownership of aligned buffers and `io_uring` lifetimes. The two persistent encodings have already diverged.
 
-1. Correctness under concurrency and failures, including log recovery.
-2. An explicit fault model, deterministic simulation and fault injection.
-3. A log structure that makes later replication and high availability easier to reason about.
-4. Sequential physical writes and random reads, appropriate for NVMe-backed storage.
-5. A future distributed form as a replicated state machine/log, including quorum commit and fencing.
+## Decision
 
-## Language and engineering style
+Rust is the only implementation we will evolve. Its persistent encoding is authoritative from this ADR onward. Zig remains a historical experiment and test reference. We do not promise Zig and Rust image compatibility, and future Rust work does not update the Zig implementation.
 
-- **Zig 0.16.0 is pinned.** The project-local compiler is downloaded from ziglang.org and excluded from Git.
-- Zig 0.16's high-level `std.Io.Uring` backend is explicitly unfinished. Before using Zig beyond v0.0, implement a bounded spike with the low-level `std.os.linux.IoUring`. Open a direct-I/O backing store. Perform aligned read, write and fsync operations. Validate completion queue entry (CQE) errors and short I/O. Then reopen the backing store and verify the data.
-- If the direct `io_uring` path is not small and trustworthy, use Rust with the low-level `io-uring` crate. I/O ergonomics are a valid language-selection criterion. Do not add an async runtime.
-- Do not use Go. This project requires explicit control of memory, alignment and low-level I/O lifetimes.
-- Follow TigerStyle where applicable. Use simple control flow, bounded resources, assertions, checksums and an explicit fault model. Apply the principles instead of copying constraints without context.
+We will:
 
-## Scope boundary
+1. Prioritize crash recovery and explicit durability semantics.
+2. Use deterministic tests and machine-verifiable delivery gates.
+3. Keep one serialized writer until correctness is proven through the ublk stack.
+4. Add concurrency and performance work only after filesystem workloads are reliable.
 
-The initial project is local and single-node. Remote transport, replication, multiple backing stores, live migration, compaction and performance optimization are possible extensions. They are not current commitments.
+The storage engine uses Linux `io_uring`, direct I/O and explicit aligned buffers. It does not use an async runtime. The ublk frontend can use the maintained Rust ublk support required to implement the kernel protocol.
 
-The backing store can theoretically be anything that satisfies the block contract. A local file or raw block device keeps the project focused. The important artifact is the storage engine and its correctness evidence, not an exotic backend.
+The project remains local and single-node. Remote transport, replication, multiple backing stores, live migration, compaction and Byzantine fault tolerance are not current commitments.
 
-## V0 target design
+A local file or dedicated logical volume is sufficient for the backing store. The important artifact is the engine and its correctness evidence, not an exotic backend.
 
-This section describes the target design through v0.9. The [milestone section](#machine-verifiable-v0-milestones) defines which behavior each intermediate version must provide.
+## Local storage-engine design
 
-V0 is the standalone local storage engine before ublk integration. It uses a pre-sized file or raw block device through `io_uring`. It supports one serialized writer and has no compaction or log wraparound. The caller creates and pre-sizes a regular backing file. The formatter formats an existing file or raw block device in place.
+This section specifies the persistent format and recovery invariants. The goal ADRs define when each behavior becomes required.
+
+The engine uses a pre-sized file or raw block device through `io_uring`. It supports one serialized writer and has no compaction or log wraparound. The caller creates and pre-sizes the backing store. The formatter formats it in place.
 
 ### Bounds and layout
 
@@ -177,7 +178,11 @@ Checkpoint LSN orders the two slots. A higher LSN contains newer logical state. 
 
 Each valid descriptor is a checkpoint candidate. Startup validates a candidate's complete body before selecting it. If the newer candidate is invalid, recovery tries the older candidate. One valid candidate is sufficient. Startup refuses to open if no candidate is valid or if valid candidates have conflicting volume identity or geometry.
 
-Through v0.5, `close` is the only required checkpoint trigger. If `last_lsn == checkpoint_lsn`, the mapping has not changed and `close` does not write another checkpoint. V0.6 adds a configured bound on physical log bytes written since the last checkpoint. Before accepting a write that exceeds this bound, V0 creates a checkpoint. The v0.6 design must define how callers configure the bound.
+Through V0.5, `close` is the only required checkpoint trigger. If `last_lsn == checkpoint_lsn`, the mapping has not changed and `close` does not write another checkpoint.
+
+V0.6 adds `checkpoint_after_bytes`, measured as physical log bytes after the selected checkpoint. `open` uses a 64 MiB default. An options-based open call lets tests and the daemon select another value. The value must be 4 KiB aligned and at least one maximum-sized record (339 blocks).
+
+Before accepting a record that would make `log_bytes_since_checkpoint > checkpoint_after_bytes`, the engine creates a checkpoint. A record that reaches the bound exactly is accepted. This keeps the replay tail at or below the configured bound.
 
 ### Operations
 
@@ -206,7 +211,7 @@ There is no zero-payload format record. The two checkpoint descriptors are the f
 6. Require an exact-length completion.
 7. Update both mapping arrays and the log cursors.
 
-On an error or short write, the volume enters a failed state without publishing the new mapping. No read, write or flush operation is valid in this state. The caller can only release the volume. A later `open` resolves or rejects any partial tail according to the implemented recovery milestone.
+A failed or short backing I/O operation puts the volume in a failed state without publishing the new mapping. No later read, write or flush operation is valid in this state. The caller can only release the volume. Validation and finite-log capacity errors happen before I/O and do not poison the volume.
 
 `read_block(lba, data[4096])`:
 
@@ -239,7 +244,9 @@ Tail recovery starts at `last_footer_block + 1`. The selected checkpoint supplie
 2. Derive payload count from the candidate and previous footer positions. Accept only a footer whose metadata checksum, volume, LSN, self-position, previous-footer link and LBA bounds all match expectations.
 3. Apply each LBA's derived payload position and checksum to the arrays, then continue after that footer.
 4. If no valid footer exists within one maximum record, stop. Records after this gap are ignored.
-5. Zero and flush one maximum-record window from the recovered append position so a stale footer cannot reappear, then serve requests.
+5. Zero and flush `min(maximum_record_blocks, backing_blocks - append_block)` blocks from the recovered append position so stale records cannot reappear.
+6. Set `last_lsn` and `last_footer_block` to the final replayed record. Set `durable_lsn = last_lsn` after the stale-tail flush. Keep `checkpoint_lsn` from the selected checkpoint and set `log_bytes_since_checkpoint` to the replayed physical bytes.
+7. Serve requests only after these steps complete.
 
 Recovery does not read or verify payload data. A valid footer with corrupted payload is accepted into the mapping; corruption is detected if that LBA is later read.
 
@@ -252,54 +259,85 @@ V0 assumes one writer and a backing store where a successful fsync makes all pri
 - corrupted payload writes or later bit flips: detected lazily by `read_block` and returned as an error;
 - reported backing I/O errors: propagated without publishing the affected mapping.
 
-V0 does not repair corruption, protect against maliciously forged footer data, compact or wrap the log, retry failed writes, support discard or write-zeroes, or provide concurrent writes. Milestone v0.6 tests process crashes. Milestone v0.8 adds deterministic torn-write and corruption injection.
+V0 does not repair corruption, protect against maliciously forged footer data, compact or wrap the log, retry failed writes, support discard or write-zeroes, or provide concurrent writes. ADR-03 tests process crashes. Later goals add deterministic medium-fault injection.
 
-### Machine-verifiable V0 milestones
+## Delivery roadmap
 
-Every milestone adds tests to its implementation's cumulative gate:
+Every implementation delivery extends this Rust gate:
 
 ```sh
-# Zig
-zig build test
-
-# Rust (from rust/)
+cd rust
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-A milestone is complete only when its gate exits successfully without weakening prior tests. Data structures are implementation work within a behavioral milestone, not milestones by themselves.
+A delivery is complete only when its gate and named acceptance tests pass without weakening earlier tests.
 
-Recovery requirements grow with the milestones:
+### Goal 1: basic read and write
 
-| milestone | required recovery behavior |
-|---|---|
-| v0.0–v0.1 | No recovery requirement. |
-| v0.2–v0.5 | Open a clean checkpoint. Reject a valid unreplayed tail. |
-| v0.6 | Replay a valid tail after a process crash. |
-| v0.7 | Fall back from an invalid newer checkpoint and replay from the older checkpoint. |
-| v0.8 | Detect the specified injected corruption and torn-I/O cases. |
-| v0.9 | Preserve behavior under the deterministic model-based workload. |
+[ADR-02](ADR-02-GOAL-1-BASIC-READ-WRITE.md) records V0.0 through V0.4:
 
-- **v0.0 — build and I/O gate:** Pin Zig 0.16.0, establish the edit-compile-test loop, and perform an aligned `io_uring` write, fsync, reopen and read/compare against the real backing store. Switch to Rust before v0.1 if this path is not small and trustworthy.
-- **v0.1 — format:** Format a temporary image. Tests independently verify both descriptors and their checksums, calculated regions, capacity rejection and an empty log.
-- **v0.2 — open:** Format, close and open an image. Tests verify the reconstructed `Volume`, zero mapping and checkpoint selection.
-- **v0.3 — bootstrap, write and shutdown:** Format, open, write one block, flush and close. Tests inspect the raw payload/footer and resulting checkpoint mapping without using `read_block`.
-- **v0.4 — read:** Unwritten LBAs return zeros; written data reads correctly before and after reopen.
-- **v0.5 — update semantics:** Write multiple LBAs and overwrite one LBA. Tests prove the latest value wins after a clean reopen.
-- **v0.6 — crash recovery:** A subprocess writes after a checkpoint and exits without close. Its parent reopens the image, replays the tail and verifies every block.
-- **v0.7 — A/B checkpoints:** Force multiple checkpoints, corrupt the newest descriptor or body, and prove open falls back to the older checkpoint and replays its tail.
-- **v0.8 — integrity pass:** Corrupt payload, footer and checkpoint data. Tests cover checksum errors, tail truncation, invalid ranges, short I/O and failed I/O without mapping publication.
-- **v0.9 — V0 alpha:** Run a deterministic black-box workload against a byte-array reference model, including writes, overwrites, reads, flushes, clean restarts and hard crashes.
+- aligned direct I/O and exact completion handling;
+- format and open from two checkpoint roots;
+- append, flush and clean checkpoint publication;
+- zero reads and checksummed reads before and after reopen.
 
-Checksums required to interpret persistent data are implemented with the first relevant milestone. v0.8 expands corruption coverage and assertions rather than retrofitting the format.
+V0.4 behavior is implemented, but Goal 1 remains open until its closure delivery removes stale experimental assumptions and restores a fully green Rust gate.
 
-### Immediately after V0
+### Goal 2: minimum credible device
 
-1. **v0.10 — basic ublk:** Expose 4 KiB READ, WRITE and FLUSH requests. Run applicable `blktests` ublk coverage—especially mounting and daemon recovery—plus direct fio verification.
-2. **v0.11 — filesystem goal:** Create and mount a filesystem, write and fsync files, unmount, restart the daemon, remount and verify hashes.
-3. Only then add deterministic fault simulation and broader incomplete, reordered and corrupted I/O coverage. Evaluate `dm-flakey`, `dm-log-writes`, `null_blk` and fio before writing bespoke tooling.
-4. Batching, queue-depth tuning, throughput work and AI-harness-driven workload generation come after correctness coverage through the mounted stack.
+[ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) is the active goal. It delivers:
+
+1. V0.5 multiple-write and overwrite semantics.
+2. V0.6 bounded crash-tail recovery, including interrupted checkpoint publication.
+3. A serialized 4 KiB ublk frontend supporting READ, WRITE and FLUSH.
+4. Vertical fio validation through graceful restarts and deterministic hard process termination.
+
+Automated tests use `SIGKILL` at coordinated points to model process-level fail-stop without cleanup. This covers user `kill -9` and OOM termination from the process's perspective. It does not model loss of the kernel, controller cache or power while an I/O is in flight. The V0.6 durability contract therefore depends on the backing device honoring successful fsync.
+
+### Goal 3: backing-medium fault resilience
+
+Keep ublk and fio as the vertical workload while injecting deterministic, non-adversarial backing faults:
+
+- `EIO`, short I/O, timeouts, `ENOSPC` and device disappearance;
+- torn writes, bit flips, stale reads, misdirected I/O and reordering;
+- errors during normal I/O, checkpoint publication and recovery.
+
+The daemon must remain alive and diagnosable. The affected volume fails closed or transitions offline, and ublk completes requests with an error instead of hanging. We will evaluate `dm-flakey`, `dm-log-writes`, `dm-error` and existing fio facilities before writing a custom faulting backend.
+
+Deterministic describes the test mechanism. These faults need not be deterministic on real hardware.
+
+### Goal 4: filesystem workloads
+
+Once medium faults have deterministic behavior:
+
+1. Create filesystems with `mkfs.ext4` and `mkfs.xfs`.
+2. Mount each filesystem, create and update files, call fsync, and verify hashes.
+3. Unmount, restart the daemon, remount and verify the same data.
+4. Repeat the applicable process-crash and medium-fault cases through the mounted stack.
+
+Database workloads remain optional until filesystem semantics are reliable.
+
+### Goal 5: measured performance work
+
+Only after the functional base is robust:
+
+- establish fio latency, throughput and CPU baselines;
+- support multi-block requests and batching;
+- increase queue depth and add controlled concurrency;
+- profile before changing the format or adding caching;
+- add compaction or log wraparound when finite-log exhaustion blocks longer workloads.
+
+### Deferred fault model
+
+Byzantine storage is not nondeterministic storage. A Byzantine device can forge self-consistent blocks, checksums or old valid state. XXH3 detects accidental corruption but cannot authenticate data or prevent replay. Byzantine tolerance requires a separate design with keyed authentication, trusted monotonic state or replication, and is not on the current roadmap.
+
+## Consequences
+
+The first ublk device will be intentionally slow and finite. One queue, one outstanding request and one-block records make behavior easier to prove. We accept this limit until the mounted-stack tests are reliable.
+
+Zig images may become unreadable by Rust and vice versa. This is acceptable while no persistent compatibility contract or user data exists.
 
 ## Why this project
 
