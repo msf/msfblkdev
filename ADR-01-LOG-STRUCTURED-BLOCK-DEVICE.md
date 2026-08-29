@@ -291,8 +291,8 @@ Goal 1 is complete. V0.4 behavior and its Rust closure gate are green.
 
 1. V0.5 multiple-write and overwrite semantics.
 2. V0.6 bounded crash-tail recovery, including interrupted checkpoint publication.
-3. A serialized 4 KiB ublk frontend supporting READ, WRITE and FLUSH.
-4. Vertical fio validation through graceful restarts and deterministic hard process termination.
+3. V0.7 serialized 4 KiB ublk frontend supporting READ, WRITE and FLUSH.
+4. V0.8 vertical fio validation through graceful restarts and deterministic hard process termination.
 
 Automated tests use `SIGKILL` at coordinated points to model process-level fail-stop without cleanup. This covers user `kill -9` and OOM termination from the process's perspective. It does not model loss of the kernel, controller cache or power while an I/O is in flight. The V0.6 durability contract therefore depends on the backing device honoring successful fsync.
 

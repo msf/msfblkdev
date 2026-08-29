@@ -12,8 +12,8 @@ The active goal is a minimum credible device:
 V0.4 closure
 → V0.5 overwrite semantics
 → V0.6 crash recovery
-→ serialized ublk frontend
-→ fio validation and restart recovery
+→ V0.7 serialized ublk frontend
+→ V0.8 fio validation and restart recovery
 ```
 
 Rust is authoritative. The Zig implementation is a completed initial experiment and may diverge.
@@ -22,7 +22,7 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 
 - [ADR-01: log-structured block device](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md) defines the architecture, persistent format and high-level roadmap.
 - [ADR-02: basic read and write](ADR-02-GOAL-1-BASIC-READ-WRITE.md) records V0.0 through V0.4 and its closure gate.
-- [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5, V0.6, ublk and vertical acceptance.
+- [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5 through V0.8.
 - [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 

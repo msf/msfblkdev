@@ -17,10 +17,10 @@ The next goal is not a production device. It is the smallest device for which we
 
 We will complete four ordered deliveries:
 
-1. Implement V0.5 multiple-write and overwrite semantics.
-2. Implement V0.6 bounded crash recovery.
-3. Expose the V0.6 engine through a serialized 4 KiB ublk frontend.
-4. Validate the complete path with fio, graceful restarts, hard process exits and finite-log exhaustion.
+1. **V0.5:** implement multiple-write and overwrite semantics.
+2. **V0.6:** implement bounded crash recovery.
+3. **V0.7:** expose the V0.6 engine through a serialized 4 KiB ublk frontend.
+4. **V0.8:** validate the complete path with fio, graceful restarts, hard process exits and finite-log exhaustion.
 
 A later goal handles backing-medium faults while the process remains alive. This goal only requires correct recovery after fail-stop process loss and correct detection of persistent corruption already covered by the format.
 
@@ -62,7 +62,7 @@ One separate child test will terminate through an uncaught Rust panic to model a
 - `make lint` passes for Rust.
 - `make test` runs and passes the complete Rust test suite.
 
-No Delivery 1 work starts before these checks pass.
+No delivery work starts before these checks pass.
 
 ## Delivery 1: V0.5 update semantics
 
@@ -169,6 +169,7 @@ Acceptance tests:
 - [ ] Checkpoint before accepting a record that would exceed the replay bound.
 - [ ] Reject invalid `checkpoint_after_bytes` values.
 - [ ] Recover after one uncaught panic in a child process.
+- [ ] All new tests and code pass through the top-level `make lint test` targets.
 
 ## How do we test finite logs?
 
@@ -188,7 +189,7 @@ Both profiles must prove:
 
 Regular files provide exact sizes and are the required automated medium. Logical volume manager (LVM) logical volumes allocate in larger extents and are used for the later vertical durability run, not the exact one-record geometry test.
 
-## Delivery 3: smallest ublk frontend
+## Delivery 3: V0.7 smallest ublk frontend
 
 The frontend is deliberately serialized:
 
@@ -226,10 +227,11 @@ Acceptance tests:
 - [ ] `SIGTERM` performs a clean close and device removal.
 - [ ] READ and WRITE reject invalid length, alignment, range and flags.
 - [ ] `SIGKILL` leaves storage recoverable by a new daemon.
+- [ ] All new tests and code pass through the top-level `make lint test` targets.
 
 ADR-03 does not implement transparent ublk user recovery. After `SIGKILL`, the test waits for the old device to disappear or deletes that recorded device ID through the ublk control interface. It then creates a new device and starts a new fio verification process. The device ID may change, and any request that was in flight at the kill may fail.
 
-## Delivery 4: vertical functional validation
+## Delivery 4: V0.8 vertical functional validation
 
 The required environment uses a disposable regular file. A dedicated LVM logical volume is optional operator-run evidence. Tests must never target the laptop's system NVMe, mounted filesystems or an unnamed block device.
 
@@ -254,6 +256,7 @@ Acceptance evidence:
 - [ ] No scenario hangs after a daemon error or exit.
 - [ ] ublk reports the 33rd write as `ENOSPC`.
 - [ ] The daemon restarts cleanly after every hard-exit scenario.
+- [ ] All new tests and code pass through the top-level `make lint test` targets.
 
 Creating or formatting an ext4 or XFS filesystem is not part of this goal.
 
@@ -280,6 +283,7 @@ ADR-03 is complete only when:
 - [ ] Every automated crash scenario passes twenty consecutive runs.
 - [ ] The regular-file harness validates every resource it creates before writing.
 - [ ] Test evidence records the commit, kernel, backing type, commands and results.
+- [ ] All new tests and code pass through the top-level `make lint test` targets.
 
 ## Consequences
 
