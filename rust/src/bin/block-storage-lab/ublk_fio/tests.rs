@@ -167,6 +167,65 @@ fn readiness_reports_early_exit_and_timeout() {
 }
 
 #[test]
+fn kill_daemon_requires_and_records_exact_sigkill() {
+    let mut command = current_exe_child(
+        "ublk_fio::tests::sleeping_child",
+        "BLOCK_STORAGE_READY_SLEEP",
+    );
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    let mut resources = Resources {
+        child: Some(ManagedChild::spawn(&mut command).unwrap()),
+        ..Resources::default()
+    };
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let mut evidence = Evidence::create_ublk(repo, "test").unwrap();
+    let evidence_path = evidence.path().to_owned();
+
+    scenario_run::kill_daemon(&mut resources, Duration::from_secs(2), &mut evidence).unwrap();
+
+    assert!(resources.child.is_none());
+    assert!(
+        fs::read_to_string(&evidence_path)
+            .unwrap()
+            .contains(&format!("daemon SIGKILL: signal={}", libc::SIGKILL))
+    );
+    drop(evidence);
+    fs::remove_file(evidence_path).unwrap();
+}
+
+#[test]
+fn kill_daemon_rejects_a_different_unsuccessful_exit() {
+    let mut command = current_exe_child(
+        "ublk_fio::tests::unsuccessful_child",
+        "BLOCK_STORAGE_UNSUCCESSFUL_CHILD",
+    );
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = ManagedChild::spawn(&mut command).unwrap();
+    assert!(matches!(
+        child
+            .wait_bounded(Instant::now() + Duration::from_secs(2))
+            .unwrap(),
+        Outcome::Exit(status) if status.code() == Some(23)
+    ));
+    let mut resources = Resources {
+        child: Some(child),
+        ..Resources::default()
+    };
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let mut evidence = Evidence::create_ublk(repo, "test").unwrap();
+    let evidence_path = evidence.path().to_owned();
+
+    let error = scenario_run::kill_daemon(&mut resources, Duration::from_secs(2), &mut evidence)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("SIGKILL daemon exit"));
+    resources.child.as_mut().unwrap().cleanup().unwrap();
+    resources.child = None;
+    drop(evidence);
+    fs::remove_file(evidence_path).unwrap();
+}
+
+#[test]
 fn device_identity_states_distinguish_match_absence_and_change() {
     let root = root("identity-states");
     let paths = fake_paths(&root);
@@ -337,6 +396,13 @@ fn readiness_writer_child() {
 
 #[test]
 fn empty_child() {}
+
+#[test]
+fn unsuccessful_child() {
+    if std::env::var_os("BLOCK_STORAGE_UNSUCCESSFUL_CHILD").is_some() {
+        std::process::exit(23);
+    }
+}
 
 #[test]
 fn sleeping_child() {

@@ -335,7 +335,7 @@ fn stop_graceful(
     Ok(())
 }
 
-fn kill_daemon(
+pub(super) fn kill_daemon(
     resources: &mut Resources,
     timeout: Duration,
     evidence: &mut Evidence,
@@ -346,7 +346,9 @@ fn kill_daemon(
         .ok_or_else(|| io::Error::other("daemon child is missing"))?;
     child.kill()?;
     match child.wait_bounded(Instant::now() + timeout)? {
-        Outcome::Exit(status) if !status.success() => {}
+        Outcome::Exit(status) if status.signal() == Some(libc::SIGKILL) => {
+            evidence.line(&format!("daemon SIGKILL: signal={}", libc::SIGKILL))?;
+        }
         Outcome::Exit(status) => {
             return Err(io::Error::other(format!(
                 "SIGKILL daemon exit was {status}"
