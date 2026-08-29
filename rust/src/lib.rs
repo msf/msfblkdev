@@ -2121,6 +2121,109 @@ mod tests {
     }
 
     #[test]
+    fn reconstructs_every_recovery_cursor_from_replayed_state() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 4_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let backing_blocks = u64::from(layout.log_start) + 64;
+        let backing_bytes = backing_blocks * BLOCK_SIZE as u64;
+        backing.create_sized(backing_bytes)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
+        volume.write_block(1, &[0x5a; BLOCK_SIZE])?;
+        volume.close()?;
+
+        let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
+        let mut descriptors = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(&mut descriptors, 0)?;
+        let (green_bytes, blue_bytes) = descriptors.split_at_mut(BLOCK_SIZE);
+        let green = decode_checkpoint(green_bytes, CheckpointSlot::Green, backing_bytes)
+            .expect("green checkpoint descriptor must remain valid");
+        let blue = decode_checkpoint(blue_bytes, CheckpointSlot::Blue, backing_bytes)
+            .expect("blue checkpoint descriptor must remain valid");
+        let selected_checkpoint = [green, blue]
+            .into_iter()
+            .max_by_key(|checkpoint| checkpoint.checkpoint_lsn)
+            .expect("formatted volume has checkpoint roots");
+        assert_eq!(selected_checkpoint.checkpoint_lsn, 2);
+
+        let checkpoint_footer = selected_checkpoint.last_footer_block;
+        write_raw_record_payloads(
+            &file,
+            selected_checkpoint.volume_id,
+            3,
+            checkpoint_footer,
+            &[(0, 0xc3)],
+        )?;
+        let second_footer = checkpoint_footer + 2;
+        write_raw_record_payloads(
+            &file,
+            selected_checkpoint.volume_id,
+            4,
+            second_footer,
+            &[(2, 0x3c), (1, 0xe7), (3, 0x7e)],
+        )?;
+        let third_footer = second_footer + 4;
+        write_raw_record_payloads(
+            &file,
+            selected_checkpoint.volume_id,
+            5,
+            third_footer,
+            &[(2, 0xd4)],
+        )?;
+        file.sync_all()?;
+        drop(file);
+
+        let final_footer = third_footer + 2;
+        let append_block = final_footer + 1;
+        let replayed_blocks = u64::from(final_footer - checkpoint_footer);
+        let expected = [
+            (checkpoint_footer + 1, 0xc3),
+            (second_footer + 2, 0xe7),
+            (third_footer + 1, 0xd4),
+            (second_footer + 3, 0x7e),
+        ];
+
+        let mut volume = open(&backing.0)?;
+        assert_eq!(volume.last_lsn, 5);
+        assert_eq!(volume.last_footer_block, final_footer);
+        assert_eq!(volume.durable_lsn, 5);
+        assert_eq!(volume.checkpoint_lsn, selected_checkpoint.checkpoint_lsn);
+        assert_eq!(
+            volume.log_bytes_since_checkpoint,
+            replayed_blocks * BLOCK_SIZE as u64
+        );
+        assert_eq!(volume.last_footer_block + 1, append_block);
+        assert_eq!(
+            volume.next_checkpoint_slot,
+            match selected_checkpoint.slot {
+                CheckpointSlot::Green => CheckpointSlot::Blue,
+                CheckpointSlot::Blue => CheckpointSlot::Green,
+            }
+        );
+
+        for (lba, &(physical_block, byte)) in expected.iter().enumerate() {
+            let payload = [byte; BLOCK_SIZE];
+            assert_eq!(volume.physical_blocks[lba], physical_block);
+            assert_eq!(
+                volume.checksums[lba],
+                payload_checksum(
+                    selected_checkpoint.volume_id,
+                    lba as u32,
+                    physical_block,
+                    &payload,
+                )
+            );
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(actual, payload);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn recovery_accepts_every_format_one_payload_count() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = MAXIMUM_PAYLOAD_BLOCKS as u32;
