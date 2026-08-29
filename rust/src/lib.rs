@@ -2751,6 +2751,75 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_checkpoint_after_bytes_before_touching_backing() -> io::Result<()> {
+        const MINIMUM_CHECKPOINT_AFTER_BYTES: u64 = 339 * 4096;
+
+        assert_eq!(
+            MINIMUM_CHECKPOINT_AFTER_BYTES,
+            MAXIMUM_RECORD_BLOCKS * BLOCK_SIZE as u64
+        );
+        assert_eq!(
+            VolumeOpenOptions::default().checkpoint_after_bytes,
+            64 * 1024 * 1024
+        );
+
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(
+            u64::from(layout.log_start + MAXIMUM_RECORD_BLOCKS as u32) * BLOCK_SIZE as u64,
+        )?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let file = OpenOptions::new().write(true).open(&backing.0)?;
+        file.write_all_at(
+            &[0xa5; BLOCK_SIZE],
+            u64::from(layout.log_start) * BLOCK_SIZE as u64,
+        )?;
+        file.sync_all()?;
+        drop(file);
+        let original_bytes = std::fs::read(&backing.0)?;
+
+        let missing = TemporaryBacking::new()?;
+        let invalid_values = [
+            0,
+            MINIMUM_CHECKPOINT_AFTER_BYTES - BLOCK_SIZE as u64,
+            MINIMUM_CHECKPOINT_AFTER_BYTES - BLOCK_SIZE as u64 + 1,
+            MINIMUM_CHECKPOINT_AFTER_BYTES - 1,
+            MINIMUM_CHECKPOINT_AFTER_BYTES + 1,
+            VolumeOpenOptions::default().checkpoint_after_bytes - 1,
+            VolumeOpenOptions::default().checkpoint_after_bytes + 1,
+        ];
+        for checkpoint_after_bytes in invalid_values {
+            let options = VolumeOpenOptions {
+                checkpoint_after_bytes,
+            };
+            for path in [&backing.0, &missing.0] {
+                let error = match open_with_options(path, options) {
+                    Ok(_) => return Err(io::Error::other("invalid replay bound was accepted")),
+                    Err(error) => error,
+                };
+                assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            }
+            assert_eq!(std::fs::read(&backing.0)?, original_bytes);
+            assert!(!missing.0.exists());
+        }
+
+        let minimum = VolumeOpenOptions {
+            checkpoint_after_bytes: MINIMUM_CHECKPOINT_AFTER_BYTES,
+        };
+        let volume = open_with_options(&backing.0, minimum)?;
+        assert_eq!(
+            volume.checkpoint_after_bytes,
+            MINIMUM_CHECKPOINT_AFTER_BYTES
+        );
+        drop(volume);
+
+        let defaults = VolumeOpenOptions::default();
+        let volume = open_with_options(&backing.0, defaults)?;
+        assert_eq!(volume.checkpoint_after_bytes, 64 * 1024 * 1024);
+        Ok(())
+    }
+
+    #[test]
     fn checkpoints_before_write_exceeding_replay_bound() -> io::Result<()> {
         const CHECKPOINT_BLOCKS: u64 = 340;
         const FIRST_BOUND_LSN: u64 = CHECKPOINT_BLOCKS / 2;
