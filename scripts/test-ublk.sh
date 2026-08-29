@@ -106,6 +106,45 @@ validate_live_device() {
     validate_exact_block_node "$path" "$id" && validate_sys_geometry /sys "$id"
 }
 
+live_device_identity() {
+    local path=$1 id=$2 class_path
+    validate_live_device "$path" "$id" || return 1
+    class_path=/sys/class/ublk-char/ublkc$id
+    [[ -d $class_path ]] || return 1
+    stat -Lc '%d:%i' -- "$class_path"
+}
+
+child_is_running() {
+    local pid=$1 state
+    kill -0 "$pid" 2>/dev/null || return 1
+    state=$(process_state "$pid" 2>/dev/null) || return 1
+    [[ $state != Z ]]
+}
+
+wait_for_daemon_ready() {
+    local stdout=$1 pid=$2 seconds=$3 validator=${4:-live_device_identity}
+    local deadline line id identity
+    deadline=$((SECONDS + seconds))
+    while true; do
+        line=
+        if [[ -s $stdout ]]; then
+            IFS= read -r line <"$stdout" || true
+            if id=$(parse_device_path "$line"); then
+                if identity=$("$validator" "$line" "$id"); then
+                    child_is_running "$pid" || return 1
+                    DAEMON_PATH=$line
+                    DAEMON_ID=$id
+                    DEVICE_SYS_ID=$identity
+                    return 0
+                fi
+            fi
+        fi
+        child_is_running "$pid" || return 1
+        ((SECONDS < deadline)) || return 124
+        sleep 0.05
+    done
+}
+
 new_owned_dir() {
     local temp_root marker
     temp_root=${TMPDIR:-/tmp}
@@ -253,7 +292,11 @@ remove_after_kill() {
 }
 
 start_daemon() {
-    local failpoint=${1:-} deadline line id
+    local failpoint=${1:-} status
+    DAEMON_PATH=
+    DAEMON_ID=
+    DEVICE_SYS_ID=
+    DEVICE_VALIDATED=0
     DAEMON_STDOUT=$OWNED_DIR/daemon.$RANDOM.stdout
     DAEMON_STDERR=$OWNED_DIR/daemon.$RANDOM.stderr
     : >"$DAEMON_STDOUT"
@@ -269,24 +312,17 @@ start_daemon() {
     fi
     DAEMON_PID=$!
     DAEMON_OUTPUT_RECORDED=0
-    deadline=$((SECONDS + PROCESS_SECONDS))
-    while [[ ! -s $DAEMON_STDOUT ]]; do
-        if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
-            wait "$DAEMON_PID" || true
-            record_daemon_output
-            return 1
+    set +e
+    wait_for_daemon_ready "$DAEMON_STDOUT" "$DAEMON_PID" "$PROCESS_SECONDS"
+    status=$?
+    set -e
+    if [[ $status -ne 0 ]]; then
+        if ! child_is_running "$DAEMON_PID"; then
+            wait_pid_bounded "$DAEMON_PID" 1 >/dev/null 2>&1 || true
         fi
-        ((SECONDS < deadline)) || return 124
-        sleep 0.05
-    done
-    IFS= read -r line <"$DAEMON_STDOUT"
-    id=$(parse_device_path "$line") || return 1
-    DAEMON_PATH=$line
-    DAEMON_ID=$id
-    DEVICE_VALIDATED=0
-    validate_live_device "$line" "$id" || return 1
-    [[ -d /sys/class/ublk-char/ublkc$id ]] || return 1
-    DEVICE_SYS_ID=$(stat -Lc '%d:%i' -- "/sys/class/ublk-char/ublkc$id")
+        record_daemon_output
+        return "$status"
+    fi
     DEVICE_VALIDATED=1
     STARTUP_PENDING=0
     log "ready: pid=$DAEMON_PID id=$DAEMON_ID path=$DAEMON_PATH logical_block_size=$BLOCK_BYTES sectors=$EXPECTED_SECTORS sys_identity=$DEVICE_SYS_ID"
@@ -302,21 +338,22 @@ wait_for_failpoint() {
     log "failpoint handshake: $name"
 }
 
-fio_base() {
-    local name=$1 pattern=$2 rw=$3 size=$4 offset=${5:-0}
-    printf '%s\0' fio --name="$name" --filename="$DAEMON_PATH" --direct=1 --ioengine=sync \
-        --bs=4096 --iodepth=1 --numjobs=1 --rw="$rw" --offset="$offset" --size="$size" \
-        --verify=md5 --verify_pattern="$pattern" --verify_fatal=1 --verify_dump=0 \
-        --randrepeat=1 --randseed=74703 --end_fsync=1
+build_fio_command() {
+    local -n destination=$1
+    local name=$2 pattern=$3 rw=$4 size=$5 offset=$6
+    shift 6
+    destination=(fio --name="$name" --filename="$DAEMON_PATH" --direct=1 --ioengine=sync
+        --bs=4096 --iodepth=1 --numjobs=1 --rw="$rw" --offset="$offset" --size="$size"
+        --verify=md5 --verify_pattern="$pattern" --verify_fatal=1 --verify_dump=0
+        --randrepeat=1 --randseed=74703 --end_fsync=1 "$@")
 }
 
 run_fio() {
+    local -a fio_command command
     validate_recorded_device_identity
     validate_live_device "$DAEMON_PATH" "$DAEMON_ID"
-    local -a command=(timeout --signal=TERM --kill-after=2s "${PROCESS_SECONDS}s")
-    while IFS= read -r -d '' word; do command+=("$word"); done < <(fio_base "$@")
-    shift 5 || true
-    command+=("$@")
+    build_fio_command fio_command "$@"
+    command=(timeout --signal=TERM --kill-after=2s "${PROCESS_SECONDS}s" "${fio_command[@]}")
     run_logged "${command[@]}"
 }
 
@@ -434,10 +471,10 @@ scenario_exhaustion() {
     start_daemon
     validate_recorded_device_identity
     validate_live_device "$DAEMON_PATH" "$DAEMON_ID"
-    local -a command=(timeout --signal=TERM --kill-after=2s "${PROCESS_SECONDS}s")
-    while IFS= read -r -d '' word; do command+=("$word"); done \
-        < <(fio_base exhaustion 0xdeadbeef write $((33 * BLOCK_BYTES)) 0)
-    command+=(--do_verify=0 --fsync=32 --output-format=json)
+    local -a fio_command command
+    build_fio_command fio_command exhaustion 0xdeadbeef write $((33 * BLOCK_BYTES)) 0 \
+        --do_verify=0 --fsync=32 --output-format=json
+    command=(timeout --signal=TERM --kill-after=2s "${PROCESS_SECONDS}s" "${fio_command[@]}")
     log_command "${command[@]}"
     set +e
     "${command[@]}" >"$output" 2>&1
@@ -457,7 +494,7 @@ scenario_exhaustion() {
 
 cleanup() {
     local status=$? safe_to_remove=1
-    trap - EXIT INT TERM HUP
+    trap - EXIT HUP INT TERM
     if [[ ${SECOND_PID:-} =~ ^[1-9][0-9]*$ ]]; then
         kill -TERM "$SECOND_PID" 2>/dev/null || true
         set +e
@@ -510,16 +547,50 @@ cleanup() {
     exit "$status"
 }
 
+exit_for_signal() {
+    local status=$1
+    trap - HUP INT TERM
+    exit "$status"
+}
+
+create_evidence_file() {
+    local path=$1
+    (set -o noclobber; : >"$path") 2>/dev/null || {
+        printf 'refusing to overwrite existing evidence: %s\n' "$path" >&2
+        return 1
+    }
+}
+
+require_commands() {
+    local command_name
+    for command_name in awk cargo cat date dirname env fio git grep mkdir mktemp realpath rm \
+        sleep stat tee timeout uname; do
+        command -v "$command_name" >/dev/null || {
+            printf 'required command not found: %s\n' "$command_name" >&2
+            return 1
+        }
+    done
+}
+
 preflight_live() {
-    local timeout_version
+    local command_name command_version timeout_version fio_version
+    require_commands
     [[ $(uname -s) == Linux ]] || { printf 'run requires Linux\n' >&2; return 1; }
-    command -v timeout >/dev/null || { printf 'GNU timeout is required\n' >&2; return 1; }
+    for command_name in realpath rm stat; do
+        command_version=$("$command_name" --version 2>/dev/null) || true
+        [[ $command_version == *'GNU coreutils'* ]] || {
+            printf 'GNU %s is required\n' "$command_name" >&2
+            return 1
+        }
+    done
     timeout_version=$(timeout --version 2>/dev/null) || true
     [[ $timeout_version == *'GNU coreutils'* ]] || {
         printf 'GNU timeout is required\n' >&2; return 1;
     }
-    command -v fio >/dev/null || { printf 'fio is required\n' >&2; return 1; }
-    command -v cargo >/dev/null || { printf 'cargo is required\n' >&2; return 1; }
+    fio_version=$(fio --version 2>/dev/null) || true
+    [[ $fio_version == fio-3.36 ]] || {
+        printf 'fio 3.36 is required (found %s)\n' "${fio_version:-unknown}" >&2; return 1;
+    }
     [[ -c /dev/ublk-control && -r /dev/ublk-control && -w /dev/ublk-control ]] || {
         printf '/dev/ublk-control must exist and be readable/writable; no resources created\n' >&2
         return 1
@@ -535,14 +606,17 @@ run_live() {
     timestamp=$(date -u +%Y%m%dT%H%M%SZ)
     commit=$(git rev-parse HEAD)
     EVIDENCE=$repo/evidence/test-ublk-$timestamp-$commit.log
-    : >"$EVIDENCE"
+    create_evidence_file "$EVIDENCE"
     log "commit: $commit"
     log "kernel: $(uname -srvm)"
     log 'backing type: fresh create-new regular file; 64 logical 4-KiB blocks; 32 two-block records'
     BINARY=$repo/rust/target/debug/block-storage-ublk
     run_logged timeout --signal=TERM --kill-after=5s "${BUILD_SECONDS}s" \
         cargo build --manifest-path "$repo/rust/Cargo.toml" --features test-failpoints --bin block-storage-ublk
-    trap cleanup EXIT INT TERM HUP
+    trap cleanup EXIT
+    trap 'exit_for_signal 129' HUP
+    trap 'exit_for_signal 130' INT
+    trap 'exit_for_signal 143' TERM
     new_owned_dir
     BACKING=$OWNED_DIR/backing.img
 
@@ -562,6 +636,22 @@ run_live() {
     log 'PASS all regular-file ublk/fio scenarios'
 }
 
+parse_fio_shape() {
+    local -a fio_command parse_command
+    build_fio_command fio_command "$@"
+    parse_command=(fio --parse-only --warnings-fatal "${fio_command[@]:1}")
+    "${parse_command[@]}"
+}
+
+fake_device_identity() {
+    local path=$1 id=$2
+    [[ $path == /dev/ublkb$id ]] || return 1
+    [[ -f $SELF_TEST_READY_ROOT/dev/ublkb$id ]] || return 1
+    validate_sys_geometry "$SELF_TEST_READY_ROOT/sys" "$id" || return 1
+    [[ -d $SELF_TEST_READY_ROOT/sys/class/ublk-char/ublkc$id ]] || return 1
+    stat -Lc '%d:%i' -- "$SELF_TEST_READY_ROOT/sys/class/ublk-char/ublkc$id"
+}
+
 expect_usage_error() {
     local status
     set +e
@@ -572,7 +662,10 @@ expect_usage_error() {
 }
 
 self_test() {
-    local root dir id backing
+    local root dir id backing status helper_pid evidence pattern
+    local SELF_TEST_READY_ROOT
+    require_commands
+    [[ $(fio --version) == fio-3.36 ]]
     [[ $(geometry_values 64) == '6 70' ]]
     [[ $BACKING_BYTES -eq 286720 && $EXPECTED_SECTORS -eq 512 ]]
     [[ $(parse_device_path /dev/ublkb0) == 0 ]]
@@ -583,12 +676,46 @@ self_test() {
 
     root=$(mktemp -d)
     trap 'rm -rf -- "$root"' RETURN
-    mkdir -p "$root/sys/block/ublkb7/queue"
+    SELF_TEST_READY_ROOT=$root/readiness
+    mkdir -p "$root/sys/block/ublkb7/queue" "$SELF_TEST_READY_ROOT/dev"
     printf '4096\n' >"$root/sys/block/ublkb7/queue/logical_block_size"
     printf '512\n' >"$root/sys/block/ublkb7/size"
     validate_sys_geometry "$root/sys" 7
     printf '4096\n' >"$root/sys/block/ublkb7/size"
     ! validate_sys_geometry "$root/sys" 7
+
+    printf '/dev/ublkb7\n' >"$root/daemon-ready.out"
+    (
+        sleep 0.1
+        mkdir -p "$SELF_TEST_READY_ROOT/sys/block/ublkb7/queue" \
+            "$SELF_TEST_READY_ROOT/sys/class/ublk-char/ublkc7"
+        : >"$SELF_TEST_READY_ROOT/dev/ublkb7"
+        printf '4096\n' >"$SELF_TEST_READY_ROOT/sys/block/ublkb7/queue/logical_block_size"
+        printf '512\n' >"$SELF_TEST_READY_ROOT/sys/block/ublkb7/size"
+        sleep 5
+    ) &
+    helper_pid=$!
+    wait_for_daemon_ready "$root/daemon-ready.out" "$helper_pid" 2 fake_device_identity
+    [[ $DAEMON_PATH == /dev/ublkb7 && $DAEMON_ID == 7 && -n $DEVICE_SYS_ID ]]
+    kill -TERM "$helper_pid"
+    wait "$helper_pid" 2>/dev/null || true
+
+    printf '/dev/ublkb8\n' >"$root/daemon-exit.out"
+    (exit 23) &
+    helper_pid=$!
+    ! wait_for_daemon_ready "$root/daemon-exit.out" "$helper_pid" 2 fake_device_identity
+    wait "$helper_pid" 2>/dev/null || true
+
+    printf '/dev/ublkb9\n' >"$root/daemon-timeout.out"
+    sleep 5 &
+    helper_pid=$!
+    set +e
+    wait_for_daemon_ready "$root/daemon-timeout.out" "$helper_pid" 1 fake_device_identity
+    status=$?
+    set -e
+    kill -TERM "$helper_pid"
+    wait "$helper_pid" 2>/dev/null || true
+    [[ $status -eq 124 ]]
 
     dir=$(mktemp -d "$root/my-block-storage-ublk.XXXXXX")
     dir=$(realpath -e -- "$dir")
@@ -604,6 +731,31 @@ self_test() {
     printf '%s\n' "$id" >"$dir/.owned-by-test-ublk"
     remove_owned_dir "$dir" "$id"
     [[ ! -e $dir ]]
+
+    evidence=$root/evidence.log
+    create_evidence_file "$evidence"
+    printf 'original\n' >"$evidence"
+    ! create_evidence_file "$evidence" 2>/dev/null
+    [[ $(<"$evidence") == original ]]
+
+    DAEMON_PATH=$root/nonexistent/fio-target
+    parse_fio_shape sequential 0x13579bdf write $((16 * BLOCK_BYTES)) 0 --do_verify=1 --fsync=16
+    parse_fio_shape random 0x2468ace0 randwrite $((16 * BLOCK_BYTES)) 0 --do_verify=1 --fsync=16
+    for pattern in 0x01010101 0x02020202 0x03030303 0x04040404 \
+        0x05050505 0x06060606 0x07070707 0x08080808; do
+        parse_fio_shape overwrite "$pattern" write "$BLOCK_BYTES" 0 --do_verify=1 --fsync=1
+    done
+    parse_fio_shape graceful 0x11223344 write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
+    parse_fio_shape graceful 0x11223344 write $((8 * BLOCK_BYTES)) 0 --verify_only=1
+    parse_fio_shape sigkill 0x55667788 write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
+    parse_fio_shape sigkill 0x55667788 write $((8 * BLOCK_BYTES)) 0 --verify_only=1
+    parse_fio_shape close-failpoint 0x99aabbcc write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
+    parse_fio_shape close-failpoint 0x99aabbcc write $((8 * BLOCK_BYTES)) 0 --verify_only=1
+    parse_fio_shape exhaustion 0xdeadbeef write $((33 * BLOCK_BYTES)) 0 \
+        --do_verify=0 --fsync=32 --output-format=json
+    parse_fio_shape exhaustion 0xdeadbeef write $((32 * BLOCK_BYTES)) 0 --verify_only=1
+    [[ ! -e $root/nonexistent ]]
+
     rm -rf -- "$root"
     trap - RETURN
 
