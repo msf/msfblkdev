@@ -15,9 +15,8 @@ The next goal is not a production device. It is the smallest device for which we
 
 ## Decision
 
-We will complete five ordered deliveries:
+We will complete four ordered deliveries:
 
-0. Close ADR-02 and restore a green Rust baseline.
 1. Implement V0.5 multiple-write and overwrite semantics.
 2. Implement V0.6 bounded crash recovery.
 3. Expose the V0.6 engine through a serialized 4 KiB ublk frontend.
@@ -57,17 +56,19 @@ One separate child test will terminate through an uncaught Rust panic to model a
 
 `SIGTERM` is not a crash. The ublk daemon must treat it as a graceful request: stop accepting work, drain requests, close the volume and remove the device.
 
-## Precondition: close ADR-02
+## Preconditions
 
-- [x] Every ADR-02 closure item is complete.
-- [x] Rust formatting, clippy and tests pass.
-- [x] One hundred consecutive parallel Rust test runs pass.
+- The Git worktree is clean.
+- `make lint` passes for Rust.
+- `make test` runs and passes the complete Rust test suite.
 
-No V0.5 implementation starts before this precondition is green.
+No Delivery 1 work starts before these checks pass.
 
 ## Delivery 1: V0.5 update semantics
 
 V0.5 uses the existing one-payload-per-footer format. No format change is expected.
+
+The block API has no delete operation. For this delivery, clearing an LBA means writing a 4 KiB zero block through `write_block`. Durable discard and physical-space reclamation remain deferred.
 
 Required behavior:
 
@@ -75,6 +76,7 @@ Required behavior:
 - Overwrite one LBA more than once.
 - Return the latest completed value before flush.
 - Return the latest durable value after flush, clean close and reopen.
+- Clear an LBA by overwriting it with a 4 KiB zero block.
 - Point the checkpoint map at the latest physical payload.
 - Leave the visible mapping unchanged after an invalid or log-full write.
 
@@ -82,10 +84,14 @@ Acceptance tests:
 
 - [ ] Multiple LBAs read correctly before and after reopen.
 - [ ] Repeated overwrite of one LBA returns only the latest value.
+- [ ] Overwriting an LBA with zeroes returns zeroes before and after reopen.
 - [ ] Raw footer linkage and local sequence numbers are contiguous.
 - [ ] The clean checkpoint maps each LBA to its latest payload and checksum.
 - [ ] An out-of-range write leaves mapping and cursors unchanged.
 - [ ] A log-full write leaves the last successful value readable after reopen.
+- [ ] All work is git committed with sensible commit messages.
+- [ ] All new tests and code run through the top-level `make test` target.
+- [ ] `make lint` and `make test` pass.
 
 ## Delivery 2: V0.6 crash recovery
 
