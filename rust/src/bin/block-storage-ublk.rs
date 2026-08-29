@@ -16,7 +16,9 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 const BLOCK_SHIFT: u8 = 12;
 const IO_BUFFER_BYTES: u32 = 1 << BLOCK_SHIFT;
@@ -25,6 +27,133 @@ const SECTORS_PER_BLOCK: u64 = 1 << (BLOCK_SHIFT - SECTOR_SHIFT);
 const QUEUE_COUNT: u16 = 1;
 const QUEUE_DEPTH: u16 = 1;
 const BACKING_LOCKED_MESSAGE: &str = "backing file is already locked";
+const QUEUE_RUNNING_IDLE: u8 = 0;
+const QUEUE_RUNNING_IN_FLIGHT: u8 = 1;
+const QUEUE_STOPPING: u8 = 2;
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(1);
+const DEVICE_REMOVAL_TIMEOUT: Duration = Duration::from_secs(2);
+
+static SIGTERM_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "C" fn sigterm_handler(_signal: libc::c_int) {
+    SIGTERM_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+struct SignalGuard {
+    previous: libc::sigaction,
+    installed: bool,
+}
+
+impl SignalGuard {
+    fn install() -> io::Result<Self> {
+        SIGTERM_REQUESTED.store(false, Ordering::Relaxed);
+        // SAFETY: sigaction is initialized before use, the handler has the required ABI, and
+        // it performs only a lock-free atomic store.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = sigterm_handler as *const () as usize;
+            action.sa_flags = 0;
+            if libc::sigemptyset(&mut action.sa_mask) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let mut previous = std::mem::zeroed();
+            if libc::sigaction(libc::SIGTERM, &action, &mut previous) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(Self {
+                previous,
+                installed: true,
+            })
+        }
+    }
+
+    fn restore(mut self) -> io::Result<()> {
+        self.restore_inner()
+    }
+
+    fn restore_inner(&mut self) -> io::Result<()> {
+        if !self.installed {
+            return Ok(());
+        }
+        // SAFETY: previous was populated by a successful sigaction call.
+        if unsafe { libc::sigaction(libc::SIGTERM, &self.previous, std::ptr::null_mut()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        self.installed = false;
+        Ok(())
+    }
+}
+
+impl Drop for SignalGuard {
+    fn drop(&mut self) {
+        let _ = self.restore_inner();
+    }
+}
+
+struct DrainState {
+    queue_phase: AtomicU8,
+    queue_failed: AtomicBool,
+    device_ready: AtomicBool,
+    target_done: AtomicBool,
+}
+
+impl DrainState {
+    fn new() -> Self {
+        Self {
+            queue_phase: AtomicU8::new(QUEUE_RUNNING_IDLE),
+            queue_failed: AtomicBool::new(false),
+            device_ready: AtomicBool::new(false),
+            target_done: AtomicBool::new(false),
+        }
+    }
+
+    fn begin_engine_work(&self) -> Option<InFlightRequest<'_>> {
+        if SIGTERM_REQUESTED.load(Ordering::Relaxed) {
+            self.stop_if_idle();
+            return None;
+        }
+        let in_flight = self
+            .queue_phase
+            .compare_exchange(
+                QUEUE_RUNNING_IDLE,
+                QUEUE_RUNNING_IN_FLIGHT,
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
+            .ok()
+            .map(|_| InFlightRequest(self))?;
+        if SIGTERM_REQUESTED.load(Ordering::Relaxed) {
+            drop(in_flight);
+            self.stop_if_idle();
+            None
+        } else {
+            Some(in_flight)
+        }
+    }
+
+    fn stop_if_idle(&self) -> bool {
+        match self.queue_phase.compare_exchange(
+            QUEUE_RUNNING_IDLE,
+            QUEUE_STOPPING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => true,
+            Err(QUEUE_STOPPING) => true,
+            Err(_) => false,
+        }
+    }
+}
+
+struct InFlightRequest<'a>(&'a DrainState);
+
+impl Drop for InFlightRequest<'_> {
+    fn drop(&mut self) {
+        self.0
+            .queue_phase
+            .store(QUEUE_RUNNING_IDLE, Ordering::Release);
+    }
+}
 
 #[derive(Debug)]
 struct BackingLock {
@@ -236,6 +365,31 @@ fn combine_shutdown_results(
     }
 }
 
+fn combine_daemon_results(
+    target_result: io::Result<()>,
+    stop_result: io::Result<()>,
+    shutdown_result: io::Result<()>,
+    removal_result: io::Result<()>,
+    restore_result: io::Result<()>,
+) -> io::Result<()> {
+    let results = [
+        ("target", target_result),
+        ("stop", stop_result),
+        ("shutdown", shutdown_result),
+        ("device removal", removal_result),
+        ("signal restoration", restore_result),
+    ];
+    let failures: Vec<_> = results
+        .into_iter()
+        .filter_map(|(step, result)| result.err().map(|error| format!("{step} failed: {error}")))
+        .collect();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::other(failures.join("; ")))
+    }
+}
+
 struct QueueState {
     volume: Option<block_storage::Volume>,
     result: Option<io::Result<()>>,
@@ -265,15 +419,17 @@ fn close_after_queue(
     );
 }
 
-fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState) {
+fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainState>) {
     let volume = match state.lock() {
         Ok(mut state) => state.volume.take(),
         Err(_) => {
+            drain.queue_failed.store(true, Ordering::Release);
             eprintln!("block-storage-ublk: queue state lock poisoned");
             return;
         }
     };
     let Some(mut volume) = volume else {
+        drain.queue_failed.store(true, Ordering::Release);
         store_queue_result(&state, Err(io::Error::other("volume is not available")));
         return;
     };
@@ -284,6 +440,7 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState) {
     {
         Ok(queue) => queue,
         Err(error) => {
+            drain.queue_failed.store(true, Ordering::Release);
             close_after_queue(&state, volume, Err(ublk_error(error)));
             return;
         }
@@ -291,6 +448,9 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState) {
 
     let mut queue_error = None;
     queue.wait_and_handle_io(|queue, tag, _context| {
+        let Some(in_flight) = drain.begin_engine_work() else {
+            return;
+        };
         let completion =
             handle_buffered_request(&mut volume, queue.get_iod(tag), buffers[0].as_mut_slice());
         if let Err(error) = queue.complete_io_cmd_unified(
@@ -300,54 +460,124 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState) {
         ) && queue_error.is_none()
         {
             queue_error = Some(ublk_error(error));
+            drain.queue_failed.store(true, Ordering::Release);
         }
+        drop(in_flight);
     });
 
     close_after_queue(&state, volume, queue_error.map_or(Ok(()), Err));
 }
 
+fn wait_for_stop(controller: &libublk::ctrl::UblkCtrl, drain: &DrainState) -> io::Result<()> {
+    loop {
+        let stop_requested =
+            SIGTERM_REQUESTED.load(Ordering::Relaxed) || drain.queue_failed.load(Ordering::Acquire);
+        if stop_requested && drain.stop_if_idle() && drain.device_ready.load(Ordering::Acquire) {
+            return controller.kill_dev().map(|_| ()).map_err(ublk_error);
+        }
+        if drain.target_done.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        std::thread::sleep(SHUTDOWN_POLL_INTERVAL);
+    }
+}
+
+fn wait_for_device_removal(device_id: u32) -> io::Result<()> {
+    let path = PathBuf::from(format!("/sys/class/ublk-char/ublkc{device_id}"));
+    let deadline = std::time::Instant::now() + DEVICE_REMOVAL_TIMEOUT;
+    while path.exists() {
+        if std::time::Instant::now() >= deadline {
+            return Err(io::Error::other(format!(
+                "{} still exists after controller drop",
+                path.display()
+            )));
+        }
+        std::thread::sleep(SHUTDOWN_POLL_INTERVAL);
+    }
+    Ok(())
+}
+
 fn run() -> io::Result<()> {
     let args = parse_args(std::env::args_os())?;
     let _backing_lock = BackingLock::acquire(&args.backing_path)?;
-    let controller = controller_builder(args.device_id)
-        .build()
-        .map_err(ublk_error)?;
-    let volume = block_storage::open(&args.backing_path)?;
-    let target = target_configuration(volume.volume_blocks());
+    let signal_guard = SignalGuard::install()?;
+    let drain = Arc::new(DrainState::new());
     let state = Arc::new(Mutex::new(QueueState {
-        volume: Some(volume),
+        volume: Some(block_storage::open(&args.backing_path)?),
         result: None,
     }));
-    let queue_state = Arc::clone(&state);
-
-    let target_result = controller
-        .run_target(
-            move |dev| {
-                dev.tgt.dev_size = target.device_bytes;
-                dev.tgt.params = target.parameters;
-                Ok(())
-            },
-            move |qid, dev| run_queue(qid, dev, Arc::clone(&queue_state)),
-            |controller| println!("{}", controller.get_bdev_path()),
+    let target = {
+        let state = state
+            .lock()
+            .map_err(|_| io::Error::other("queue state lock poisoned"))?;
+        target_configuration(
+            state
+                .volume
+                .as_ref()
+                .ok_or_else(|| io::Error::other("volume is not available"))?
+                .volume_blocks(),
         )
-        .map(|_| ())
-        .map_err(ublk_error);
+    };
 
-    let (remaining_volume, queue_result) = match state.lock() {
-        Ok(mut state) => (state.volume.take(), state.result.take()),
-        Err(_) => {
-            return combine_shutdown_results(
-                target_result,
-                Err(io::Error::other("queue state lock poisoned")),
-            );
-        }
+    let (target_result, stop_result, shutdown_result, device_id) = {
+        let controller = controller_builder(args.device_id)
+            .build()
+            .map_err(ublk_error)?;
+        let device_id = controller.dev_info().dev_id;
+        let queue_state = Arc::clone(&state);
+        let queue_drain = Arc::clone(&drain);
+        let ready_drain = Arc::clone(&drain);
+        let (target_result, stop_result) = std::thread::scope(|scope| {
+            let stop_drain = Arc::clone(&drain);
+            let controller_ref = &controller;
+            let stop_thread = scope.spawn(move || wait_for_stop(controller_ref, &stop_drain));
+            let target_result = controller
+                .run_target(
+                    move |dev| {
+                        dev.tgt.dev_size = target.device_bytes;
+                        dev.tgt.params = target.parameters;
+                        Ok(())
+                    },
+                    move |qid, dev| {
+                        run_queue(qid, dev, Arc::clone(&queue_state), Arc::clone(&queue_drain))
+                    },
+                    move |controller| {
+                        ready_drain.device_ready.store(true, Ordering::Release);
+                        println!("{}", controller.get_bdev_path());
+                    },
+                )
+                .map(|_| ())
+                .map_err(ublk_error);
+            drain.target_done.store(true, Ordering::Release);
+            let stop_result = stop_thread
+                .join()
+                .unwrap_or_else(|_| Err(io::Error::other("stop thread panicked")));
+            (target_result, stop_result)
+        });
+        let shutdown_result = match state.lock() {
+            Ok(mut state) => {
+                let remaining_volume = state.volume.take();
+                let queue_result = state.result.take();
+                match (remaining_volume, queue_result) {
+                    (Some(volume), _) => volume.close(),
+                    (None, Some(result)) => result,
+                    (None, None) => Err(io::Error::other("queue stopped without a result")),
+                }
+            }
+            Err(_) => Err(io::Error::other("queue state lock poisoned")),
+        };
+        (target_result, stop_result, shutdown_result, device_id)
     };
-    let shutdown_result = match (remaining_volume, queue_result) {
-        (Some(volume), _) => volume.close(),
-        (None, Some(result)) => result,
-        (None, None) => Err(io::Error::other("queue stopped without a result")),
-    };
-    combine_shutdown_results(target_result, shutdown_result)
+
+    let removal_result = wait_for_device_removal(device_id);
+    let restore_result = signal_guard.restore();
+    combine_daemon_results(
+        target_result,
+        stop_result,
+        shutdown_result,
+        removal_result,
+        restore_result,
+    )
 }
 
 fn main() -> ExitCode {
@@ -745,6 +975,110 @@ mod tests {
         );
         assert_eq!(block, [0; IO_BUFFER_BYTES as usize]);
         Ok(())
+    }
+
+    #[test]
+    fn signal_state_stops_new_work_and_handler_is_restored() -> io::Result<()> {
+        const CHILD_ENV: &str = "BLOCK_STORAGE_SIGTERM_TEST_CHILD";
+        const TIMEOUT: Duration = Duration::from_secs(10);
+
+        if std::env::var_os(CHILD_ENV).is_some() {
+            // SAFETY: sigaction writes to initialized storage and the signal number is valid.
+            let before = unsafe {
+                let mut action: libc::sigaction = std::mem::zeroed();
+                if libc::sigaction(libc::SIGTERM, std::ptr::null(), &mut action) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                action
+            };
+            let guard = SignalGuard::install()?;
+            // SAFETY: SIGTERM is handled by sigterm_handler for this process.
+            if unsafe { libc::raise(libc::SIGTERM) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            assert!(SIGTERM_REQUESTED.load(Ordering::Relaxed));
+
+            let drain = DrainState::new();
+            assert!(drain.begin_engine_work().is_none());
+            assert_eq!(drain.queue_phase.load(Ordering::Acquire), QUEUE_STOPPING);
+            guard.restore()?;
+
+            // SAFETY: same query as above, after explicit restoration.
+            let after = unsafe {
+                let mut action: libc::sigaction = std::mem::zeroed();
+                if libc::sigaction(libc::SIGTERM, std::ptr::null(), &mut action) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                action
+            };
+            assert_eq!(after.sa_sigaction, before.sa_sigaction);
+            return Ok(());
+        }
+
+        let mut child = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "tests::signal_state_stops_new_work_and_handler_is_restored",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .spawn()?;
+        let status = wait_for_child_exit(&mut child, TIMEOUT).inspect_err(|_| {
+            let _ = child.kill();
+            let _ = child.wait();
+        })?;
+        assert!(status.success(), "signal test child failed: {status}");
+        Ok(())
+    }
+
+    #[test]
+    fn shutdown_waits_for_in_flight_work_before_stopping() {
+        let drain = Arc::new(DrainState::new());
+        let in_flight = drain.begin_engine_work().unwrap();
+        let stop_drain = Arc::clone(&drain);
+        let (stopped_sender, stopped_receiver) = mpsc::sync_channel(1);
+        let stopper = std::thread::spawn(move || {
+            while !stop_drain.stop_if_idle() {
+                std::thread::yield_now();
+            }
+            stopped_sender.send(()).unwrap();
+        });
+
+        assert!(
+            stopped_receiver
+                .recv_timeout(Duration::from_millis(20))
+                .is_err()
+        );
+        assert_eq!(
+            drain.queue_phase.load(Ordering::Acquire),
+            QUEUE_RUNNING_IN_FLIGHT
+        );
+        drop(in_flight);
+        stopped_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        stopper.join().unwrap();
+
+        assert_eq!(drain.queue_phase.load(Ordering::Acquire), QUEUE_STOPPING);
+        assert!(drain.begin_engine_work().is_none());
+    }
+
+    #[test]
+    fn daemon_shutdown_propagates_each_error() {
+        let error = |message| Err(io::Error::other(message));
+        let combined = combine_daemon_results(
+            error("run"),
+            error("kill"),
+            error("checkpoint"),
+            error("ublkc remained"),
+            error("sigaction"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            combined.to_string(),
+            "target failed: run; stop failed: kill; shutdown failed: checkpoint; device removal failed: ublkc remained; signal restoration failed: sigaction"
+        );
+        assert!(combine_daemon_results(Ok(()), Ok(()), Ok(()), Ok(()), Ok(())).is_ok());
     }
 
     #[test]
