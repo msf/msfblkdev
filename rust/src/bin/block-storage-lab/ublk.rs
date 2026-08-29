@@ -121,7 +121,7 @@ pub struct FileIdentity {
 }
 
 impl FileIdentity {
-    fn from_metadata(metadata: &fs::Metadata) -> Self {
+    pub(crate) fn from_metadata(metadata: &fs::Metadata) -> Self {
         Self {
             device: metadata.dev(),
             inode: metadata.ino(),
@@ -180,6 +180,10 @@ impl OwnedTempDir {
 
     pub fn validate(&self) -> io::Result<()> {
         validate_owned_dir(&self.path, self.identity)
+    }
+
+    pub fn preserve(&mut self) {
+        self.cleaned = true;
     }
 
     pub fn cleanup(&mut self) -> io::Result<()> {

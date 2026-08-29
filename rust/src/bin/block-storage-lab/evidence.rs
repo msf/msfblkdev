@@ -11,6 +11,14 @@ pub struct Evidence {
 
 impl Evidence {
     pub fn create(repo: &Path) -> io::Result<Self> {
+        Self::create_named(repo, "engine-crash", None)
+    }
+
+    pub fn create_ublk(repo: &Path, fio_version: &str) -> io::Result<Self> {
+        Self::create_named(repo, "ublk-fio", Some(fio_version))
+    }
+
+    fn create_named(repo: &Path, name: &str, fio_version: Option<&str>) -> io::Result<Self> {
         let commit = command_text("git", &["rev-parse", "HEAD"], repo)?;
         let kernel = command_text("uname", &["-srvm"], repo)?;
         let timestamp = SystemTime::now()
@@ -19,7 +27,7 @@ impl Evidence {
             .as_nanos();
         let directory = repo.join("evidence");
         fs::create_dir_all(&directory)?;
-        let path = directory.join(format!("engine-crash-{timestamp}-{commit}.log"));
+        let path = directory.join(format!("{name}-{timestamp}-{commit}.log"));
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -27,7 +35,10 @@ impl Evidence {
         let mut evidence = Self { file, path };
         evidence.line(&format!("commit: {commit}"))?;
         evidence.line(&format!("kernel: {kernel}"))?;
-        evidence.line("backing: test-created temporary regular files")?;
+        if let Some(version) = fio_version {
+            evidence.line(&format!("fio: {version}"))?;
+        }
+        evidence.line("backing: test-created temporary regular file")?;
         Ok(evidence)
     }
 

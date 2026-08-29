@@ -66,6 +66,10 @@ impl ManagedChild {
         self.child.id()
     }
 
+    pub fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
+        self.child.stdout.take()
+    }
+
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         if self.status.is_none() {
             self.status = self.child.try_wait()?;

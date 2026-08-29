@@ -6,3 +6,4 @@
 /rust/target/
 /evidence/test-ublk-*.log
 /evidence/engine-crash-*.log
+/evidence/ublk-fio-*.log

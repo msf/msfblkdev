@@ -3,6 +3,7 @@ mod evidence;
 pub mod process;
 mod suite;
 pub mod ublk;
+mod ublk_fio;
 
 use config::Mode;
 use std::io;
@@ -37,6 +38,11 @@ fn execute() -> io::Result<ExitCode> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("rust crate must have a repository parent");
+
+    if mode == Mode::UblkFio {
+        ublk_fio::run(repo, config.per_test)?;
+        return Ok(ExitCode::SUCCESS);
+    }
 
     let mut evidence = if mode == Mode::EngineCrash {
         let log = evidence::Evidence::create(repo)?;

@@ -4,7 +4,7 @@ ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
-.PHONY: setup build build-zig build-rust lint lint-zig lint-rust test test-acceptance test-zig test-rust run
+.PHONY: setup build build-zig build-rust lint lint-zig lint-rust test test-acceptance test-ublk-fio test-zig test-rust run
 
 build: build-rust
 
@@ -43,6 +43,11 @@ test:
 
 test-acceptance:
 	@cd rust && cargo run --quiet --bin block-storage-lab -- engine-crash
+
+# Privileged and opt-in: preflight refuses to create resources without ublk access.
+test-ublk-fio:
+	@cd rust && cargo build --quiet --bin block-storage-ublk --bin block-storage-lab
+	@cd rust && cargo run --quiet --bin block-storage-lab -- ublk-fio
 
 test-zig: setup
 	@$(ZIG) build test

@@ -9,6 +9,7 @@ pub const SUITE_ENV: &str = "TEST_SUITE_SECONDS";
 pub enum Mode {
     Test,
     EngineCrash,
+    UblkFio,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +35,7 @@ where
     match subcommand.as_deref().and_then(|value| value.to_str()) {
         Some("test") => Ok(Mode::Test),
         Some("engine-crash") => Ok(Mode::EngineCrash),
+        Some("ublk-fio") => Ok(Mode::UblkFio),
         _ => Err(usage(&program)),
     }
 }
@@ -45,6 +47,7 @@ where
     let (default_per_test, default_suite) = match mode {
         Mode::Test => (15, 55),
         Mode::EngineCrash => (1800, 3600),
+        Mode::UblkFio => (30, 180),
     };
     Ok(Config {
         mode,
@@ -98,7 +101,10 @@ fn invalid_env(name: &str, value: &OsString, allow_zero: bool) -> String {
 }
 
 fn usage(program: &OsString) -> String {
-    format!("usage: {} test | engine-crash", program.to_string_lossy())
+    format!(
+        "usage: {} test | engine-crash | ublk-fio",
+        program.to_string_lossy()
+    )
 }
 
 #[cfg(test)]
@@ -115,6 +121,10 @@ mod tests {
         assert_eq!(
             parse_args(["lab", "engine-crash"].map(OsString::from)),
             Ok(Mode::EngineCrash)
+        );
+        assert_eq!(
+            parse_args(["lab", "ublk-fio"].map(OsString::from)),
+            Ok(Mode::UblkFio)
         );
         for args in [
             vec!["lab"],
