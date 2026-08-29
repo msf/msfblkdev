@@ -1,7 +1,8 @@
 mod config;
 mod evidence;
-mod process;
+pub mod process;
 mod suite;
+pub mod ublk;
 
 use config::Mode;
 use std::io;
@@ -73,8 +74,9 @@ fn execute() -> io::Result<ExitCode> {
 mod process_tests {
     use super::process::{self, Outcome};
     use std::fs::{self, OpenOptions};
+    use std::os::unix::process::ExitStatusExt;
     use std::path::{Path, PathBuf};
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     use std::thread;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -135,6 +137,61 @@ mod process_tests {
         .unwrap();
         assert!(matches!(outcome, Outcome::Timeout));
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn managed_child_supports_explicit_term_and_cleanup() {
+        process::become_child_subreaper().unwrap();
+        let mut command = test_command(
+            "process_tests::sleeping_child",
+            "BLOCK_STORAGE_LAB_SLEEPING_CHILD",
+        );
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        let mut child = process::ManagedChild::spawn(&mut command).unwrap();
+        assert!(child.pid() > 0);
+        assert!(child.try_wait().unwrap().is_none());
+        child.terminate().unwrap();
+        let outcome = child
+            .wait_bounded(Instant::now() + Duration::from_secs(2))
+            .unwrap();
+        assert!(matches!(outcome, Outcome::Exit(status) if status.signal() == Some(libc::SIGTERM)));
+        child.cleanup().unwrap();
+        child.cleanup().unwrap();
+    }
+
+    #[test]
+    fn managed_child_supports_exact_kill() {
+        process::become_child_subreaper().unwrap();
+        let mut command = test_command(
+            "process_tests::sleeping_child",
+            "BLOCK_STORAGE_LAB_SLEEPING_CHILD",
+        );
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        let mut child = process::ManagedChild::spawn(&mut command).unwrap();
+        child.kill().unwrap();
+        let outcome = child
+            .wait_bounded(Instant::now() + Duration::from_secs(2))
+            .unwrap();
+        assert!(matches!(outcome, Outcome::Exit(status) if status.signal() == Some(libc::SIGKILL)));
+        child.cleanup().unwrap();
+    }
+
+    #[test]
+    fn managed_child_drop_reaps_the_process() {
+        process::become_child_subreaper().unwrap();
+        let mut command = test_command(
+            "process_tests::sleeping_child",
+            "BLOCK_STORAGE_LAB_SLEEPING_CHILD",
+        );
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        let pid = {
+            let child = process::ManagedChild::spawn(&mut command).unwrap();
+            child.pid()
+        };
+        assert!(
+            !Path::new("/proc").join(pid.to_string()).exists(),
+            "child {pid} survived ManagedChild::drop"
+        );
     }
 
     #[test]
