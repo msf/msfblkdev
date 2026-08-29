@@ -30,6 +30,7 @@ const BACKING_LOCKED_MESSAGE: &str = "backing file is already locked";
 const QUEUE_RUNNING_IDLE: u8 = 0;
 const QUEUE_RUNNING_IN_FLIGHT: u8 = 1;
 const QUEUE_STOPPING: u8 = 2;
+const SHUTDOWN_COMPLETION: i32 = -libc::ESHUTDOWN;
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const DEVICE_REMOVAL_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -107,11 +108,7 @@ impl DrainState {
         }
     }
 
-    fn begin_engine_work(&self) -> Option<InFlightRequest<'_>> {
-        if SIGTERM_REQUESTED.load(Ordering::Relaxed) {
-            self.stop_if_idle();
-            return None;
-        }
+    fn begin_engine_work(&self) -> EngineWork<'_> {
         let in_flight = self
             .queue_phase
             .compare_exchange(
@@ -121,13 +118,12 @@ impl DrainState {
                 Ordering::Relaxed,
             )
             .ok()
-            .map(|_| InFlightRequest(self))?;
-        if SIGTERM_REQUESTED.load(Ordering::Relaxed) {
-            drop(in_flight);
-            self.stop_if_idle();
-            None
-        } else {
-            Some(in_flight)
+            .map(|_| InFlightRequest(self));
+        match in_flight {
+            Some(in_flight) if !SIGTERM_REQUESTED.load(Ordering::Relaxed) => {
+                EngineWork::Accepted(in_flight)
+            }
+            in_flight => EngineWork::Rejected(in_flight),
         }
     }
 
@@ -143,6 +139,11 @@ impl DrainState {
             Err(_) => false,
         }
     }
+}
+
+enum EngineWork<'a> {
+    Accepted(InFlightRequest<'a>),
+    Rejected(Option<InFlightRequest<'a>>),
 }
 
 struct InFlightRequest<'a>(&'a DrainState);
@@ -352,6 +353,21 @@ fn handle_buffered_request(
     }
 }
 
+fn complete_fetched_request<C, E>(
+    work: EngineWork<'_>,
+    context: &mut C,
+    engine_work: impl FnOnce(&mut C) -> i32,
+    complete: impl FnOnce(&mut C, i32) -> Result<(), E>,
+) -> Result<(), E> {
+    let (result, in_flight) = match work {
+        EngineWork::Accepted(in_flight) => (engine_work(context), Some(in_flight)),
+        EngineWork::Rejected(in_flight) => (SHUTDOWN_COMPLETION, in_flight),
+    };
+    let completion = complete(context, result);
+    drop(in_flight);
+    completion
+}
+
 fn combine_shutdown_results(
     queue_result: io::Result<()>,
     close_result: io::Result<()>,
@@ -448,21 +464,25 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainS
 
     let mut queue_error = None;
     queue.wait_and_handle_io(|queue, tag, _context| {
-        let Some(in_flight) = drain.begin_engine_work() else {
-            return;
-        };
-        let completion =
-            handle_buffered_request(&mut volume, queue.get_iod(tag), buffers[0].as_mut_slice());
-        if let Err(error) = queue.complete_io_cmd_unified(
-            tag,
-            BufDesc::Slice(buffers[0].as_slice()),
-            Ok(UblkIORes::Result(completion)),
-        ) && queue_error.is_none()
-        {
-            queue_error = Some(ublk_error(error));
+        let mut context = (&mut volume, buffers[0].as_mut_slice());
+        let completion = complete_fetched_request(
+            drain.begin_engine_work(),
+            &mut context,
+            |(volume, buffer)| handle_buffered_request(volume, queue.get_iod(tag), buffer),
+            |(_, buffer), result| {
+                queue.complete_io_cmd_unified(
+                    tag,
+                    BufDesc::Slice(buffer),
+                    Ok(UblkIORes::Result(result)),
+                )
+            },
+        );
+        if let Err(error) = completion {
             drain.queue_failed.store(true, Ordering::Release);
+            if queue_error.is_none() {
+                queue_error = Some(ublk_error(error));
+            }
         }
-        drop(in_flight);
     });
 
     close_after_queue(&state, volume, queue_error.map_or(Ok(()), Err));
@@ -978,6 +998,42 @@ mod tests {
     }
 
     #[test]
+    fn fetched_requests_complete_once_without_shutdown_engine_io() {
+        let drain = DrainState::new();
+        let mut accepted = (0, Vec::new());
+        complete_fetched_request(
+            drain.begin_engine_work(),
+            &mut accepted,
+            |(engine_calls, _)| {
+                *engine_calls += 1;
+                4096
+            },
+            |(_, completions), result| {
+                completions.push(result);
+                Ok::<(), ()>(())
+            },
+        )
+        .unwrap();
+        assert_eq!(accepted, (1, vec![4096]));
+
+        let mut rejected = (0, Vec::new());
+        complete_fetched_request(
+            EngineWork::Rejected(None),
+            &mut rejected,
+            |(engine_calls, _)| {
+                *engine_calls += 1;
+                4096
+            },
+            |(_, completions), result| {
+                completions.push(result);
+                Ok::<(), ()>(())
+            },
+        )
+        .unwrap();
+        assert_eq!(rejected, (0, vec![SHUTDOWN_COMPLETION]));
+    }
+
+    #[test]
     fn signal_state_stops_new_work_and_handler_is_restored() -> io::Result<()> {
         const CHILD_ENV: &str = "BLOCK_STORAGE_SIGTERM_TEST_CHILD";
         const TIMEOUT: Duration = Duration::from_secs(10);
@@ -999,7 +1055,14 @@ mod tests {
             assert!(SIGTERM_REQUESTED.load(Ordering::Relaxed));
 
             let drain = DrainState::new();
-            assert!(drain.begin_engine_work().is_none());
+            let work = drain.begin_engine_work();
+            assert!(matches!(&work, EngineWork::Rejected(Some(_))));
+            assert_eq!(
+                drain.queue_phase.load(Ordering::Acquire),
+                QUEUE_RUNNING_IN_FLIGHT
+            );
+            drop(work);
+            assert!(drain.stop_if_idle());
             assert_eq!(drain.queue_phase.load(Ordering::Acquire), QUEUE_STOPPING);
             guard.restore()?;
 
@@ -1034,7 +1097,9 @@ mod tests {
     #[test]
     fn shutdown_waits_for_in_flight_work_before_stopping() {
         let drain = Arc::new(DrainState::new());
-        let in_flight = drain.begin_engine_work().unwrap();
+        let EngineWork::Accepted(in_flight) = drain.begin_engine_work() else {
+            panic!("request was unexpectedly rejected");
+        };
         let stop_drain = Arc::clone(&drain);
         let (stopped_sender, stopped_receiver) = mpsc::sync_channel(1);
         let stopper = std::thread::spawn(move || {
@@ -1060,7 +1125,10 @@ mod tests {
         stopper.join().unwrap();
 
         assert_eq!(drain.queue_phase.load(Ordering::Acquire), QUEUE_STOPPING);
-        assert!(drain.begin_engine_work().is_none());
+        assert!(matches!(
+            drain.begin_engine_work(),
+            EngineWork::Rejected(None)
+        ));
     }
 
     #[test]
