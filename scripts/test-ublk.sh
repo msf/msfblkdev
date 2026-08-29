@@ -572,8 +572,35 @@ require_commands() {
     done
 }
 
+parse_fio_shape() {
+    local -a fio_command parse_command
+    build_fio_command fio_command "$@"
+    parse_command=(fio --parse-only --warnings-fatal "${fio_command[@]:1}")
+    "${parse_command[@]}"
+}
+
+validate_fio_command_shapes() {
+    local target=$1 pattern
+    local DAEMON_PATH=$target
+    parse_fio_shape sequential 0x13579bdf write $((16 * BLOCK_BYTES)) 0 --do_verify=1 --fsync=16
+    parse_fio_shape random 0x2468ace0 randwrite $((16 * BLOCK_BYTES)) 0 --do_verify=1 --fsync=16
+    for pattern in 0x01010101 0x02020202 0x03030303 0x04040404 \
+        0x05050505 0x06060606 0x07070707 0x08080808; do
+        parse_fio_shape overwrite "$pattern" write "$BLOCK_BYTES" 0 --do_verify=1 --fsync=1
+    done
+    parse_fio_shape graceful 0x11223344 write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
+    parse_fio_shape graceful 0x11223344 write $((8 * BLOCK_BYTES)) 0 --verify_only=1
+    parse_fio_shape sigkill 0x55667788 write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
+    parse_fio_shape sigkill 0x55667788 write $((8 * BLOCK_BYTES)) 0 --verify_only=1
+    parse_fio_shape close-failpoint 0x99aabbcc write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
+    parse_fio_shape close-failpoint 0x99aabbcc write $((8 * BLOCK_BYTES)) 0 --verify_only=1
+    parse_fio_shape exhaustion 0xdeadbeef write $((33 * BLOCK_BYTES)) 0 \
+        --do_verify=0 --fsync=32 --output-format=json
+    parse_fio_shape exhaustion 0xdeadbeef write $((32 * BLOCK_BYTES)) 0 --verify_only=1
+}
+
 preflight_live() {
-    local command_name command_version timeout_version fio_version
+    local command_name command_version timeout_version
     require_commands
     [[ $(uname -s) == Linux ]] || { printf 'run requires Linux\n' >&2; return 1; }
     for command_name in realpath rm stat; do
@@ -587,10 +614,7 @@ preflight_live() {
     [[ $timeout_version == *'GNU coreutils'* ]] || {
         printf 'GNU timeout is required\n' >&2; return 1;
     }
-    fio_version=$(fio --version 2>/dev/null) || true
-    [[ $fio_version == fio-3.36 ]] || {
-        printf 'fio 3.36 is required (found %s)\n' "${fio_version:-unknown}" >&2; return 1;
-    }
+    validate_fio_command_shapes /nonexistent/my-block-storage-fio-target
     [[ -c /dev/ublk-control && -r /dev/ublk-control && -w /dev/ublk-control ]] || {
         printf '/dev/ublk-control must exist and be readable/writable; no resources created\n' >&2
         return 1
@@ -609,6 +633,7 @@ run_live() {
     create_evidence_file "$EVIDENCE"
     log "commit: $commit"
     log "kernel: $(uname -srvm)"
+    log "fio: $(fio --version)"
     log 'backing type: fresh create-new regular file; 64 logical 4-KiB blocks; 32 two-block records'
     BINARY=$repo/rust/target/debug/block-storage-ublk
     run_logged timeout --signal=TERM --kill-after=5s "${BUILD_SECONDS}s" \
@@ -636,13 +661,6 @@ run_live() {
     log 'PASS all regular-file ublk/fio scenarios'
 }
 
-parse_fio_shape() {
-    local -a fio_command parse_command
-    build_fio_command fio_command "$@"
-    parse_command=(fio --parse-only --warnings-fatal "${fio_command[@]:1}")
-    "${parse_command[@]}"
-}
-
 fake_device_identity() {
     local path=$1 id=$2
     [[ $path == /dev/ublkb$id ]] || return 1
@@ -662,10 +680,9 @@ expect_usage_error() {
 }
 
 self_test() {
-    local root dir id backing status helper_pid evidence pattern
+    local root dir id backing status helper_pid evidence
     local SELF_TEST_READY_ROOT
     require_commands
-    [[ $(fio --version) == fio-3.36 ]]
     [[ $(geometry_values 64) == '6 70' ]]
     [[ $BACKING_BYTES -eq 286720 && $EXPECTED_SECTORS -eq 512 ]]
     [[ $(parse_device_path /dev/ublkb0) == 0 ]]
@@ -738,22 +755,7 @@ self_test() {
     ! create_evidence_file "$evidence" 2>/dev/null
     [[ $(<"$evidence") == original ]]
 
-    DAEMON_PATH=$root/nonexistent/fio-target
-    parse_fio_shape sequential 0x13579bdf write $((16 * BLOCK_BYTES)) 0 --do_verify=1 --fsync=16
-    parse_fio_shape random 0x2468ace0 randwrite $((16 * BLOCK_BYTES)) 0 --do_verify=1 --fsync=16
-    for pattern in 0x01010101 0x02020202 0x03030303 0x04040404 \
-        0x05050505 0x06060606 0x07070707 0x08080808; do
-        parse_fio_shape overwrite "$pattern" write "$BLOCK_BYTES" 0 --do_verify=1 --fsync=1
-    done
-    parse_fio_shape graceful 0x11223344 write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
-    parse_fio_shape graceful 0x11223344 write $((8 * BLOCK_BYTES)) 0 --verify_only=1
-    parse_fio_shape sigkill 0x55667788 write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
-    parse_fio_shape sigkill 0x55667788 write $((8 * BLOCK_BYTES)) 0 --verify_only=1
-    parse_fio_shape close-failpoint 0x99aabbcc write $((8 * BLOCK_BYTES)) 0 --do_verify=0 --fsync=8
-    parse_fio_shape close-failpoint 0x99aabbcc write $((8 * BLOCK_BYTES)) 0 --verify_only=1
-    parse_fio_shape exhaustion 0xdeadbeef write $((33 * BLOCK_BYTES)) 0 \
-        --do_verify=0 --fsync=32 --output-format=json
-    parse_fio_shape exhaustion 0xdeadbeef write $((32 * BLOCK_BYTES)) 0 --verify_only=1
+    validate_fio_command_shapes "$root/nonexistent/fio-target"
     [[ ! -e $root/nonexistent ]]
 
     rm -rf -- "$root"
