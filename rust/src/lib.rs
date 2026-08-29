@@ -1999,6 +1999,127 @@ mod tests {
         Ok(())
     }
 
+    struct CheckpointFallbackFixture {
+        backing: TemporaryBacking,
+        newest: Checkpoint,
+        older_lsn: u64,
+        last_lsn: u64,
+        expected: [[u8; BLOCK_SIZE]; 3],
+    }
+
+    fn prepare_checkpoint_fallback_fixture() -> io::Result<CheckpointFallbackFixture> {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 3_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let backing_bytes = u64::from(layout.log_start + 64) * BLOCK_SIZE as u64;
+        backing.create_sized(backing_bytes)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
+        volume.write_block(1, &[0x5a; BLOCK_SIZE])?;
+        volume.close()?;
+
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &[0xc3; BLOCK_SIZE])?;
+        volume.write_block(2, &[0x3c; BLOCK_SIZE])?;
+        volume.close()?;
+
+        let expected = [[0xd4; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x7e; BLOCK_SIZE]];
+        let mut volume = open(&backing.0)?;
+        for (lba, value) in expected.iter().enumerate() {
+            volume.write_block(lba as u32, value)?;
+        }
+        volume.flush()?;
+        let last_lsn = volume.last_lsn;
+        drop(volume);
+
+        let file = OpenOptions::new().read(true).open(&backing.0)?;
+        let mut descriptors = [0; 2 * BLOCK_SIZE];
+        file.read_exact_at(&mut descriptors, 0)?;
+        let (green_bytes, blue_bytes) = descriptors.split_at_mut(BLOCK_SIZE);
+        let green = decode_checkpoint(green_bytes, CheckpointSlot::Green, backing_bytes)
+            .expect("green checkpoint descriptor must be valid before corruption");
+        let blue = decode_checkpoint(blue_bytes, CheckpointSlot::Blue, backing_bytes)
+            .expect("blue checkpoint descriptor must be valid before corruption");
+        assert!(green.checkpoint_lsn > blue.checkpoint_lsn);
+        assert_eq!(last_lsn, green.checkpoint_lsn + expected.len() as u64);
+
+        for checkpoint in [green, blue] {
+            let body_start = match checkpoint.slot {
+                CheckpointSlot::Green => checkpoint.layout.green_physical_map_start,
+                CheckpointSlot::Blue => checkpoint.layout.blue_physical_map_start,
+            };
+            let body_blocks =
+                checkpoint.layout.physical_map_blocks + checkpoint.layout.checksum_map_blocks;
+            let mut body = vec![0; body_blocks as usize * BLOCK_SIZE];
+            file.read_exact_at(&mut body, u64::from(body_start) * BLOCK_SIZE as u64)?;
+            assert_eq!(xxh3_64(&body), checkpoint.body_checksum);
+        }
+
+        Ok(CheckpointFallbackFixture {
+            backing,
+            newest: green,
+            older_lsn: blue.checkpoint_lsn,
+            last_lsn,
+            expected,
+        })
+    }
+
+    fn verify_checkpoint_fallback(fixture: &CheckpointFallbackFixture) -> io::Result<()> {
+        let opened = std::panic::catch_unwind(|| open(&fixture.backing.0))
+            .map_err(|_| io::Error::other("public open panicked on checkpoint corruption"))?;
+        let mut volume = opened?;
+        assert_eq!(volume.checkpoint_lsn, fixture.older_lsn);
+        assert_eq!(volume.last_lsn, fixture.last_lsn);
+        for (lba, expected) in fixture.expected.iter().enumerate() {
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(&actual, expected);
+        }
+        volume.close()
+    }
+
+    #[test]
+    fn falls_back_from_corrupted_newest_descriptor_and_replays_tail() -> io::Result<()> {
+        let fixture = prepare_checkpoint_fallback_fixture()?;
+        let descriptor_offset = fixture.newest.slot as u64 * BLOCK_SIZE as u64 + 100;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&fixture.backing.0)?;
+        let mut byte = [0; 1];
+        file.read_exact_at(&mut byte, descriptor_offset)?;
+        byte[0] ^= 0xff;
+        file.write_all_at(&byte, descriptor_offset)?;
+        file.sync_all()?;
+        drop(file);
+
+        verify_checkpoint_fallback(&fixture)
+    }
+
+    #[test]
+    fn falls_back_from_corrupted_newest_checkpoint_body_and_replays_tail() -> io::Result<()> {
+        let fixture = prepare_checkpoint_fallback_fixture()?;
+        let body_start = match fixture.newest.slot {
+            CheckpointSlot::Green => fixture.newest.layout.green_physical_map_start,
+            CheckpointSlot::Blue => fixture.newest.layout.blue_physical_map_start,
+        };
+        let body_offset = u64::from(body_start) * BLOCK_SIZE as u64 + 100;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&fixture.backing.0)?;
+        let mut byte = [0; 1];
+        file.read_exact_at(&mut byte, body_offset)?;
+        byte[0] ^= 0xff;
+        file.write_all_at(&byte, body_offset)?;
+        file.sync_all()?;
+        drop(file);
+
+        verify_checkpoint_fallback(&fixture)
+    }
+
     #[test]
     fn recovery_accepts_every_format_one_payload_count() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;

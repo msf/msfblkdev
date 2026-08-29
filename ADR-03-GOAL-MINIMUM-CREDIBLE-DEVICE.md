@@ -174,7 +174,8 @@ Acceptance tests:
   Evidence (2026-08-29): `recover_after_descriptor_fsync_boundary` passes 20 parent-driven `SIGKILL` runs after descriptor fsync and before in-memory publication; public `open` selects the durable newer root and returns every flushed latest value.
 - [x] Recover after each stale-tail clearing boundary.
   Evidence (2026-08-29): `recover_after_each_stale_tail_clear_block_boundary` passes 20 parent-driven `SIGKILL` runs after each of all 339 completed clear writes, and `recover_after_stale_tail_fsync_boundary` passes 20 runs after the final clear fsync. Each recovery preserves the valid prefix and completes the full bounded clear before opening.
-- [ ] Fall back independently from a deliberately corrupted newest descriptor and checkpoint body.
+- [x] Fall back independently from a deliberately corrupted newest descriptor and checkpoint body.
+  Evidence (2026-08-29): `cargo test --lib falls_back_from_corrupted_newest` passes two independent public-`open` cases. Each starts with two checksum-valid roots plus a flushed replay tail, flips one deterministic raw byte in only the newest descriptor or only its checkpoint body, explicitly rejects a panic, selects the older checkpoint LSN, replays through the latest LSN and returns every latest flushed value.
 - [x] Stop at an invalid tail and never resurrect a valid-looking later record.
   Evidence (2026-08-29): `invalid_gap_stops_replay_and_clears_only_bounded_window` writes a valid record, an invalid gap and a checksummed valid-looking later record; public recovery stops at LSN 1, returns zeroes for the later LBA and leaves the ignored later record outside the clear window intact.
 - [x] Clear the complete bounded stale-tail window durably before serving requests.
