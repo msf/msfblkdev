@@ -15,23 +15,25 @@ fn recover_one_flushed_write_after_sigkill_without_close() -> io::Result<()> {
         }
     }
 
-    let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
+    repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
 
-    sigkill_child_at_handshake(
-        "tests::process_crash::recover_one_flushed_write_after_sigkill_without_close",
-        &backing.0,
-        HANDSHAKE,
-        None,
-    )?;
+        sigkill_child_at_handshake(
+            "tests::process_crash::recover_one_flushed_write_after_sigkill_without_close",
+            &backing.0,
+            HANDSHAKE,
+            None,
+        )?;
 
-    let mut volume = open(&backing.0)?;
-    let mut actual = [0; BLOCK_SIZE];
-    volume.read_block(0, &mut actual)?;
-    assert_eq!(actual, [0xa5; BLOCK_SIZE]);
-    volume.close()
+        let mut volume = open(&backing.0)?;
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, [0xa5; BLOCK_SIZE]);
+        volume.close()
+    })
 }
 
 #[test]
@@ -59,27 +61,29 @@ fn recover_multiple_flushed_writes_and_overwrites_after_sigkill() -> io::Result<
         }
     }
 
-    let backing = TemporaryBacking::new()?;
-    let volume_blocks = 3_u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 3_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
 
-    sigkill_child_at_handshake(
-        "tests::process_crash::recover_multiple_flushed_writes_and_overwrites_after_sigkill",
-        &backing.0,
-        HANDSHAKE,
-        None,
-    )?;
+        sigkill_child_at_handshake(
+            "tests::process_crash::recover_multiple_flushed_writes_and_overwrites_after_sigkill",
+            &backing.0,
+            HANDSHAKE,
+            None,
+        )?;
 
-    let expected = [[0xd4; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
-    let mut volume = open(&backing.0)?;
-    for (lba, expected) in expected.iter().enumerate() {
-        let mut actual = [0; BLOCK_SIZE];
-        volume.read_block(lba as u32, &mut actual)?;
-        assert_eq!(&actual, expected);
-    }
-    volume.close()
+        let expected = [[0xd4; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
+        let mut volume = open(&backing.0)?;
+        for (lba, expected) in expected.iter().enumerate() {
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(&actual, expected);
+        }
+        volume.close()
+    })
 }
 
 #[test]
@@ -94,25 +98,37 @@ fn recover_after_uncaught_unwinding_panic_without_close() -> io::Result<()> {
         panic!("intentional uncaught panic after flushing test values");
     }
 
-    let backing = TemporaryBacking::new()?;
-    let volume_blocks = 3_u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 3_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
 
-    run_unwinding_panic_child(
-        "tests::process_crash::recover_after_uncaught_unwinding_panic_without_close",
-        &backing.0,
-    )?;
+        run_unwinding_panic_child(
+            "tests::process_crash::recover_after_uncaught_unwinding_panic_without_close",
+            &backing.0,
+        )?;
 
-    let expected = [[0xc3; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
-    let mut volume = open(&backing.0)?;
-    for (lba, expected) in expected.iter().enumerate() {
-        let mut actual = [0; BLOCK_SIZE];
-        volume.read_block(lba as u32, &mut actual)?;
-        assert_eq!(&actual, expected);
+        let expected = [[0xc3; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
+        let mut volume = open(&backing.0)?;
+        for (lba, expected) in expected.iter().enumerate() {
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(&actual, expected);
+        }
+        volume.close()
+    })
+}
+
+fn repeat_process_crash_scenario(
+    plan: &CrashTestPlan,
+    mut scenario: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
+    for _ in 0..plan.repetitions {
+        scenario()?;
     }
-    volume.close()
+    Ok(())
 }
 
 fn recover_after_write_crash(
@@ -155,32 +171,38 @@ fn recover_after_write_crash(
 
 #[test]
 fn recover_after_kill_at_record_write_boundary() -> io::Result<()> {
-    recover_after_write_crash(
-        "tests::process_crash::recover_after_kill_at_record_write_boundary",
-        RECORD_WRITE_COMPLETE_FAILPOINT,
-        false,
-        false,
-    )
+    repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
+        recover_after_write_crash(
+            "tests::process_crash::recover_after_kill_at_record_write_boundary",
+            RECORD_WRITE_COMPLETE_FAILPOINT,
+            false,
+            false,
+        )
+    })
 }
 
 #[test]
 fn recover_after_kill_at_mapping_publication_boundary() -> io::Result<()> {
-    recover_after_write_crash(
-        "tests::process_crash::recover_after_kill_at_mapping_publication_boundary",
-        MAPPING_PUBLISHED_FAILPOINT,
-        false,
-        false,
-    )
+    repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
+        recover_after_write_crash(
+            "tests::process_crash::recover_after_kill_at_mapping_publication_boundary",
+            MAPPING_PUBLISHED_FAILPOINT,
+            false,
+            false,
+        )
+    })
 }
 
 #[test]
 fn recover_after_kill_at_log_fsync_boundary() -> io::Result<()> {
-    recover_after_write_crash(
-        "tests::process_crash::recover_after_kill_at_log_fsync_boundary",
-        LOG_FSYNC_COMPLETE_FAILPOINT,
-        true,
-        true,
-    )
+    repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
+        recover_after_write_crash(
+            "tests::process_crash::recover_after_kill_at_log_fsync_boundary",
+            LOG_FSYNC_COMPLETE_FAILPOINT,
+            true,
+            true,
+        )
+    })
 }
 
 fn recover_after_checkpoint_crash(
@@ -225,6 +247,14 @@ fn recover_after_checkpoint_crash(
 
 #[test]
 fn crash_test_modes_select_smoke_and_exhaustive_work() -> io::Result<()> {
+    let repeated_scenarios = [
+        "one-write SIGKILL",
+        "multi-write SIGKILL",
+        "uncaught panic",
+        "record write boundary",
+        "mapping publication boundary",
+        "log fsync boundary",
+    ];
     let smoke = crash_test_plan(None, 339)?;
     assert_eq!(smoke.boundary_indices, [0, 169, 338]);
     assert_eq!(smoke.repetitions, 1);
@@ -232,6 +262,14 @@ fn crash_test_modes_select_smoke_and_exhaustive_work() -> io::Result<()> {
     let acceptance = crash_test_plan(Some(OsStr::new(ACCEPTANCE_CRASH_TEST_MODE)), 339)?;
     assert_eq!(acceptance.boundary_indices, (0..339).collect::<Vec<_>>());
     assert_eq!(acceptance.repetitions, 20);
+    for scenario in repeated_scenarios {
+        let mut runs = 0;
+        repeat_process_crash_scenario(&acceptance, || {
+            runs += 1;
+            Ok(())
+        })?;
+        assert_eq!(runs, 20, "acceptance repetitions for {scenario}");
+    }
     assert!(crash_test_plan(Some(OsStr::new("invalid")), 339).is_err());
     Ok(())
 }
