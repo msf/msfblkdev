@@ -5,3 +5,4 @@
 /zig-out/
 /rust/target/
 /evidence/test-ublk-*.log
+/evidence/engine-crash-*.log

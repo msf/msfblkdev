@@ -38,19 +38,17 @@ lint-zig: setup
 lint-rust:
 	@cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
-test: test-rust
+test:
+	@cd rust && cargo run --quiet --bin block-storage-lab -- test
 
 test-acceptance:
-	@BLOCK_STORAGE_CRASH_TEST_MODE=acceptance \
-	TEST_PER_TEST_SECONDS="$${TEST_PER_TEST_SECONDS:-1800}" \
-	TEST_SUITE_SECONDS="$${TEST_SUITE_SECONDS:-3600}" \
-	./scripts/test.sh
+	@cd rust && cargo run --quiet --bin block-storage-lab -- engine-crash
 
 test-zig: setup
 	@$(ZIG) build test
 
 test-rust:
-	@./scripts/test.sh
+	@cd rust && cargo run --quiet --bin block-storage-lab -- test
 
 run: setup
 	@$(ZIG) test src/root.zig --test-filter "V0.4 black-box acceptance"
