@@ -148,7 +148,8 @@ Required crash boundaries:
 
 Acceptance tests:
 
-- [ ] Recover one flushed write after `SIGKILL` without close.
+- [x] Recover one flushed write after `SIGKILL` without close.
+  Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_one_flushed_write_after_sigkill_without_close -- --exact` passes 20 consecutive runs; the parent waits for the child's post-flush handshake, sends `SIGKILL` only to that child, and verifies the block through public `open` without `Volume::close`.
 - [ ] Recover multiple flushed writes and overwrites after `SIGKILL`.
 - [ ] Preserve every write covered by the last successful flush.
 - [ ] Accept either the old or new state for writes not covered by flush.

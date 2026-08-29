@@ -17,8 +17,6 @@ const RECORD_KIND_WRITE: u8 = 1;
 const FOOTER_LBA_OFFSET: usize = 32;
 const FOOTER_PAYLOAD_CHECKSUM_OFFSET: usize = 1384;
 const FOOTER_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
-const FOOTER_PAYLOAD_MAX: u32 =
-    ((FOOTER_PAYLOAD_CHECKSUM_OFFSET - FOOTER_LBA_OFFSET) / size_of::<u32>()) as u32;
 const CHECKPOINT_BODY_CHECKSUM_OFFSET: usize = 44;
 const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
 const MAX_VOLUME_BLOCKS: u64 = 1 << 31;
@@ -540,59 +538,62 @@ fn read_checkpoint_body_block(
     submit_exact(ring, read, u64::from(physical_block), BLOCK_SIZE as i32)
 }
 
-fn is_expected_tail_footer(
+fn decode_one_block_tail_footer(
     footer: &mut [u8],
     checkpoint: Checkpoint,
     footer_block: u32,
-    payload_count: u32,
-) -> bool {
+) -> Option<(u32, u64)> {
     let stored_checksum = read_u64(footer, FOOTER_CHECKSUM_OFFSET);
     footer[FOOTER_CHECKSUM_OFFSET..].fill(0);
     let checksum_valid = xxh3_64(footer) == stored_checksum;
     footer[FOOTER_CHECKSUM_OFFSET..].copy_from_slice(&stored_checksum.to_le_bytes());
+    let lba = read_u32(footer, FOOTER_LBA_OFFSET);
     if !checksum_valid
         || &footer[..4] != FOOTER_MAGIC
         || footer[4] != FORMAT_VERSION
         || footer[5] != RECORD_KIND_WRITE
-        || u16::from_le_bytes(footer[6..8].try_into().unwrap()) != 0
+        || footer[6..8] != [0, 0]
         || read_u64(footer, 8) != checkpoint.volume_id
-        || checkpoint.checkpoint_lsn == u64::MAX
-        || read_u64(footer, 16) != checkpoint.checkpoint_lsn + 1
+        || read_u64(footer, 16) != checkpoint.checkpoint_lsn.checked_add(1)?
         || read_u32(footer, 24) != checkpoint.last_footer_block
         || read_u32(footer, 28) != footer_block
+        || lba >= checkpoint.volume_blocks
+        || footer[FOOTER_LBA_OFFSET + size_of::<u32>()..FOOTER_PAYLOAD_CHECKSUM_OFFSET]
+            .iter()
+            .any(|byte| *byte != 0)
+        || footer[FOOTER_PAYLOAD_CHECKSUM_OFFSET + size_of::<u64>()..FOOTER_CHECKSUM_OFFSET]
+            .iter()
+            .any(|byte| *byte != 0)
     {
-        return false;
+        return None;
     }
-    (0..payload_count).all(|payload_index| {
-        read_u32(
-            footer,
-            FOOTER_LBA_OFFSET + payload_index as usize * size_of::<u32>(),
-        ) < checkpoint.volume_blocks
-    })
+    Some((lba, read_u64(footer, FOOTER_PAYLOAD_CHECKSUM_OFFSET)))
 }
 
-fn has_unreplayed_tail(
+fn read_one_tail_record(
     ring: &mut Option<IoUring>,
     backing: &File,
     checkpoint: Checkpoint,
-) -> io::Result<bool> {
-    let mut footer = AlignedBlock([0; BLOCK_SIZE]);
-    for payload_count in 1..=FOOTER_PAYLOAD_MAX {
-        let footer_block = u64::from(checkpoint.last_footer_block) + u64::from(payload_count) + 1;
-        if footer_block >= checkpoint.backing_blocks {
-            break;
-        }
-        read_checkpoint_body_block(ring, backing, footer_block as u32, &mut footer)?;
-        if is_expected_tail_footer(
-            &mut footer.0,
-            checkpoint,
-            footer_block as u32,
-            payload_count,
-        ) {
-            return Ok(true);
-        }
+) -> io::Result<Option<(u32, u64, u64, u32)>> {
+    let footer_block = u64::from(checkpoint.last_footer_block) + 2;
+    if footer_block >= checkpoint.backing_blocks {
+        return Ok(None);
     }
-    Ok(false)
+
+    let mut footer = AlignedBlock([0; BLOCK_SIZE]);
+    read_checkpoint_body_block(ring, backing, footer_block as u32, &mut footer)?;
+    Ok(
+        decode_one_block_tail_footer(&mut footer.0, checkpoint, footer_block as u32).map(
+            |(lba, checksum)| {
+                (
+                    lba,
+                    checksum,
+                    checkpoint.checkpoint_lsn + 1,
+                    footer_block as u32,
+                )
+            },
+        ),
+    )
 }
 
 fn submit_exact(
@@ -722,11 +723,25 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
             break;
         }
     }
-    let (checkpoint, physical_blocks, checksums) =
+    let (checkpoint, mut physical_blocks, mut checksums) =
         recovered.ok_or_else(|| invalid_data("no valid checkpoint body"))?;
-    if has_unreplayed_tail(&mut ring, &backing, checkpoint)? {
-        return Err(invalid_data("checkpoint tail replay required"));
-    }
+    let replayed = read_one_tail_record(&mut ring, &backing, checkpoint)?;
+    let (last_lsn, last_footer_block, log_bytes_since_checkpoint) =
+        if let Some((lba, checksum, lsn, footer_block)) = replayed {
+            let next = Checkpoint {
+                checkpoint_lsn: lsn,
+                last_footer_block: footer_block,
+                ..checkpoint
+            };
+            if read_one_tail_record(&mut ring, &backing, next)?.is_some() {
+                return Err(invalid_data("multiple-record tail replay required"));
+            }
+            physical_blocks[lba as usize] = checkpoint.last_footer_block + 1;
+            checksums[lba as usize] = checksum;
+            (lsn, footer_block, (2 * BLOCK_SIZE) as u64)
+        } else {
+            (checkpoint.checkpoint_lsn, checkpoint.last_footer_block, 0)
+        };
 
     Ok(Volume {
         backing,
@@ -736,15 +751,15 @@ pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
         backing_blocks: checkpoint.backing_blocks,
         physical_blocks,
         checksums,
-        last_lsn: checkpoint.checkpoint_lsn,
-        durable_lsn: checkpoint.checkpoint_lsn,
+        last_lsn,
+        durable_lsn: last_lsn,
         checkpoint_lsn: checkpoint.checkpoint_lsn,
-        last_footer_block: checkpoint.last_footer_block,
+        last_footer_block,
         next_checkpoint_slot: match checkpoint.slot {
             CheckpointSlot::Green => CheckpointSlot::Blue,
             CheckpointSlot::Blue => CheckpointSlot::Green,
         },
-        log_bytes_since_checkpoint: 0,
+        log_bytes_since_checkpoint,
         failed: false,
     })
 }
@@ -793,10 +808,13 @@ pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<(
 mod tests {
     use super::*;
     use std::fs::remove_file;
+    use std::io::{BufRead, BufReader, Write};
     use std::os::fd::FromRawFd;
     use std::os::unix::fs::FileExt;
+    use std::os::unix::process::ExitStatusExt;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use xxhash_rust::xxh3::xxh3_64_with_seed;
 
     struct TemporaryBacking(PathBuf);
@@ -1391,22 +1409,69 @@ mod tests {
     }
 
     #[test]
-    fn open_rejects_durable_uncheckpointed_tail() -> io::Result<()> {
+    fn recover_one_flushed_write_after_sigkill_without_close() -> io::Result<()> {
+        const CHILD_BACKING: &str = "BLOCK_STORAGE_CRASH_TEST_BACKING";
+        const HANDSHAKE: &str = "write-flushed";
+
+        if let Some(backing) = std::env::var_os(CHILD_BACKING) {
+            let mut volume = open(PathBuf::from(backing))?;
+            volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
+            volume.flush()?;
+            println!("{HANDSHAKE}");
+            io::stdout().flush()?;
+            loop {
+                std::thread::sleep(Duration::from_secs(60));
+            }
+        }
+
         let backing = TemporaryBacking::new()?;
         let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
         backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
         format(&backing.0, BLOCK_SIZE as u64)?;
 
-        let mut volume = open(&backing.0)?;
-        volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
-        volume.flush()?;
-        drop(volume);
+        let mut child = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "tests::recover_one_flushed_write_after_sigkill_without_close",
+                "--nocapture",
+            ])
+            .env(CHILD_BACKING, &backing.0)
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let result = (|| -> io::Result<()> {
+            let stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| io::Error::other("child stdout unavailable"))?;
+            let mut saw_handshake = false;
+            for line in BufReader::new(stdout).lines() {
+                if line? == HANDSHAKE {
+                    saw_handshake = true;
+                    break;
+                }
+            }
+            if !saw_handshake {
+                return Err(io::Error::other("child exited before flush handshake"));
+            }
 
-        assert_eq!(
-            open(&backing.0).err().unwrap().kind(),
-            io::ErrorKind::InvalidData
-        );
-        Ok(())
+            child.kill()?;
+            let status = child.wait()?;
+            if status.signal() != Some(libc::SIGKILL) {
+                return Err(io::Error::other("child was not terminated by SIGKILL"));
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        result?;
+
+        let mut volume = open(&backing.0)?;
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, [0xa5; BLOCK_SIZE]);
+        volume.close()
     }
 
     #[test]
