@@ -88,7 +88,8 @@ Acceptance tests:
   Evidence (2026-08-29): `cargo test repeated_overwrite_returns_only_latest_value` passes after three writes to one LBA, reading each latest completed value.
 - [x] Overwriting an LBA with zeroes returns zeroes before and after reopen.
   Evidence (2026-08-29): `cargo test overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen` passes after a normal zero-block overwrite, both before and after a clean reopen.
-- [ ] Raw footer linkage and local sequence numbers are contiguous.
+- [x] Raw footer linkage and local sequence numbers are contiguous.
+  Evidence (2026-08-29): `cargo test raw_footer_linkage_and_lsns_are_contiguous` passes after three public API writes, inspecting each raw footer for exact previous/self block links and contiguous LSNs 1 through 3.
 - [ ] The clean checkpoint maps each LBA to its latest payload and checksum.
 - [ ] An out-of-range write leaves mapping and cursors unchanged.
 - [ ] A log-full write leaves the last successful value readable after reopen.

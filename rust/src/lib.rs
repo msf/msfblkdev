@@ -1041,6 +1041,33 @@ mod tests {
     }
 
     #[test]
+    fn raw_footer_linkage_and_lsns_are_contiguous() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 6) * BLOCK_SIZE as u64)?;
+        format(&backing.0, BLOCK_SIZE as u64)?;
+        let mut volume = open(&backing.0)?;
+        let initial_footer_block = volume.last_footer_block;
+
+        for byte in [0xa5, 0x5a, 0xc3] {
+            volume.write_block(0, &[byte; BLOCK_SIZE])?;
+        }
+
+        let file = File::open(&backing.0)?;
+        let mut previous_footer_block = initial_footer_block;
+        for lsn in 1..=3 {
+            let footer_block = previous_footer_block + 2;
+            let mut footer = [0; BLOCK_SIZE];
+            file.read_exact_at(&mut footer, u64::from(footer_block) * BLOCK_SIZE as u64)?;
+            assert_eq!(read_u64(&footer, 16), lsn);
+            assert_eq!(read_u32(&footer, 24), previous_footer_block);
+            assert_eq!(read_u32(&footer, 28), footer_block);
+            previous_footer_block = footer_block;
+        }
+        Ok(())
+    }
+
+    #[test]
     fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 2_u32;
