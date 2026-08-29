@@ -144,6 +144,11 @@ pub struct Volume {
 }
 
 impl Volume {
+    /// Returns the number of addressable 4 KiB logical blocks.
+    pub fn volume_blocks(&self) -> u32 {
+        self.volume_blocks
+    }
+
     /// Makes all completed writes durable.
     pub fn flush(&mut self) -> io::Result<()> {
         if self.failed {

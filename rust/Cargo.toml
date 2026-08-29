@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 io-uring = "=0.7.14"
 libc = "=0.2.186"
+libublk = "=0.4.7"
 xxhash-rust = { version = "=0.8.15", features = ["xxh3"] }
