@@ -192,7 +192,8 @@ Acceptance tests:
   Evidence (2026-08-29): `cargo test --lib tests::rejects_invalid_checkpoint_after_bytes_before_touching_backing -- --exact` rejects zero, the aligned and unaligned boundaries below `339 × 4 KiB`, and unaligned values above the minimum with `InvalidInput` through public `open_with_options`. Every invalid value takes precedence over a missing path and leaves a deliberately non-zero formatted backing image byte-for-byte unchanged. The exact 339-block minimum and the 64 MiB default both open successfully.
 - [x] Recover after one uncaught unwinding Rust panic in a child process.
   Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_after_uncaught_unwinding_panic_without_close -- --exact` passes 20 fresh-image repetitions. The child writes and flushes five known writes, then panics without `Volume::close`; the parent bounds exit waiting to 10 seconds, kills and reaps only that child on timeout, requires panic exit code 101 instead of `SIGKILL`, and verifies every latest flushed value through public `open`.
-- [ ] All new tests and code pass through the top-level `make lint test` targets.
+- [x] All new tests and code pass through the top-level `make lint test` targets.
+  Evidence (2026-08-29): on commit `e44fcebdfcdaf7a1d7fd07c408b7002389c0497b`, Linux `7.0.0-29-generic` x86_64, top-level `make lint test` passed against temporary regular-file backing: 50 Rust tests passed with 0 failed and 0 ignored, and doc tests passed with 0 ignored. No Rust test has an ignore annotation. Every earlier V0.6 acceptance item is checked with direct evidence above. The recorded 20-run evidence covers the single-write, multiple-write, write-boundary and panic scenarios; `CRASH_REPETITIONS = 20` covers every checkpoint and stale-tail crash boundary internally, including each body or clear block, so no redundant outer loop was run.
 
 ## How do we test finite logs?
 
