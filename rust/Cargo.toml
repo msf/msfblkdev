@@ -3,6 +3,9 @@ name = "block-storage"
 version = "0.0.0"
 edition = "2024"
 
+[features]
+test-failpoints = []
+
 [dependencies]
 io-uring = "=0.7.14"
 libc = "=0.2.186"

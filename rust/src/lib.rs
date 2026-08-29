@@ -34,20 +34,20 @@ const MAX_BACKING_BLOCKS: u64 = u32::MAX as u64 + 1;
 const MAXIMUM_RECORD_BLOCKS: u64 = 339;
 const MAXIMUM_PAYLOAD_BLOCKS: usize = MAXIMUM_RECORD_BLOCKS as usize - 1;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 const TEST_FAILPOINT_ENV: &str = "BLOCK_STORAGE_TEST_FAILPOINT";
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 const RECORD_WRITE_COMPLETE_FAILPOINT: &str = "record-write-complete";
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 const MAPPING_PUBLISHED_FAILPOINT: &str = "mapping-published";
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 const LOG_FSYNC_COMPLETE_FAILPOINT: &str = "log-fsync-complete";
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 const STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT: &str = "stale-tail-clear-block-complete";
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 const STALE_TAIL_FSYNC_COMPLETE_FAILPOINT: &str = "stale-tail-fsync-complete";
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 fn pause_at_test_failpoint(name: &str) -> io::Result<()> {
     if std::env::var(TEST_FAILPOINT_ENV).as_deref() != Ok(name) {
         return Ok(());
@@ -139,7 +139,7 @@ impl Volume {
             self.failed = true;
             return Err(error);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(LOG_FSYNC_COMPLETE_FAILPOINT)?;
         self.durable_lsn = self.last_lsn;
         Ok(())
@@ -252,7 +252,7 @@ impl Volume {
             self.failed = true;
             return Err(error);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(RECORD_WRITE_COMPLETE_FAILPOINT)?;
 
         self.physical_blocks[lba as usize] = payload_block;
@@ -260,7 +260,7 @@ impl Volume {
         self.last_lsn = lsn;
         self.last_footer_block = footer_block;
         self.log_bytes_since_checkpoint += record_bytes;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(MAPPING_PUBLISHED_FAILPOINT)?;
         Ok(())
     }
@@ -466,7 +466,7 @@ fn clear_stale_tail(
         .offset((append_block + block_index) * BLOCK_SIZE as u64)
         .build();
         submit_exact(ring, write, append_block + block_index, BLOCK_SIZE as i32)?;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(&format!(
             "{STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT}-{block_index}"
         ))?;
@@ -474,7 +474,7 @@ fn clear_stale_tail(
 
     let fsync = opcode::Fsync::new(types::Fd(backing.as_raw_fd())).build();
     submit_exact(ring, fsync, append_block, 0)?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-failpoints"))]
     pause_at_test_failpoint(STALE_TAIL_FSYNC_COMPLETE_FAILPOINT)?;
     Ok(())
 }

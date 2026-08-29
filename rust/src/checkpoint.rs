@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 use super::pause_at_test_failpoint;
 use super::{
     AlignedBlock, BLOCK_SIZE, FORMAT_VERSION, Layout, Volume, backing_blocks_for, layout_for,
@@ -16,13 +16,13 @@ pub(super) const CHECKPOINT_BODY_CHECKSUM_OFFSET: usize = 44;
 pub(super) const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
 pub(super) const DEFAULT_CHECKPOINT_AFTER_BYTES: u64 = 64 * 1024 * 1024;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 pub(super) const CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT: &str = "checkpoint-body-block-complete";
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 pub(super) const CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT: &str = "checkpoint-body-fsync-complete";
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 pub(super) const DESCRIPTOR_WRITE_COMPLETE_FAILPOINT: &str = "descriptor-write-complete";
-#[cfg(test)]
+#[cfg(any(test, feature = "test-failpoints"))]
 pub(super) const DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT: &str = "descriptor-fsync-complete";
 
 #[repr(align(4096))]
@@ -73,10 +73,10 @@ impl Volume {
             self.failed = true;
             return Err(error);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(DESCRIPTOR_WRITE_COMPLETE_FAILPOINT)?;
         self.flush()?;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT)?;
         self.checkpoint_lsn = self.last_lsn;
         self.log_bytes_since_checkpoint = 0;
@@ -108,7 +108,7 @@ impl Volume {
             }
             hasher.update(&block.0);
             self.write_checkpoint_body_block(body_start + block_index, &block)?;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-failpoints"))]
             pause_at_test_failpoint(&format!(
                 "{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{block_index}"
             ))?;
@@ -126,13 +126,13 @@ impl Volume {
             hasher.update(&block.0);
             let body_block_index = layout.physical_map_blocks + block_index;
             self.write_checkpoint_body_block(body_start + body_block_index, &block)?;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-failpoints"))]
             pause_at_test_failpoint(&format!(
                 "{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{body_block_index}"
             ))?;
         }
         self.flush()?;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT)?;
         Ok(hasher.digest())
     }

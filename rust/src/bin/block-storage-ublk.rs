@@ -1,7 +1,7 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("block-storage-ublk requires Linux");
 
-use libublk::ctrl::UblkCtrlBuilder;
+use libublk::ctrl::{UblkCtrl, UblkCtrlBuilder};
 use libublk::helpers::IoBuf;
 use libublk::io::{BufDescList, UblkDev, UblkQueue};
 use libublk::sys::{
@@ -426,6 +426,7 @@ fn combine_shutdown_results(
 
 fn combine_daemon_results(
     target_result: io::Result<()>,
+    readiness_result: io::Result<()>,
     stop_result: io::Result<()>,
     shutdown_result: io::Result<()>,
     removal_result: io::Result<()>,
@@ -433,6 +434,7 @@ fn combine_daemon_results(
 ) -> io::Result<()> {
     let results = [
         ("target", target_result),
+        ("readiness", readiness_result),
         ("stop", stop_result),
         ("shutdown", shutdown_result),
         ("device removal", removal_result),
@@ -545,6 +547,11 @@ fn wait_for_stop(controller: &libublk::ctrl::UblkCtrl, drain: &DrainState) -> io
     }
 }
 
+fn write_readiness_line(output: &mut impl io::Write, device_path: &str) -> io::Result<()> {
+    writeln!(output, "{device_path}")?;
+    output.flush()
+}
+
 fn wait_for_device_removal(device_id: u32) -> io::Result<()> {
     let path = PathBuf::from(format!("/sys/class/ublk-char/ublkc{device_id}"));
     let deadline = std::time::Instant::now() + DEVICE_REMOVAL_TIMEOUT;
@@ -564,6 +571,7 @@ fn serve(backing_path: &Path, device_id: i32) -> io::Result<()> {
     let _backing_lock = BackingLock::acquire(backing_path)?;
     let signal_guard = SignalGuard::install()?;
     let drain = Arc::new(DrainState::new());
+    let readiness_error = Arc::new(Mutex::new(None));
     let state = Arc::new(Mutex::new(QueueState {
         volume: Some(block_storage::open(backing_path)?),
         result: None,
@@ -587,6 +595,7 @@ fn serve(backing_path: &Path, device_id: i32) -> io::Result<()> {
         let queue_state = Arc::clone(&state);
         let queue_drain = Arc::clone(&drain);
         let ready_drain = Arc::clone(&drain);
+        let ready_error = Arc::clone(&readiness_error);
         let (target_result, stop_result) = std::thread::scope(|scope| {
             let stop_drain = Arc::clone(&drain);
             let controller_ref = &controller;
@@ -602,8 +611,21 @@ fn serve(backing_path: &Path, device_id: i32) -> io::Result<()> {
                         run_queue(qid, dev, Arc::clone(&queue_state), Arc::clone(&queue_drain))
                     },
                     move |controller| {
+                        let result = write_readiness_line(
+                            &mut io::stdout().lock(),
+                            &controller.get_bdev_path(),
+                        );
+                        let failed = result.is_err();
+                        match ready_error.lock() {
+                            Ok(mut error) => *error = result.err(),
+                            Err(_) => {
+                                eprintln!("block-storage-ublk: readiness error state lock poisoned")
+                            }
+                        }
                         ready_drain.device_ready.store(true, Ordering::Release);
-                        println!("{}", controller.get_bdev_path());
+                        if failed {
+                            SIGTERM_REQUESTED.store(true, Ordering::Relaxed);
+                        }
                     },
                 )
                 .map(|_| ())
@@ -631,8 +653,13 @@ fn serve(backing_path: &Path, device_id: i32) -> io::Result<()> {
 
     let removal_result = wait_for_device_removal(device_id);
     let restore_result = signal_guard.restore();
+    let readiness_result = match readiness_error.lock() {
+        Ok(mut error) => error.take().map_or(Ok(()), Err),
+        Err(_) => Err(io::Error::other("readiness error state lock poisoned")),
+    };
     combine_daemon_results(
         target_result,
+        readiness_result,
         stop_result,
         shutdown_result,
         removal_result,
@@ -641,9 +668,7 @@ fn serve(backing_path: &Path, device_id: i32) -> io::Result<()> {
 }
 
 fn delete(device_id: i32) -> io::Result<()> {
-    UblkCtrlBuilder::default()
-        .id(device_id)
-        .build()
+    UblkCtrl::new_simple(device_id)
         .map_err(ublk_error)?
         .del_dev()
         .map(|_| ())
@@ -706,6 +731,29 @@ mod tests {
     use std::process::{Child, Command, ExitStatus, Stdio};
     use std::sync::mpsc;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    #[derive(Default)]
+    struct ReadinessWriter {
+        bytes: Vec<u8>,
+        flushes: usize,
+        fail_flush: bool,
+    }
+
+    impl Write for ReadinessWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.bytes.extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            if self.fail_flush {
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "stdout closed"))
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     struct TemporaryBacking(PathBuf);
 
@@ -969,6 +1017,23 @@ mod tests {
             assert!(!backing.0.exists());
         }
         Ok(())
+    }
+
+    #[test]
+    fn readiness_line_is_explicitly_flushed_and_flush_errors_are_returned() {
+        let mut output = ReadinessWriter::default();
+        write_readiness_line(&mut output, "/dev/ublkb7").unwrap();
+        assert_eq!(output.bytes, b"/dev/ublkb7\n");
+        assert_eq!(output.flushes, 1);
+
+        let mut closed_output = ReadinessWriter {
+            fail_flush: true,
+            ..Default::default()
+        };
+        let error = write_readiness_line(&mut closed_output, "/dev/ublkb8").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(closed_output.bytes, b"/dev/ublkb8\n");
+        assert_eq!(closed_output.flushes, 1);
     }
 
     #[test]
@@ -1274,6 +1339,7 @@ mod tests {
         let error = |message| Err(io::Error::other(message));
         let combined = combine_daemon_results(
             error("run"),
+            error("flush"),
             error("kill"),
             error("checkpoint"),
             error("ublkc remained"),
@@ -1282,9 +1348,9 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             combined.to_string(),
-            "target failed: run; stop failed: kill; shutdown failed: checkpoint; device removal failed: ublkc remained; signal restoration failed: sigaction"
+            "target failed: run; readiness failed: flush; stop failed: kill; shutdown failed: checkpoint; device removal failed: ublkc remained; signal restoration failed: sigaction"
         );
-        assert!(combine_daemon_results(Ok(()), Ok(()), Ok(()), Ok(()), Ok(())).is_ok());
+        assert!(combine_daemon_results(Ok(()), Ok(()), Ok(()), Ok(()), Ok(()), Ok(())).is_ok());
     }
 
     #[test]
