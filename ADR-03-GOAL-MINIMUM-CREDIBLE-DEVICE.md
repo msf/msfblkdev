@@ -282,7 +282,7 @@ Required `fio` scenarios use direct 4 KiB I/O through `/dev/ublkbN`:
 
 Acceptance evidence:
 
-- [ ] A repository script creates, runs and cleans up the regular-file ublk test with timeouts.
+- [ ] The repository lab application creates, runs and cleans up the regular-file ublk test with timeouts.
 - [ ] Every regular-file `fio` scenario passes three consecutive fresh-image runs.
 - [ ] No scenario hangs after a daemon error or exit.
 - [ ] ublk reports the 33rd write as `ENOSPC`.

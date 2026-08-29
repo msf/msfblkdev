@@ -76,4 +76,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.4 rejects an uncheckpointed crash tail. ADR-03 closes that recovery gap before the project claims a credible block device.
+The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.6 recovers complete flushed records after process loss. Live ublk and `fio` acceptance still blocks ADR-03 closure.
