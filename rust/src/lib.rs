@@ -974,6 +974,34 @@ mod tests {
     }
 
     #[test]
+    fn multiple_lbas_read_correctly_before_and_after_reopen() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 2_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+
+        let expected = [[0xa5; BLOCK_SIZE], [0x5a; BLOCK_SIZE]];
+        let mut actual = [0; BLOCK_SIZE];
+        let mut volume = open(&backing.0)?;
+        for (lba, block) in expected.iter().enumerate() {
+            volume.write_block(lba as u32, block)?;
+        }
+        for (lba, block) in expected.iter().enumerate() {
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(&actual, block);
+        }
+        volume.close()?;
+
+        let mut volume = open(&backing.0)?;
+        for (lba, block) in expected.iter().enumerate() {
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(&actual, block);
+        }
+        volume.close()
+    }
+
+    #[test]
     fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 2_u32;
