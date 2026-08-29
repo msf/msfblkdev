@@ -162,10 +162,14 @@ Acceptance tests:
   Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_after_kill_at_mapping_publication_boundary -- --exact` passes 20 consecutive runs with `SIGKILL` after mapping publication and before flush.
 - [x] Recover after a kill at the log-fsync boundary.
   Evidence (2026-08-29): `cargo test --quiet --lib tests::recover_after_kill_at_log_fsync_boundary -- --exact` passes 20 consecutive runs with `SIGKILL` after backing fsync completion and before durable-cursor advance; recovery requires the flushed new value.
-- [ ] Recover after each checkpoint-body block boundary.
-- [ ] Recover after the checkpoint-body fsync boundary.
-- [ ] Recover after the descriptor-write boundary.
-- [ ] Recover after the descriptor-fsync boundary.
+- [x] Recover after each checkpoint-body block boundary.
+  Evidence (2026-08-29): `recover_after_each_checkpoint_body_block_boundary` passes 20 parent-driven `SIGKILL` runs at each of five completed blocks in a multi-block checkpoint body; public `open` falls back to the older root, replays the flushed tail and returns every latest write and overwrite.
+- [x] Recover after the checkpoint-body fsync boundary.
+  Evidence (2026-08-29): `recover_after_checkpoint_body_fsync_boundary` passes 20 parent-driven `SIGKILL` runs after body fsync and before descriptor submission; public `open` proves older-root fallback plus replay of every flushed latest value.
+- [x] Recover after the descriptor-write boundary.
+  Evidence (2026-08-29): `recover_after_descriptor_write_boundary` passes 20 parent-driven `SIGKILL` runs after exact descriptor-write completion and before descriptor fsync; public `open` selects the complete newer root and returns every flushed latest value.
+- [x] Recover after the descriptor-fsync boundary.
+  Evidence (2026-08-29): `recover_after_descriptor_fsync_boundary` passes 20 parent-driven `SIGKILL` runs after descriptor fsync and before in-memory publication; public `open` selects the durable newer root and returns every flushed latest value.
 - [ ] Recover after each stale-tail clearing boundary.
 - [ ] Fall back from an unusable newest descriptor or checkpoint body.
 - [ ] Stop at an invalid tail and never resurrect a valid-looking later record.

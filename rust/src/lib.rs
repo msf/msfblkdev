@@ -30,6 +30,14 @@ const RECORD_WRITE_COMPLETE_FAILPOINT: &str = "record-write-complete";
 const MAPPING_PUBLISHED_FAILPOINT: &str = "mapping-published";
 #[cfg(test)]
 const LOG_FSYNC_COMPLETE_FAILPOINT: &str = "log-fsync-complete";
+#[cfg(test)]
+const CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT: &str = "checkpoint-body-block-complete";
+#[cfg(test)]
+const CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT: &str = "checkpoint-body-fsync-complete";
+#[cfg(test)]
+const DESCRIPTOR_WRITE_COMPLETE_FAILPOINT: &str = "descriptor-write-complete";
+#[cfg(test)]
+const DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT: &str = "descriptor-fsync-complete";
 
 #[cfg(test)]
 fn pause_at_test_failpoint(name: &str) -> io::Result<()> {
@@ -148,7 +156,11 @@ impl Volume {
             self.failed = true;
             return Err(error);
         }
+        #[cfg(test)]
+        pause_at_test_failpoint(DESCRIPTOR_WRITE_COMPLETE_FAILPOINT)?;
         self.flush()?;
+        #[cfg(test)]
+        pause_at_test_failpoint(DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT)?;
         self.checkpoint_lsn = self.last_lsn;
         self.log_bytes_since_checkpoint = 0;
         Ok(())
@@ -175,6 +187,10 @@ impl Volume {
             }
             hasher.update(&block.0);
             self.write_checkpoint_body_block(body_start + block_index, &block)?;
+            #[cfg(test)]
+            pause_at_test_failpoint(&format!(
+                "{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{block_index}"
+            ))?;
         }
         for block_index in 0..layout.checksum_map_blocks {
             block.0.fill(0);
@@ -187,12 +203,16 @@ impl Volume {
                 bytes.copy_from_slice(&value.to_le_bytes());
             }
             hasher.update(&block.0);
-            self.write_checkpoint_body_block(
-                body_start + layout.physical_map_blocks + block_index,
-                &block,
-            )?;
+            let body_block_index = layout.physical_map_blocks + block_index;
+            self.write_checkpoint_body_block(body_start + body_block_index, &block)?;
+            #[cfg(test)]
+            pause_at_test_failpoint(&format!(
+                "{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{body_block_index}"
+            ))?;
         }
         self.flush()?;
+        #[cfg(test)]
+        pause_at_test_failpoint(CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT)?;
         Ok(hasher.digest())
     }
 
@@ -893,6 +913,7 @@ mod tests {
     }
 
     const CRASH_TEST_BACKING: &str = "BLOCK_STORAGE_CRASH_TEST_BACKING";
+    const CRASH_REPETITIONS: usize = 20;
     const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
     fn kill_and_reap(child: &mut Child) -> io::Result<ExitStatus> {
@@ -1651,6 +1672,99 @@ mod tests {
             true,
             true,
         )
+    }
+
+    fn recover_after_checkpoint_crash(
+        test_name: &str,
+        failpoint: &str,
+        expected_checkpoint_lsn: u64,
+    ) -> io::Result<()> {
+        let writes = [(0, 0x5a), (1, 0xc3), (2, 0x3c), (1, 0xe7)];
+        if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
+            let mut volume = open(PathBuf::from(backing))?;
+            for (lba, byte) in writes {
+                volume.write_block(lba, &[byte; BLOCK_SIZE])?;
+            }
+            volume.flush()?;
+            volume.close()?;
+            return Err(io::Error::other("test failpoint did not pause child"));
+        }
+
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 1025_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        assert!(layout.physical_map_blocks + layout.checksum_map_blocks > 1);
+        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
+        volume.close()?;
+
+        sigkill_child_at_handshake(test_name, &backing.0, failpoint, Some(failpoint))?;
+
+        let expected = [[0x5a; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
+        let mut volume = open(&backing.0)?;
+        assert_eq!(volume.checkpoint_lsn, expected_checkpoint_lsn);
+        assert_eq!(volume.last_lsn, 5);
+        for (lba, expected) in expected.iter().enumerate() {
+            let mut actual = [0; BLOCK_SIZE];
+            volume.read_block(lba as u32, &mut actual)?;
+            assert_eq!(&actual, expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn recover_after_each_checkpoint_body_block_boundary() -> io::Result<()> {
+        let (_, layout) = layout_for(1025 * BLOCK_SIZE as u64)?;
+        let body_blocks = layout.physical_map_blocks + layout.checksum_map_blocks;
+        for block_index in 0..body_blocks {
+            let failpoint = format!("{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{block_index}");
+            for _ in 0..CRASH_REPETITIONS {
+                recover_after_checkpoint_crash(
+                    "tests::recover_after_each_checkpoint_body_block_boundary",
+                    &failpoint,
+                    1,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn recover_after_checkpoint_body_fsync_boundary() -> io::Result<()> {
+        for _ in 0..CRASH_REPETITIONS {
+            recover_after_checkpoint_crash(
+                "tests::recover_after_checkpoint_body_fsync_boundary",
+                CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT,
+                1,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn recover_after_descriptor_write_boundary() -> io::Result<()> {
+        for _ in 0..CRASH_REPETITIONS {
+            recover_after_checkpoint_crash(
+                "tests::recover_after_descriptor_write_boundary",
+                DESCRIPTOR_WRITE_COMPLETE_FAILPOINT,
+                5,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn recover_after_descriptor_fsync_boundary() -> io::Result<()> {
+        for _ in 0..CRASH_REPETITIONS {
+            recover_after_checkpoint_crash(
+                "tests::recover_after_descriptor_fsync_boundary",
+                DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT,
+                5,
+            )?;
+        }
+        Ok(())
     }
 
     #[test]
