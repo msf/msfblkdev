@@ -59,9 +59,9 @@ One separate child test will terminate through an uncaught Rust panic to model a
 
 ## Precondition: close ADR-02
 
-- [ ] Every ADR-02 closure item is complete.
-- [ ] Rust formatting, clippy and tests pass.
-- [ ] One hundred consecutive parallel Rust test runs pass.
+- [x] Every ADR-02 closure item is complete.
+- [x] Rust formatting, clippy and tests pass.
+- [x] One hundred consecutive parallel Rust test runs pass.
 
 No V0.5 implementation starts before this precondition is green.
 
@@ -258,7 +258,7 @@ Any failed or ambiguous check aborts without writing. Ralph never runs this opti
 
 ADR-03 is complete only when:
 
-- [ ] ADR-02 is closed.
+- [x] ADR-02 is closed.
 - [ ] Every V0.5, V0.6, ublk and vertical acceptance item is checked.
 - [ ] The full Rust gate passes without skipped or ignored tests.
 - [ ] Every automated crash scenario passes twenty consecutive runs.

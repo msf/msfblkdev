@@ -4,7 +4,7 @@ A Linux-only log-structured block device experiment. The Rust storage engine imp
 
 ## Current status
 
-V0.4 behavior is implemented, but Goal 1 remains open until every ADR-02 closure item and its complete Rust gate pass.
+Goal 1 is complete. The Rust V0.4 behavior, formatting, clippy, tests and repeated parallel-test gate are green. ADR-03 is active; V0.5 implementation has not started.
 
 The active goal is a minimum credible device:
 

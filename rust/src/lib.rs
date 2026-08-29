@@ -13,6 +13,7 @@ const BLOCK_SIZE: usize = 4096;
 const CHECKPOINT_MAGIC: &[u8; 4] = b"VBLC";
 const FOOTER_MAGIC: &[u8; 4] = b"VBLF";
 const FORMAT_VERSION: u8 = 1;
+const RECORD_KIND_WRITE: u8 = 1;
 const FOOTER_LBA_OFFSET: usize = 32;
 const FOOTER_PAYLOAD_CHECKSUM_OFFSET: usize = 1384;
 const FOOTER_CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
@@ -332,7 +333,7 @@ fn encode_write_footer(
     footer.fill(0);
     footer[..4].copy_from_slice(FOOTER_MAGIC);
     footer[4] = FORMAT_VERSION;
-    footer[5] = 1;  // FIXME: what's this field?
+    footer[5] = RECORD_KIND_WRITE;
     footer[8..16].copy_from_slice(&volume_id.to_le_bytes());
     footer[16..24].copy_from_slice(&lsn.to_le_bytes());
     footer[24..28].copy_from_slice(&previous_footer_block.to_le_bytes());
@@ -552,7 +553,7 @@ fn is_expected_tail_footer(
     if !checksum_valid
         || &footer[..4] != FOOTER_MAGIC
         || footer[4] != FORMAT_VERSION
-        || footer[5] != 1
+        || footer[5] != RECORD_KIND_WRITE
         || u16::from_le_bytes(footer[6..8].try_into().unwrap()) != 0
         || read_u64(footer, 8) != checkpoint.volume_id
         || checkpoint.checkpoint_lsn == u64::MAX
@@ -562,10 +563,10 @@ fn is_expected_tail_footer(
     {
         return false;
     }
-    (0..payload_count).all(|index| { // FIXME: what's this loop?
+    (0..payload_count).all(|payload_index| {
         read_u32(
             footer,
-            FOOTER_LBA_OFFSET + index as usize * size_of::<u32>(),
+            FOOTER_LBA_OFFSET + payload_index as usize * size_of::<u32>(),
         ) < checkpoint.volume_blocks
     })
 }
@@ -881,7 +882,7 @@ mod tests {
     }
 
     #[test]
-    fn xxh3_matches_zig_vectors() {
+    fn xxh3_matches_persistent_format_vectors() {
         assert_eq!(xxh3_64(b""), 0x2d06_8005_38d3_94c2);
         assert_eq!(xxh3_64(&[0; BLOCK_SIZE]), 0x93d7_6fe1_48c6_89ba);
 
@@ -994,7 +995,7 @@ mod tests {
         assert_eq!(&record[..BLOCK_SIZE], &payload);
         let footer = &mut record[BLOCK_SIZE..];
         assert_eq!(&footer[..4], FOOTER_MAGIC);
-        assert_eq!(&footer[4..8], &[FORMAT_VERSION, 1, 0, 0]);
+        assert_eq!(&footer[4..8], &[FORMAT_VERSION, RECORD_KIND_WRITE, 0, 0]);
         assert_eq!(read_u64(footer, 8), volume.volume_id);
         assert_eq!(read_u64(footer, 16), 1);
         assert_eq!(read_u32(footer, 24), previous_footer_block);
@@ -1033,7 +1034,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_write_is_not_published_and_close_releases_resources() -> io::Result<()> {
+    fn failed_write_is_not_published() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
         backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
@@ -1066,11 +1067,7 @@ mod tests {
         );
         assert_eq!(volume.flush().unwrap_err().to_string(), "volume failed");
 
-        let backing_fd = volume.backing.as_raw_fd();
-        let ring_fd = volume.ring.as_ref().unwrap().as_raw_fd();
         assert_eq!(volume.close().unwrap_err().to_string(), "volume failed");
-        assert_eq!(unsafe { libc::fcntl(backing_fd, libc::F_GETFD) }, -1);
-        assert_eq!(unsafe { libc::fcntl(ring_fd, libc::F_GETFD) }, -1);
         Ok(())
     }
 

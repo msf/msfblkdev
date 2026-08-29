@@ -19,7 +19,7 @@ If the criterion cannot be completed safely in the time box, make no commit. Rep
 
 ## Rules
 
-- Work on ADR-02 closure before ADR-03 implementation.
+- ADR-02 is closed. Work on the earliest unchecked ADR-03 item.
 - Evolve only the Rust implementation. Do not update Zig or restore image compatibility.
 - Do not redesign the persistent format from a worker loop.
 - ADR acceptance text is immutable to workers. A worker may only change `[ ]` to `[x]` for behavior proved by the same commit and add concise evidence.

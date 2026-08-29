@@ -6,7 +6,7 @@ ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
 .PHONY: setup build build-zig build-rust lint lint-zig lint-rust test test-zig test-rust run
 
-build: build-zig build-rust
+build: build-rust
 
 build-zig: setup
 	@$(ZIG) build
@@ -30,7 +30,7 @@ setup:
 	rm -rf "$(ZIG_DIR)"; \
 	mv "$$tmp/zig-x86_64-linux-$(ZIG_VERSION)" "$(ZIG_DIR)"
 
-lint: lint-zig lint-rust
+lint: lint-rust
 
 lint-zig: setup
 	@$(ZIG) fmt --check build.zig src
@@ -38,7 +38,7 @@ lint-zig: setup
 lint-rust:
 	@cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
-test: test-zig test-rust
+test: test-rust
 
 test-zig: setup
 	@$(ZIG) build test

@@ -2,7 +2,7 @@
 
 Date: 2026-08-29
 Author: Miguel Filipe
-Status: accepted, closure pending
+Status: completed
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md)
 
 ## Context
@@ -81,14 +81,14 @@ The parallel failure is a test defect. It checks a numeric file descriptor after
 
 ## Closure work
 
-Goal 1 is complete only after one cleanup delivery:
+Goal 1 required one cleanup delivery:
 
-- [ ] Replace the footer record-kind literal with a named format constant.
-- [ ] Replace the ambiguous tail-footer validation FIXME with a precise name or explanation.
-- [ ] Remove the invalid numeric file-descriptor reuse assertions.
-- [ ] Rename Zig-specific checksum-vector terminology to persistent-format terminology.
-- [ ] Make Rust the default build, lint and test path while retaining explicit optional Zig targets.
-- [ ] Pass the complete closure gate.
+- [x] Replace the footer record-kind literal with a named format constant.
+- [x] Replace the ambiguous tail-footer validation FIXME with a precise name.
+- [x] Remove the invalid numeric file-descriptor reuse assertions.
+- [x] Rename Zig-specific checksum-vector terminology to persistent-format terminology.
+- [x] Make Rust the default build, lint and test path while retaining explicit optional Zig targets.
+- [x] Pass the complete closure gate.
 
 Closure gate:
 
@@ -104,6 +104,15 @@ done
 ```
 
 No test may be skipped, ignored or weakened to close this goal.
+
+Closure evidence from 2026-08-29:
+
+- `cargo fmt --check` passed;
+- `cargo clippy --all-targets -- -D warnings` passed;
+- all 15 Rust tests passed;
+- 100 consecutive default parallel test runs passed;
+- `make build lint test` passed with Rust as the default;
+- `make build-zig lint-zig test-zig` still passed as an optional historical gate.
 
 ## Consequences
 

@@ -283,7 +283,7 @@ A delivery is complete only when its gate and named acceptance tests pass withou
 - append, flush and clean checkpoint publication;
 - zero reads and checksummed reads before and after reopen.
 
-V0.4 behavior is implemented, but Goal 1 remains open until its closure delivery removes stale experimental assumptions and restores a fully green Rust gate.
+Goal 1 is complete. V0.4 behavior and its Rust closure gate are green.
 
 ### Goal 2: minimum credible device
 
