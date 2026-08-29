@@ -813,7 +813,8 @@ mod tests {
     use std::os::unix::fs::FileExt;
     use std::os::unix::process::ExitStatusExt;
     use std::path::PathBuf;
-    use std::process::{Command, Stdio};
+    use std::process::{Child, Command, ExitStatus, Stdio};
+    use std::sync::mpsc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use xxhash_rust::xxh3::xxh3_64_with_seed;
 
@@ -1412,6 +1413,14 @@ mod tests {
     fn recover_one_flushed_write_after_sigkill_without_close() -> io::Result<()> {
         const CHILD_BACKING: &str = "BLOCK_STORAGE_CRASH_TEST_BACKING";
         const HANDSHAKE: &str = "write-flushed";
+        const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+        fn kill_and_reap(child: &mut Child) -> io::Result<ExitStatus> {
+            match child.kill() {
+                Ok(()) => child.wait(),
+                Err(kill_error) => child.try_wait()?.ok_or(kill_error),
+            }
+        }
 
         if let Some(backing) = std::env::var_os(CHILD_BACKING) {
             let mut volume = open(PathBuf::from(backing))?;
@@ -1438,34 +1447,44 @@ mod tests {
             .env(CHILD_BACKING, &backing.0)
             .stdout(Stdio::piped())
             .spawn()?;
-        let result = (|| -> io::Result<()> {
-            let stdout = child
-                .stdout
-                .take()
-                .ok_or_else(|| io::Error::other("child stdout unavailable"))?;
-            let mut saw_handshake = false;
-            for line in BufReader::new(stdout).lines() {
-                if line? == HANDSHAKE {
-                    saw_handshake = true;
-                    break;
-                }
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                kill_and_reap(&mut child)?;
+                return Err(io::Error::other("child stdout unavailable"));
             }
-            if !saw_handshake {
-                return Err(io::Error::other("child exited before flush handshake"));
-            }
+        };
+        let (handshake_sender, handshake_receiver) = mpsc::sync_channel(1);
+        let stdout_reader = std::thread::spawn(move || {
+            let result = BufReader::new(stdout)
+                .lines()
+                .find_map(|line| match line {
+                    Ok(line) if line == HANDSHAKE => Some(Ok(())),
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error)),
+                })
+                .unwrap_or_else(|| Err(io::Error::other("child exited before flush handshake")));
+            handshake_sender.send(result)
+        });
 
-            child.kill()?;
-            let status = child.wait()?;
-            if status.signal() != Some(libc::SIGKILL) {
-                return Err(io::Error::other("child was not terminated by SIGKILL"));
+        let handshake_result = match handshake_receiver.recv_timeout(HANDSHAKE_TIMEOUT) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                Err(io::Error::other("timed out waiting for flush handshake"))
             }
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = child.kill();
-            let _ = child.wait();
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err(io::Error::other("flush handshake reader disconnected"))
+            }
+        };
+        let status = kill_and_reap(&mut child)?;
+        stdout_reader
+            .join()
+            .map_err(|_| io::Error::other("flush handshake reader panicked"))?
+            .map_err(|_| io::Error::other("flush handshake receiver disconnected"))?;
+        handshake_result?;
+        if status.signal() != Some(libc::SIGKILL) {
+            return Err(io::Error::other("child was not terminated by SIGKILL"));
         }
-        result?;
 
         let mut volume = open(&backing.0)?;
         let mut actual = [0; BLOCK_SIZE];
