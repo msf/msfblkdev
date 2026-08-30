@@ -403,6 +403,48 @@ fn wait_for_handshake(
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum RemoveAfterKillIdentity {
+    Absent,
+    Deletable,
+}
+
+pub(super) fn wait_for_remove_after_kill_identity<C, D, W>(
+    preserve_for_identity: &mut bool,
+    mut classify: C,
+    mut deadline_reached: D,
+    mut wait: W,
+) -> io::Result<RemoveAfterKillIdentity>
+where
+    C: FnMut() -> io::Result<DeviceIdentityState>,
+    D: FnMut() -> bool,
+    W: FnMut(),
+{
+    loop {
+        match classify() {
+            Ok(DeviceIdentityState::Absent) => return Ok(RemoveAfterKillIdentity::Absent),
+            Ok(DeviceIdentityState::StoppedMatching) => {
+                return Ok(RemoveAfterKillIdentity::Deletable);
+            }
+            Ok(DeviceIdentityState::Matching) if deadline_reached() => {
+                return Ok(RemoveAfterKillIdentity::Deletable);
+            }
+            Ok(DeviceIdentityState::Matching) => wait(),
+            Ok(DeviceIdentityState::IdentityChanged) => {
+                *preserve_for_identity = true;
+                return Err(io::Error::other(
+                    "recorded device identity changed after SIGKILL; refusing delete",
+                ));
+            }
+            Err(error) if deadline_reached() => {
+                *preserve_for_identity = true;
+                return Err(error);
+            }
+            Err(_) => wait(),
+        }
+    }
+}
+
 fn remove_after_kill(
     paths: &Paths,
     preflight: &Preflight,
@@ -412,32 +454,17 @@ fn remove_after_kill(
 ) -> io::Result<()> {
     let deadline = Instant::now() + timeout.min(Duration::from_secs(2));
     let id = resources.device.as_ref().unwrap().id();
-    loop {
-        let identity = match resources.device.as_ref().unwrap().still_matches(paths) {
-            Ok(identity) => identity,
-            Err(error) => {
-                resources.preserve_for_identity = true;
-                return Err(error);
-            }
-        };
-        match identity {
-            DeviceIdentityState::Absent => {
-                resources.device = None;
-                return Ok(());
-            }
-            DeviceIdentityState::Matching if Instant::now() < deadline => {
-                thread::sleep(POLL_INTERVAL)
-            }
-            DeviceIdentityState::Matching | DeviceIdentityState::StoppedMatching => break,
-            DeviceIdentityState::IdentityChanged => {
-                resources.preserve_for_identity = true;
-                return Err(io::Error::other(
-                    "recorded device identity changed after SIGKILL; refusing delete",
-                ));
-            }
-        }
+    let identity = wait_for_remove_after_kill_identity(
+        &mut resources.preserve_for_identity,
+        || resources.device.as_ref().unwrap().still_matches(paths),
+        || Instant::now() >= deadline,
+        || thread::sleep(POLL_INTERVAL),
+    )?;
+    if identity == RemoveAfterKillIdentity::Absent {
+        resources.device = None;
+        return Ok(());
     }
-    require_deletable_device(paths, resources, "before delete")?;
+
     let mut delete = delete_command(&preflight.daemon, id);
     let (stdout, stderr) = output_paths(resources, outputs.command("delete"));
     let status = run_command_separate(&mut delete, &stdout, &stderr, Instant::now() + timeout)?;
@@ -452,23 +479,6 @@ fn require_matching_device(
     resources: &mut Resources,
     operation: &str,
 ) -> io::Result<()> {
-    require_device_identity(paths, resources, operation, false)
-}
-
-fn require_deletable_device(
-    paths: &Paths,
-    resources: &mut Resources,
-    operation: &str,
-) -> io::Result<()> {
-    require_device_identity(paths, resources, operation, true)
-}
-
-fn require_device_identity(
-    paths: &Paths,
-    resources: &mut Resources,
-    operation: &str,
-    allow_stopped: bool,
-) -> io::Result<()> {
     let identity = match resources.device.as_ref().unwrap().still_matches(paths) {
         Ok(identity) => identity,
         Err(error) => {
@@ -478,7 +488,6 @@ fn require_device_identity(
     };
     match identity {
         DeviceIdentityState::Matching => Ok(()),
-        DeviceIdentityState::StoppedMatching if allow_stopped => Ok(()),
         DeviceIdentityState::StoppedMatching | DeviceIdentityState::Absent => Err(
             io::Error::other(format!("recorded device is not active {operation}")),
         ),

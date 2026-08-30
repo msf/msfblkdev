@@ -476,6 +476,81 @@ fn device_identity_states_distinguish_active_stopped_replaced_and_absent() {
 }
 
 #[test]
+fn remove_after_kill_retries_partial_identity_until_stopped_matching() {
+    let mut states = vec![
+        Err(io::Error::other(
+            "recorded device paths are only partially present",
+        )),
+        Ok(DeviceIdentityState::StoppedMatching),
+    ]
+    .into_iter();
+    let mut preserve = false;
+    let mut waits = 0;
+
+    let result = scenario_run::wait_for_remove_after_kill_identity(
+        &mut preserve,
+        || states.next().unwrap(),
+        || false,
+        || waits += 1,
+    )
+    .unwrap();
+
+    assert_eq!(result, scenario_run::RemoveAfterKillIdentity::Deletable);
+    assert_eq!(waits, 1);
+    assert!(!preserve);
+}
+
+#[test]
+fn remove_after_kill_preserves_last_persistent_ambiguity_without_delete() {
+    let mut states = vec![
+        Err(io::Error::other("first partial state")),
+        Err(io::Error::other("last precise inspection ambiguity")),
+    ]
+    .into_iter();
+    let mut preserve = false;
+    let mut deadline_checks = 0;
+
+    let error = scenario_run::wait_for_remove_after_kill_identity(
+        &mut preserve,
+        || states.next().unwrap(),
+        || {
+            deadline_checks += 1;
+            deadline_checks == 2
+        },
+        || {},
+    )
+    .unwrap_err();
+
+    assert_eq!(error.to_string(), "last precise inspection ambiguity");
+    assert!(preserve);
+}
+
+#[test]
+fn remove_after_kill_changed_identity_never_retries_into_deletion() {
+    let mut states = vec![
+        Ok(DeviceIdentityState::IdentityChanged),
+        Ok(DeviceIdentityState::StoppedMatching),
+    ]
+    .into_iter();
+    let mut preserve = false;
+
+    let error = scenario_run::wait_for_remove_after_kill_identity(
+        &mut preserve,
+        || states.next().unwrap(),
+        || false,
+        || panic!("changed identity must not be retried"),
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("identity changed"));
+    assert!(preserve);
+    assert!(
+        states.next().is_some(),
+        "stopped state was incorrectly consumed"
+    );
+}
+
+#[test]
 fn partially_present_device_identity_is_ambiguous() {
     let root = root("identity-ambiguous");
     let paths = fake_paths(&root);
