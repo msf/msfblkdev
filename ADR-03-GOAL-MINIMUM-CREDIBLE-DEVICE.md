@@ -258,7 +258,8 @@ Acceptance tests:
 - [ ] `SIGTERM` performs a clean close and device removal.
 - [ ] READ and WRITE reject invalid length, alignment, range and flags.
 - [ ] `SIGKILL` leaves storage recoverable by a new daemon.
-- [ ] All new tests and code pass through the top-level `make lint test` targets.
+- [x] All new tests and code pass through the top-level `make lint test` targets.
+  Evidence (2026-08-30): on Linux `7.0.0-29-generic` x86_64, the top-level `make lint test` gate passed in 27.13 seconds from the audited worktree based on `b70e485cda9022d1ea3460cd66a24a8fd5f9969c`. The gate ran 110 Rust tests with none failed, skipped or ignored, including the V0.7 adapter, exact request validation, exclusive backing lock, shutdown drain and fatal-error rejection tests. A feature-enabled build of both ublk binaries also passed. Live-device acceptance remains unchecked below.
 
 ADR-03 does not enable transparent ublk user recovery (`UBLK_F_USER_RECOVERY`). After `SIGKILL`, the harness waits for the old device to disappear or deletes its recorded device ID through the ublk control interface. It then creates a new device and starts a new `fio` verification process. The device ID may change, and any request that was in flight at the kill may fail.
 
@@ -287,7 +288,8 @@ Acceptance evidence:
 - [ ] No scenario hangs after a daemon error or exit.
 - [ ] ublk reports the 33rd write as `ENOSPC`.
 - [ ] The daemon restarts cleanly after every hard-exit scenario.
-- [ ] All new tests and code pass through the top-level `make lint test` targets.
+- [x] All new tests and code pass through the top-level `make lint test` targets.
+  Evidence (2026-08-30): the same 27.13-second top-level gate passed all 110 non-privileged Rust tests, including the typed V0.8 scenario, process-timeout, resource-identity, cleanup-refusal and exact `fio` command-shape tests. `cargo build --features test-failpoints --bin block-storage-ublk --bin block-storage-lab` also passed. `make test-ublk-fio` then stopped safely in preflight before creating evidence or resources because `/dev/ublk-control` was absent; therefore no live V0.8 scenario is claimed.
 
 Creating or formatting an ext4 or XFS filesystem is not part of this goal.
 
@@ -310,12 +312,17 @@ ADR-03 is complete only when:
 
 - [x] ADR-02 is closed.
 - [ ] Every V0.5, V0.6, V0.7 and V0.8 acceptance item is checked.
-- [ ] The full Rust gate passes without skipped or ignored tests.
-- [ ] Every V0.6 automated crash-boundary scenario passes twenty consecutive runs.
+- [x] The full Rust gate passes without skipped or ignored tests.
+  Evidence (2026-08-30): `make lint test` passed all 110 discovered Rust tests from the audited worktree in 27.13 seconds; `rg '#\[ignore' rust/src` found no ignored tests.
+- [x] Every V0.6 automated crash-boundary scenario passes twenty consecutive runs.
+  Evidence (2026-08-30 audit): `evidence/engine-crash-1788047029006174002-b70e485cda9022d1ea3460cd66a24a8fd5f9969c.log` contains 113 commands, 113 successful statuses and a final `result: PASS` for commit `b70e485cda9022d1ea3460cd66a24a8fd5f9969c` on Linux `7.0.0-29-generic` with temporary regular-file backing. This includes the complete all-boundary stale-tail case, `recover_after_each_stale_tail_clear_block_boundary`, which passed in 608.100 seconds with the acceptance repetition mode.
 - [ ] Every V0.8 regular-file scenario passes three consecutive fresh-image runs.
-- [ ] The regular-file harness validates every resource it creates before writing.
-- [ ] Test evidence records the commit, kernel, backing type, commands and results.
-- [ ] All new tests and code pass through the top-level `make lint test` targets.
+- [x] The regular-file harness validates every resource it creates before writing.
+  Evidence (2026-08-30): the typed harness validates the owned directory before format, validates the exact regular-file path, identity, owner, filesystem and size before daemon or `fio` access, and validates the recorded block-device node, device number, sysfs identity and geometry before each `fio` run or delete. Unit tests cover changed and ambiguous identities, invalid backing size, owned-directory markers and preflight failure without resource creation.
+- [x] Test evidence records the commit, kernel, backing type, commands and results.
+  Evidence (2026-08-30 audit): the independently checked engine acceptance log named above records exact commit `b70e485cda9022d1ea3460cd66a24a8fd5f9969c`, Linux `7.0.0-29-generic`, test-created temporary regular-file backing, each command, each timing and final PASS. Live ublk evidence is still absent and the live-only criteria remain unchecked.
+- [x] All new tests and code pass through the top-level `make lint test` targets.
+  Evidence (2026-08-30): the same top-level 110-test gate passed in 27.13 seconds. The guarded `make test-ublk-fio` preflight exited before resource creation with `/dev/ublk-control` absent.
 
 ## Consequences
 

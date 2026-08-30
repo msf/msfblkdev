@@ -171,6 +171,7 @@ fn setup_fresh(
         return Err(io::Error::other("previous scenario resources remain"));
     }
     let owned = OwnedTempDir::create(&paths.temp_root)?;
+    owned.validate()?;
     let backing_path = owned.path().join("backing.img");
     resources.temp = Some(owned);
     let mut format = format_command(&preflight.daemon, &backing_path);

@@ -120,7 +120,10 @@ impl DrainState {
             .ok()
             .map(|_| InFlightRequest(self));
         match in_flight {
-            Some(in_flight) if !SIGTERM_REQUESTED.load(Ordering::Relaxed) => {
+            Some(in_flight)
+                if !SIGTERM_REQUESTED.load(Ordering::Relaxed)
+                    && !self.queue_failed.load(Ordering::Acquire) =>
+            {
                 EngineWork::Accepted(in_flight)
             }
             in_flight => EngineWork::Rejected(in_flight),
@@ -361,15 +364,26 @@ fn engine_error(error: io::Error) -> i32 {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RequestOutcome {
+    completion: i32,
+    fatal: bool,
+}
+
 fn handle_request(
     volume: &mut block_storage::Volume,
     descriptor: &ublksrv_io_desc,
     buffer: &mut [u8; IO_BUFFER_BYTES as usize],
-) -> i32 {
+) -> RequestOutcome {
     let dev_sectors = u64::from(volume.volume_blocks()) * SECTORS_PER_BLOCK;
     let request = match decode_request(descriptor, dev_sectors) {
         Ok(request) => request,
-        Err(errno) => return errno,
+        Err(completion) => {
+            return RequestOutcome {
+                completion,
+                fatal: false,
+            };
+        }
     };
     let result = match request {
         Request::Read(lba) => volume.read_block(lba, buffer),
@@ -377,11 +391,20 @@ fn handle_request(
         Request::Flush => volume.flush(),
     };
     match result {
-        Ok(()) => match request {
-            Request::Read(_) | Request::Write(_) => IO_BUFFER_BYTES as i32,
-            Request::Flush => 0,
+        Ok(()) => RequestOutcome {
+            completion: match request {
+                Request::Read(_) | Request::Write(_) => IO_BUFFER_BYTES as i32,
+                Request::Flush => 0,
+            },
+            fatal: false,
         },
-        Err(error) => engine_error(error),
+        Err(error) => {
+            let completion = engine_error(error);
+            RequestOutcome {
+                completion,
+                fatal: completion != -libc::ENOSPC,
+            }
+        }
     }
 }
 
@@ -389,10 +412,13 @@ fn handle_buffered_request(
     volume: &mut block_storage::Volume,
     descriptor: &ublksrv_io_desc,
     buffer: &mut [u8],
-) -> i32 {
+) -> RequestOutcome {
     match <&mut [u8; IO_BUFFER_BYTES as usize]>::try_from(buffer) {
         Ok(buffer) => handle_request(volume, descriptor, buffer),
-        Err(_) => -libc::EIO,
+        Err(_) => RequestOutcome {
+            completion: -libc::EIO,
+            fatal: true,
+        },
     }
 }
 
@@ -513,7 +539,13 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainS
         let completion = complete_fetched_request(
             drain.begin_engine_work(),
             &mut context,
-            |(volume, buffer)| handle_buffered_request(volume, queue.get_iod(tag), buffer),
+            |(volume, buffer)| {
+                let outcome = handle_buffered_request(volume, queue.get_iod(tag), buffer);
+                if outcome.fatal {
+                    drain.queue_failed.store(true, Ordering::Release);
+                }
+                outcome.completion
+            },
             |(_, buffer), result| {
                 queue.complete_io_cmd_unified(
                     tag,
@@ -728,6 +760,7 @@ mod tests {
     use super::*;
     use std::fs::{hard_link, remove_file};
     use std::io::{BufRead, BufReader, Read, Write};
+    use std::os::unix::fs::FileExt;
     use std::process::{Child, Command, ExitStatus, Stdio};
     use std::sync::mpsc;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1143,20 +1176,81 @@ mod tests {
         let expected = [0xa5; IO_BUFFER_BYTES as usize];
         let mut buffer = expected;
 
-        assert_eq!(handle_request(&mut volume, &write, &mut buffer), 4096);
-        assert_eq!(handle_request(&mut volume, &flush, &mut buffer), 0);
+        assert_eq!(
+            handle_request(&mut volume, &write, &mut buffer),
+            RequestOutcome {
+                completion: 4096,
+                fatal: false
+            }
+        );
+        assert_eq!(
+            handle_request(&mut volume, &flush, &mut buffer),
+            RequestOutcome {
+                completion: 0,
+                fatal: false
+            }
+        );
         drop(volume);
 
         let mut reopened = block_storage::open(&backing.0)?;
         buffer.fill(0);
-        assert_eq!(handle_request(&mut reopened, &read, &mut buffer), 4096);
+        assert_eq!(
+            handle_request(&mut reopened, &read, &mut buffer).completion,
+            4096
+        );
         assert_eq!(buffer, expected);
         buffer.fill(0xff);
         assert_eq!(
-            handle_request(&mut reopened, &read_neighbor, &mut buffer),
+            handle_request(&mut reopened, &read_neighbor, &mut buffer).completion,
             4096
         );
         assert_eq!(buffer, [0; IO_BUFFER_BYTES as usize]);
+        Ok(())
+    }
+
+    #[test]
+    fn fatal_engine_error_is_completed_before_post_failure_work_is_rejected() -> io::Result<()> {
+        let backing = TemporaryBacking::formatted(1)?;
+        let mut volume = block_storage::open(&backing.0)?;
+        let write = descriptor(UBLK_IO_OP_WRITE, 0, 8);
+        let read = descriptor(UBLK_IO_OP_READ, 0, 8);
+        let mut buffer = [0xa5; IO_BUFFER_BYTES as usize];
+        assert_eq!(
+            handle_request(&mut volume, &write, &mut buffer).completion,
+            4096
+        );
+
+        let raw = OpenOptions::new().write(true).open(&backing.0)?;
+        // A one-block volume has two one-block maps in each checkpoint slot, so its log starts at block 6.
+        raw.write_all_at(&[0x5a], 6 * u64::from(IO_BUFFER_BYTES))?;
+        raw.sync_all()?;
+        buffer.fill(0);
+        let failure = handle_request(&mut volume, &read, &mut buffer);
+        assert_eq!(
+            failure,
+            RequestOutcome {
+                completion: -libc::EIO,
+                fatal: true
+            }
+        );
+
+        let drain = DrainState::new();
+        drain.queue_failed.store(failure.fatal, Ordering::Release);
+        let mut post_failure = (0, Vec::new());
+        complete_fetched_request(
+            drain.begin_engine_work(),
+            &mut post_failure,
+            |(engine_calls, _)| {
+                *engine_calls += 1;
+                4096
+            },
+            |(_, completions), result| {
+                completions.push(result);
+                Ok::<(), ()>(())
+            },
+        )
+        .unwrap();
+        assert_eq!(post_failure, (0, vec![SHUTDOWN_COMPLETION]));
         Ok(())
     }
 
@@ -1188,12 +1282,15 @@ mod tests {
                 &descriptor(UBLK_IO_OP_WRITE, 0, 8),
                 &mut short_buffer
             ),
-            -libc::EIO
+            RequestOutcome {
+                completion: -libc::EIO,
+                fatal: true
+            }
         );
 
         let mut block = [0xff; IO_BUFFER_BYTES as usize];
         assert_eq!(
-            handle_request(&mut volume, &descriptor(UBLK_IO_OP_READ, 0, 8), &mut block),
+            handle_request(&mut volume, &descriptor(UBLK_IO_OP_READ, 0, 8), &mut block).completion,
             IO_BUFFER_BYTES as i32
         );
         assert_eq!(block, [0; IO_BUFFER_BYTES as usize]);
@@ -1201,7 +1298,7 @@ mod tests {
     }
 
     #[test]
-    fn fetched_requests_complete_once_without_shutdown_engine_io() {
+    fn fetched_requests_complete_once_without_shutdown_or_post_failure_engine_io() {
         let drain = DrainState::new();
         let mut accepted = (0, Vec::new());
         complete_fetched_request(
@@ -1219,9 +1316,10 @@ mod tests {
         .unwrap();
         assert_eq!(accepted, (1, vec![4096]));
 
+        drain.queue_failed.store(true, Ordering::Release);
         let mut rejected = (0, Vec::new());
         complete_fetched_request(
-            EngineWork::Rejected(None),
+            drain.begin_engine_work(),
             &mut rejected,
             |(engine_calls, _)| {
                 *engine_calls += 1;
