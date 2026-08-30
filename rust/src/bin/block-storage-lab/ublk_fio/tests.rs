@@ -63,6 +63,7 @@ fn command_construction_is_exact_and_bounded() {
     assert!(args.contains(&"--size=65536".into()));
     assert!(args.contains(&"--fsync=16".into()));
     assert!(args.contains(&"--do_verify=1".into()));
+    assert!(args.contains(&"--verify_state_save=0".into()));
 }
 
 #[test]

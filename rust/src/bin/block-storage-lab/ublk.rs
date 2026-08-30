@@ -411,6 +411,7 @@ pub fn fio_command(
         format!("--verify_pattern={pattern:#010x}"),
         "--verify_fatal=1".to_owned(),
         "--verify_dump=0".to_owned(),
+        "--verify_state_save=0".to_owned(),
         "--randrepeat=1".to_owned(),
         "--randseed=74703".to_owned(),
         "--end_fsync=1".to_owned(),
@@ -544,6 +545,34 @@ mod tests {
         owned.cleanup().unwrap();
         assert!(!owned.path().exists());
         fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn fio_command_never_saves_verify_state_in_the_caller_directory() {
+        let command = fio_command(
+            Path::new("/dev/ublkb7"),
+            "verify-state-regression",
+            0x1357_9bdf,
+            FioRw::Write,
+            BLOCK_BYTES,
+            0,
+            FioOptions {
+                verify_only: true,
+                ..FioOptions::default()
+            },
+        );
+        let args = command
+            .get_args()
+            .map(OsStr::to_string_lossy)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            args.iter()
+                .filter(|arg| arg.starts_with("--verify_state_save="))
+                .count(),
+            1
+        );
+        assert!(args.iter().any(|arg| arg == "--verify_state_save=0"));
     }
 
     #[test]
