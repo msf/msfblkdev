@@ -428,7 +428,7 @@ fn remove_after_kill(
             DeviceIdentityState::Matching if Instant::now() < deadline => {
                 thread::sleep(POLL_INTERVAL)
             }
-            DeviceIdentityState::Matching => break,
+            DeviceIdentityState::Matching | DeviceIdentityState::StoppedMatching => break,
             DeviceIdentityState::IdentityChanged => {
                 resources.preserve_for_identity = true;
                 return Err(io::Error::other(
@@ -437,7 +437,7 @@ fn remove_after_kill(
             }
         }
     }
-    require_matching_device(paths, resources, "before delete")?;
+    require_deletable_device(paths, resources, "before delete")?;
     let mut delete = delete_command(&preflight.daemon, id);
     let (stdout, stderr) = output_paths(resources, outputs.command("delete"));
     let status = run_command_separate(&mut delete, &stdout, &stderr, Instant::now() + timeout)?;
@@ -452,6 +452,23 @@ fn require_matching_device(
     resources: &mut Resources,
     operation: &str,
 ) -> io::Result<()> {
+    require_device_identity(paths, resources, operation, false)
+}
+
+fn require_deletable_device(
+    paths: &Paths,
+    resources: &mut Resources,
+    operation: &str,
+) -> io::Result<()> {
+    require_device_identity(paths, resources, operation, true)
+}
+
+fn require_device_identity(
+    paths: &Paths,
+    resources: &mut Resources,
+    operation: &str,
+    allow_stopped: bool,
+) -> io::Result<()> {
     let identity = match resources.device.as_ref().unwrap().still_matches(paths) {
         Ok(identity) => identity,
         Err(error) => {
@@ -461,9 +478,10 @@ fn require_matching_device(
     };
     match identity {
         DeviceIdentityState::Matching => Ok(()),
-        DeviceIdentityState::Absent => Err(io::Error::other(format!(
-            "recorded device disappeared {operation}"
-        ))),
+        DeviceIdentityState::StoppedMatching if allow_stopped => Ok(()),
+        DeviceIdentityState::StoppedMatching | DeviceIdentityState::Absent => Err(
+            io::Error::other(format!("recorded device is not active {operation}")),
+        ),
         DeviceIdentityState::IdentityChanged => {
             resources.preserve_for_identity = true;
             Err(io::Error::other(format!(

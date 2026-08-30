@@ -425,14 +425,12 @@ fn kill_daemon_rejects_a_different_unsuccessful_exit() {
 }
 
 #[test]
-fn device_identity_states_distinguish_match_absence_and_change() {
+fn device_identity_states_distinguish_active_stopped_replaced_and_absent() {
     let root = root("identity-states");
     let paths = fake_paths(&root);
-    let recorded_identity = FileIdentity::from_metadata(&fs::metadata(&root).unwrap());
-    fs::create_dir(&paths.dev_root).unwrap();
-    let other = paths.dev_root.join("other");
-    fs::write(&other, "different inode").unwrap();
-    let changed_identity = FileIdentity::from_metadata(&fs::metadata(other).unwrap());
+    let class_path = paths.sys_root.join("class/ublk-char/ublkc7");
+    fs::create_dir_all(&class_path).unwrap();
+    let recorded_identity = FileIdentity::from_metadata(&fs::metadata(&class_path).unwrap());
     let device = ValidatedDevice {
         path: "/dev/ublkb7".parse().unwrap(),
         class_identity: recorded_identity,
@@ -446,13 +444,31 @@ fn device_identity_states_distinguish_match_absence_and_change() {
     );
     assert_eq!(
         device
-            .classify_identity(&paths, Ok(changed_identity))
+            .classify_identity(
+                &paths,
+                Err(io::Error::new(io::ErrorKind::NotFound, "stopped"))
+            )
+            .unwrap(),
+        DeviceIdentityState::StoppedMatching
+    );
+
+    let old_class_path = paths.sys_root.join("class/ublk-char/ublkc7-old");
+    fs::rename(&class_path, &old_class_path).unwrap();
+    fs::create_dir(&class_path).unwrap();
+    assert_eq!(
+        device
+            .classify_identity(
+                &paths,
+                Err(io::Error::new(io::ErrorKind::NotFound, "replacement")),
+            )
             .unwrap(),
         DeviceIdentityState::IdentityChanged
     );
+
+    fs::remove_dir(&class_path).unwrap();
     assert_eq!(
         device
-            .classify_identity(&paths, Err(io::Error::new(io::ErrorKind::NotFound, "gone")),)
+            .classify_identity(&paths, Err(io::Error::new(io::ErrorKind::NotFound, "gone")))
             .unwrap(),
         DeviceIdentityState::Absent
     );
@@ -460,7 +476,7 @@ fn device_identity_states_distinguish_match_absence_and_change() {
 }
 
 #[test]
-fn ambiguous_present_identity_is_not_absence() {
+fn partially_present_device_identity_is_ambiguous() {
     let root = root("identity-ambiguous");
     let paths = fake_paths(&root);
     fs::create_dir(&paths.dev_root).unwrap();
@@ -475,15 +491,15 @@ fn ambiguous_present_identity_is_not_absence() {
             Err(io::Error::new(io::ErrorKind::InvalidData, "ambiguous")),
         )
         .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("cannot prove recorded device identity")
-    );
+    assert!(error.to_string().contains("only partially present"));
     fs::remove_dir_all(root).unwrap();
 }
 
-fn assert_unsafe_identity_cleanup_preserves(label: &str, ambiguous: bool) {
+fn assert_identity_cleanup(
+    label: &str,
+    identity_state: Option<DeviceIdentityState>,
+    expect_delete: bool,
+) {
     let root = root(label);
     let paths = fake_paths(&root);
     let owned = OwnedTempDir::create(&root).unwrap();
@@ -500,7 +516,7 @@ fn assert_unsafe_identity_cleanup_preserves(label: &str, ambiguous: bool) {
     )
     .unwrap();
     let preserved_path = owned.path().to_owned();
-    let identity = FileIdentity::from_metadata(&fs::metadata(&root).unwrap());
+    let class_identity = FileIdentity::from_metadata(&fs::metadata(&root).unwrap());
     let marker = root.join("delete-was-invoked");
     let daemon = root.join("delete-daemon");
     fs::write(&daemon, format!("#!/bin/sh\ntouch {}\n", marker.display())).unwrap();
@@ -512,7 +528,7 @@ fn assert_unsafe_identity_cleanup_preserves(label: &str, ambiguous: bool) {
     let mut resources = Resources {
         device: Some(ValidatedDevice {
             path: "/dev/ublkb7".parse().unwrap(),
-            class_identity: identity,
+            class_identity,
         }),
         temp: Some(owned),
         backing: Some(backing),
@@ -522,38 +538,53 @@ fn assert_unsafe_identity_cleanup_preserves(label: &str, ambiguous: bool) {
     let mut evidence = Evidence::create_ublk(repo, "test").unwrap();
     let evidence_path = evidence.path().to_owned();
 
-    let error = cleanup_error_with(
+    let result = cleanup_error_with(
         &paths,
         &preflight,
         Duration::from_millis(50),
         &mut resources,
         &mut evidence,
-        |_, _| {
-            if ambiguous {
-                Err(io::Error::other("identity is ambiguous"))
-            } else {
-                Ok(DeviceIdentityState::IdentityChanged)
-            }
-        },
-    )
-    .unwrap_err();
+        |_, _| identity_state.ok_or_else(|| io::Error::other("identity is ambiguous")),
+    );
 
-    assert!(error.to_string().contains("refusing delete"));
-    assert!(preserved_path.join("backing.img").exists());
+    if expect_delete {
+        result.unwrap();
+        assert!(
+            marker.exists(),
+            "delete command did not run for safe identity"
+        );
+        assert!(!preserved_path.exists());
+    } else {
+        assert!(result.unwrap_err().to_string().contains("refusing delete"));
+        assert!(preserved_path.join("backing.img").exists());
+        assert!(!marker.exists(), "delete command ran for unsafe identity");
+    }
     assert!(resources.temp.is_none() && resources.backing.is_none());
-    assert!(!marker.exists(), "delete command ran for unsafe identity");
     fs::remove_file(evidence_path).unwrap();
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
+fn cleanup_deletes_recorded_id_for_same_stopped_identity() {
+    assert_identity_cleanup(
+        "cleanup-stopped-matching",
+        Some(DeviceIdentityState::StoppedMatching),
+        true,
+    );
+}
+
+#[test]
 fn cleanup_refuses_changed_identity_and_preserves_backing() {
-    assert_unsafe_identity_cleanup_preserves("cleanup-changed", false);
+    assert_identity_cleanup(
+        "cleanup-changed",
+        Some(DeviceIdentityState::IdentityChanged),
+        false,
+    );
 }
 
 #[test]
 fn cleanup_refuses_ambiguous_identity_and_preserves_backing() {
-    assert_unsafe_identity_cleanup_preserves("cleanup-ambiguous", true);
+    assert_identity_cleanup("cleanup-ambiguous", None, false);
 }
 
 #[test]

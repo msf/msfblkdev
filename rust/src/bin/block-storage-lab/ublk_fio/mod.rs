@@ -62,6 +62,7 @@ impl OwnedBacking {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DeviceIdentityState {
     Matching,
+    StoppedMatching,
     Absent,
     IdentityChanged,
 }
@@ -92,16 +93,48 @@ impl ValidatedDevice {
         match validation {
             Ok(identity) if identity == self.class_identity => Ok(DeviceIdentityState::Matching),
             Ok(_) => Ok(DeviceIdentityState::IdentityChanged),
-            Err(validation_error) => match daemon::device_is_absent(paths, self.id()) {
-                Ok(true) => Ok(DeviceIdentityState::Absent),
-                Ok(false) => Err(io::Error::other(format!(
-                    "cannot prove recorded device identity: {validation_error}"
-                ))),
-                Err(state_error) => Err(io::Error::other(format!(
+            Err(validation_error) => self.classify_inactive_identity(paths).map_err(|state_error| {
+                io::Error::other(format!(
                     "cannot prove recorded device identity: {validation_error}; state check failed: {state_error}"
-                ))),
-            },
+                ))
+            }),
         }
+    }
+
+    fn classify_inactive_identity(&self, paths: &Paths) -> io::Result<DeviceIdentityState> {
+        let id = self.id();
+        let dev_present = path_is_present(&paths.dev_root.join(format!("ublkb{id}")))?;
+        let block_present = path_is_present(&paths.sys_root.join(format!("block/ublkb{id}")))?;
+        let class_path = paths.sys_root.join(format!("class/ublk-char/ublkc{id}"));
+        let class_present = path_is_present(&class_path)?;
+
+        match (dev_present, block_present, class_present) {
+            (false, false, false) => Ok(DeviceIdentityState::Absent),
+            (false, false, true) => {
+                let metadata = fs::metadata(class_path)?;
+                if !metadata.is_dir() {
+                    return Err(io::Error::other(
+                        "remaining ublk sysfs class entry is not a directory",
+                    ));
+                }
+                if FileIdentity::from_metadata(&metadata) == self.class_identity {
+                    Ok(DeviceIdentityState::StoppedMatching)
+                } else {
+                    Ok(DeviceIdentityState::IdentityChanged)
+                }
+            }
+            _ => Err(io::Error::other(
+                "recorded device paths are only partially present",
+            )),
+        }
+    }
+}
+
+fn path_is_present(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
     }
 }
 

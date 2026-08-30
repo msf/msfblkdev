@@ -163,7 +163,7 @@ where
     let mut must_preserve_temp = false;
     if let Some(device) = resources.device.as_ref() {
         match identity_state(device, paths) {
-            Ok(DeviceIdentityState::Matching) => {
+            Ok(DeviceIdentityState::Matching | DeviceIdentityState::StoppedMatching) => {
                 let mut delete = delete_command(&preflight.daemon, device.id());
                 let temp = resources.temp.as_ref().unwrap().path();
                 match run_command_separate(
