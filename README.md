@@ -4,9 +4,9 @@ A Linux-only log-structured block device experiment. Rust is authoritative and i
 
 ## Current status
 
-Goal 1 is complete. ADR-03 remains active. Its Rust implementation and lab scenarios are present, but the operator-run ublk/`fio` acceptance criteria are not claimed here.
+Goals 1 and 2 are complete. ADR-03's engine, serialized ublk frontend and live regular-file `fio` acceptance gates pass. V0.8 acceptance is complete.
 
-The active goal is a minimum credible device:
+The completed minimum credible device sequence is:
 
 ```text
 V0.4 closure
@@ -103,4 +103,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.6 recovers complete flushed records after process loss. Live ublk and `fio` acceptance still blocks ADR-03 closure.
+The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance; medium-write faults, compaction and wraparound remain outside ADR-03.

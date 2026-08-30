@@ -3,7 +3,7 @@
 Date: 2026-08-29
 Author: Miguel Filipe
 Status: accepted
-Goal status: active
+Goal status: complete
 On-disk format: 1
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-02](ADR-02-GOAL-1-BASIC-READ-WRITE.md)
 
@@ -250,16 +250,24 @@ The frontend must:
 
 Acceptance tests:
 
-- [ ] A device appears with the expected 4 KiB geometry and size.
-- [ ] Aligned READ and WRITE requests reach the expected engine LBA.
-- [ ] FLUSH uses the engine durability path.
-- [ ] Unsupported or invalid requests return an error without panic or hang.
-- [ ] A second daemon cannot open the same backing store.
-- [ ] `SIGTERM` performs a clean close and device removal.
-- [ ] READ and WRITE reject invalid length, alignment, range and flags.
-- [ ] `SIGKILL` leaves storage recoverable by a new daemon.
+- [x] A device appears with the expected 4 KiB geometry and size.
+  Evidence (2026-08-30): the live log records 4,096-byte blocks and 64 volume blocks (262,144 bytes). All 33 daemon starts passed node, device-number, sysfs identity, 4 KiB logical-block and 512-sector validation before `fio`.
+- [x] Aligned READ and WRITE requests reach the expected engine LBA.
+  Evidence (2026-08-30): all 21 direct-I/O runs used 4 KiB requests; sequential, random and overwrite jobs verified their MD5 patterns. The 124-test gate also passed the exact-LBA adapter test.
+- [x] FLUSH uses the engine durability path.
+  Evidence (2026-08-30): every write job requested periodic `fsync` plus `end_fsync`; the ublk adapter completed each FLUSH through `Volume::flush`. The non-root fio cache-invalidation warning is expected and is not durability evidence. Restart and crash verification proved the flushed data.
+- [x] Unsupported or invalid requests return an error without panic or hang.
+  Evidence (2026-08-30): the 124-test gate passed exact request decoding, flag, range, fatal-error and bounded-process tests with no ignored tests.
+- [x] A second daemon cannot open the same backing store.
+  Evidence (2026-08-30): the first live repetition records the exact lock error and exit status 1 while the first daemon remained active.
+- [x] `SIGTERM` performs a clean close and device removal.
+  Evidence (2026-08-30): each of 21 PASS lines was emitted only after bounded successful `SIGTERM`, device disappearance, backing validation and owned-directory cleanup. The three graceful-restart runs also reopened and verified the data.
+- [x] READ and WRITE reject invalid length, alignment, range and flags.
+  Evidence (2026-08-30): the 124-test gate passed the complete exact-request validation matrix, including stale descriptor geometry and unsupported FUA.
+- [x] `SIGKILL` leaves storage recoverable by a new daemon.
+  Evidence (2026-08-30): six exact `signal=9` exits passed: three after successful normal fio flush completion and three after the exact `descriptor-write-complete` failpoint handshake. Every run started a new daemon and verified the MD5 pattern.
 - [x] All new tests and code pass through the top-level `make lint test` targets.
-  Evidence (2026-08-30): on commit `c63635abcd1473b90dbdc2e898ebeee588347544`, Linux `7.0.0-29-generic` x86_64, the top-level `make lint test` gate passed in 25.37 seconds. The gate ran 110 Rust tests with none failed, skipped or ignored, including the V0.7 adapter, exact request validation, exclusive backing lock, shutdown drain and fatal-error rejection tests. A feature-enabled build of both ublk binaries also passed. Live-device acceptance remains unchecked below.
+  Evidence (2026-08-30): the coordinator ran `make lint test` at `da23d0a915b136d5cee8486c5a9dcf438d7e8c36`: 124 passed, 0 ignored, in 28.05 seconds.
 
 ADR-03 does not enable transparent ublk user recovery (`UBLK_F_USER_RECOVERY`). After `SIGKILL`, the harness waits for the old device to disappear or deletes its recorded device ID through the ublk control interface. It then creates a new device and starts a new `fio` verification process. The device ID may change, and any request that was in flight at the kill may fail.
 
@@ -283,13 +291,18 @@ Required `fio` scenarios use direct 4 KiB I/O through `/dev/ublkbN`:
 
 Acceptance evidence:
 
-- [ ] The repository lab application creates, runs and cleans up the regular-file ublk test with timeouts.
-- [ ] Every regular-file `fio` scenario passes three consecutive fresh-image runs.
-- [ ] No scenario hangs after a daemon error or exit.
-- [ ] ublk reports the 33rd write as `ENOSPC`.
-- [ ] The daemon restarts cleanly after every hard-exit scenario.
+- [x] The repository lab application creates, runs and cleans up the regular-file ublk test with timeouts.
+  Evidence (2026-08-30): the live lab formatted 21 owned temporary regular files, bounded every child, validated each resource before access, and reached final PASS only after every recorded device disappeared and every owned directory was removed.
+- [x] Every regular-file `fio` scenario passes three consecutive fresh-image runs.
+  Evidence (2026-08-30): the live log contains exactly 7 scenarios × 3 fresh formats, 21 scenario PASS lines and final PASS. It records commit `da23d0a915b136d5cee8486c5a9dcf438d7e8c36`, Linux `7.0.0-29-generic`, fio 3.36 and temporary regular-file backing.
+- [x] No scenario hangs after a daemon error or exit.
+  Evidence (2026-08-30): all 21 bounded repetitions completed in 21.162 seconds, including lock failure, six `SIGKILL` exits, restarts and cleanup.
+- [x] ublk reports the 33rd write as `ENOSPC`.
+  Evidence (2026-08-30): all three exhaustion runs record fio errno 28 at offset 131,072, exactly 131,072 successful bytes, then a daemon restart and successful verification of those 32 blocks.
+- [x] The daemon restarts cleanly after every hard-exit scenario.
+  Evidence (2026-08-30): all three normal-flush `SIGKILL` runs and all three descriptor-boundary `SIGKILL` runs restarted and passed fio MD5 verification.
 - [x] All new tests and code pass through the top-level `make lint test` targets.
-  Evidence (2026-08-30): the same 25.37-second top-level gate on `c63635abcd1473b90dbdc2e898ebeee588347544` passed all 110 non-privileged Rust tests, including the typed V0.8 scenario, process-timeout, resource-identity, cleanup-refusal and exact `fio` command-shape tests. `cargo build --features test-failpoints --bin block-storage-ublk --bin block-storage-lab` also passed. `make test-ublk-fio` then stopped safely in preflight before creating evidence or resources because `/dev/ublk-control` was absent; therefore no live V0.8 scenario is claimed.
+  Evidence (2026-08-30): the coordinator ran `make lint test` at `da23d0a915b136d5cee8486c5a9dcf438d7e8c36`: 124 passed, 0 ignored, in 28.05 seconds.
 
 Creating or formatting an ext4 or XFS filesystem is not part of this goal.
 
@@ -311,18 +324,22 @@ The procedure aborts without writing if a check fails or returns an ambiguous re
 ADR-03 is complete only when:
 
 - [x] ADR-02 is closed.
-- [ ] Every V0.5, V0.6, V0.7 and V0.8 acceptance item is checked.
+- [x] Every V0.5, V0.6, V0.7 and V0.8 acceptance item is checked.
+  Evidence (2026-08-30): the engine acceptance log, live ublk/fio log and final 124-test gate cover every item above.
 - [x] The full Rust gate passes without skipped or ignored tests.
-  Evidence (2026-08-30): on `c63635abcd1473b90dbdc2e898ebeee588347544`, `make lint test` passed all 110 discovered Rust tests in 25.37 seconds; `rg '#\s*\[\s*ignore' rust/src` found no ignored tests.
+  Evidence (2026-08-30): the coordinator ran `make lint test` at `da23d0a915b136d5cee8486c5a9dcf438d7e8c36`: 124 passed, 0 ignored, in 28.05 seconds.
 - [x] Every V0.6 automated crash-boundary scenario passes twenty consecutive runs.
-  Evidence (2026-08-30 audit): `evidence/engine-crash-1788047029006174002-b70e485cda9022d1ea3460cd66a24a8fd5f9969c.log` contains 113 commands, 113 successful statuses and a final `result: PASS` for commit `b70e485cda9022d1ea3460cd66a24a8fd5f9969c` on Linux `7.0.0-29-generic` with temporary regular-file backing. This includes the complete all-boundary stale-tail case, `recover_after_each_stale_tail_clear_block_boundary`, which passed in 608.100 seconds with the acceptance repetition mode.
-- [ ] Every V0.8 regular-file scenario passes three consecutive fresh-image runs.
+  Evidence (2026-08-30 audit): `evidence/engine-crash-1788047029006174002-b70e485cda9022d1ea3460cd66a24a8fd5f9969c.log` records 113 commands, 113 successful statuses and final PASS at `b70e485cda9022d1ea3460cd66a24a8fd5f9969c`. It includes all acceptance-mode crash boundaries and the 608.100-second all-boundary stale-tail case. Engine sources are unchanged from `b70e485` through `da23d0a`.
+- [x] Every V0.8 regular-file scenario passes three consecutive fresh-image runs.
+  Evidence (2026-08-30 audit): `evidence/ublk-fio-1788090152349359654-da23d0a915b136d5cee8486c5a9dcf438d7e8c36.log` contains exactly 21 fresh formats and 21 PASS lines across 7 scenarios × 3 repetitions.
 - [x] The regular-file harness validates every resource it creates before writing.
-  Evidence (2026-08-30): the typed harness validates the owned directory before format, validates the exact regular-file path, identity, owner, filesystem and size before daemon or `fio` access, and validates the recorded block-device node, device number, sysfs identity and geometry before each `fio` run or delete. Unit tests cover changed and ambiguous identities, invalid backing size, owned-directory markers and preflight failure without resource creation.
-- [ ] Test evidence records the commit, kernel, backing type, commands and results.
-  Partial evidence (2026-08-30 audit): the independently checked engine acceptance log named above records exact commit `b70e485cda9022d1ea3460cd66a24a8fd5f9969c`, Linux `7.0.0-29-generic`, test-created temporary regular-file backing, each command, each timing and final PASS. Live ublk evidence with the same provenance fields is still required.
+  Evidence (2026-08-30): each live PASS follows exact backing identity and size checks plus block-node, device-number, sysfs identity and geometry checks. Final PASS also proves cleanup completed with no recorded device or owned temporary resource remaining.
+- [x] Test evidence records the commit, kernel, backing type, commands and results.
+  Evidence (2026-08-30 audit): the engine and live logs record exact commits, Linux `7.0.0-29-generic`, temporary regular-file backing, commands, timings and final PASS; the live log also records fio 3.36 and exact geometry.
 - [x] All new tests and code pass through the top-level `make lint test` targets.
-  Evidence (2026-08-30): the same top-level 110-test gate on `c63635abcd1473b90dbdc2e898ebeee588347544` passed in 25.37 seconds. The guarded `make test-ublk-fio` preflight exited before resource creation with `/dev/ublk-control` absent.
+  Evidence (2026-08-30): the coordinator's final `make lint test` gate at `da23d0a915b136d5cee8486c5a9dcf438d7e8c36` passed 124 tests with none ignored in 28.05 seconds.
+
+The live acceptance run used a normal user. The daemon set `UBLK_F_UNPRIVILEGED_DEV`, and the operator-installed owner-aware udev helper owned `/dev/ublkcN` and `/dev/ublkbN` from the kernel-recorded owner. fio's expected non-root cache-invalidation warning does not claim cache invalidation. The successful ublk FLUSH requests plus graceful, crash and exhaustion restart verification provide the durability evidence.
 
 ## Consequences
 
