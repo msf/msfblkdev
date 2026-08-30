@@ -27,15 +27,7 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - [Deterministic fault testing and simulation](DETERMINISTIC_FAULT_TESTING_AND_SIMULATION.md) is a TMD for future work. Simulation is an aspiration, not part of ADR-03's scope.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
-## Rust edit loop
-
-```sh
-cd rust
-cargo build
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
+## Rust API
 
 The crate exposes:
 
@@ -50,21 +42,68 @@ Volume::close
 
 Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT`.
 
-## Lab test targets
+## Testing
 
-- `make test` runs the normal Rust matrix with a 15-second per-test limit and a 55-second suite limit.
-- `make test-acceptance` runs the long engine matrix, including 20 fresh repetitions of each crash scenario; defaults are 30 minutes per test and 60 minutes for the suite.
-- `make test-ublk-fio` is explicit opt-in. It requires Linux, `fio`, ublk kernel support, read/write access to `/dev/ublk-control`, and the feature-enabled sibling binaries built by the target. It creates only fresh regular files in owned temporary directories, validates each recorded `/dev/ublkbN` identity, and never accepts a backing or device path. Do not run it while ublk access or cleanup safety is uncertain.
+These descriptions record the test behavior at V0.8. Update them when a target changes.
 
-Build the lab binaries as the normal user, then execute the already-built lab binary directly:
+### Development loop
+
+Use Cargo for a focused inner loop while editing Rust. Use the top-level Makefile targets for repository gates and before each commit.
 
 ```sh
 cd rust
-cargo build --features test-failpoints --bin block-storage-ublk --bin block-storage-lab
-./target/debug/block-storage-lab ublk-fio
+cargo test test_name_fragment
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cd ..
+make lint test
 ```
 
-The preferred operator setup gives only the existing `plugdev` group access to the global control node. Each device is created with `UBLK_F_UNPRIVILEGED_DEV`; the upstream helper then reads its kernel-recorded owner and owns both `/dev/ublkcN` and `/dev/ublkbN` accordingly. The helper script and `ublk_user_id` binary must be installed together in `/usr/local/sbin`, and `ublk_user_id` requires the vendored `libublksrv` shared library. Build them as the normal user before the administrator installs them:
+`make test` is the bounded developer suite. It runs the normal Rust matrix with a 15-second limit per test and a 55-second suite limit. It reports each test's duration and does not run live ublk/`fio` or the exhaustive crash matrix.
+
+### Exhaustive engine crash acceptance
+
+`make test-acceptance` runs the full Rust matrix in acceptance crash mode. Each process-crash scenario uses 20 fresh repetitions. Coverage includes record, mapping, log-fsync, checkpoint-body, descriptor, and all 339 stale-tail clearing boundaries. It also covers uncaught-panic recovery and corrupted-checkpoint fallback.
+
+The lab starts only test-created children. It waits for named persistence handshakes, kills only the recorded process group, reaps descendants, and verifies recovery from regular-file backing. It does not require ublk or root access.
+
+The default limits are 30 minutes per test and 60 minutes for the suite. The V0.8 run took about 10 minutes, dominated by the exhaustive stale-tail test. Evidence is written to `evidence/engine-crash-*.log` with the commit, kernel, backing type, commands, timings, and result.
+
+### Live ublk and fio acceptance
+
+`make test-ublk-fio` builds the daemon and lab with `test-failpoints`, then tests the live kernel-to-engine path. It requires Linux, `fio`, loaded ublk kernel support, and read/write access to `/dev/ublk-control`.
+
+The target runs seven scenarios three times. Every repetition uses a newly formatted 32-record regular-file image:
+
+1. Sequential write, flush, read, and verify.
+2. Seeded random write, flush, read, and verify.
+3. Eight overwrites of one logical block address.
+4. Graceful `SIGTERM`, restart, and verify.
+5. `SIGKILL` after a successful `fio` flush, restart, and verify.
+6. `SIGKILL` at the descriptor-write failpoint, restart, and verify.
+7. A 33-write exhaustion test that requires `ENOSPC`, restarts, and verifies the 32 successful writes.
+
+Each child operation has a 30-second limit. The harness validates device identity and geometry before I/O or deletion. It proves backing-file lock contention and cleans only its recorded device and owned temporary directory. If identity becomes ambiguous, it refuses cleanup and preserves evidence. The V0.8 run took about 21 seconds. Evidence is written to `evidence/ublk-fio-*.log`.
+
+A normal-user run can print a harmless `fio` warning that only root may invalidate a block-device cache. This is separate from the ublk FLUSH requests used for durability validation.
+
+Run all repository gates with:
+
+```sh
+make lint test test-acceptance test-ublk-fio
+```
+
+### Normal-user ublk setup
+
+Load the driver if `/dev/ublk-control` is absent:
+
+```sh
+sudo modprobe ublk_drv
+```
+
+The preferred setup gives the existing `plugdev` group access to the global control node. Each created device uses `UBLK_F_UNPRIVILEGED_DEV`. The upstream owner helper then assigns `/dev/ublkcN` and `/dev/ublkbN` to the kernel-recorded owner.
+
+Build the vendored helper as the normal user. Install the helper, library, and restrictive udev rule as an administrator:
 
 ```sh
 make -C ublksrv lib/libublksrv.la ublk_user_id
@@ -72,18 +111,20 @@ sudo ublksrv/libtool --mode=install install -m 0755 ublksrv/lib/libublksrv.la /u
 sudo ublksrv/libtool --mode=install install -m 0755 ublksrv/ublk_user_id /usr/local/sbin
 sudo install -m 0755 ublksrv/utils/ublk_chown.sh /usr/local/sbin/ublk_chown.sh
 sudo ldconfig
-sudo tee /etc/udev/rules.d/90-ublk.rules >/dev/null <<'EOF'
-KERNEL=="ublk-control", GROUP="plugdev", MODE="0660", OPTIONS+="static_node=ublk-control"
-ACTION=="add",KERNEL=="ublk[bc]*",RUN+="/usr/local/sbin/ublk_chown.sh %k 'add' '%M' '%m'"
-ACTION=="remove",KERNEL=="ublk[bc]*",RUN+="/usr/local/sbin/ublk_chown.sh %k 'remove' '%M' '%m'"
-EOF
+sudo install -m 0644 ublksrv/utils/ublk_dev.rules /etc/udev/rules.d/90-ublk.rules
+sudo sed -i \
+  -e 's/KERNEL=="ublk-control", MODE="0666"/KERNEL=="ublk-control", GROUP="plugdev", MODE="0660"/' \
+  -e 's/",KERNEL/", KERNEL/g' \
+  -e 's/",RUN/", RUN/g' \
+  /etc/udev/rules.d/90-ublk.rules
+sudo udevadm verify /etc/udev/rules.d/90-ublk.rules
 sudo udevadm control --reload-rules
-sudo udevadm trigger --name-match=ublk-control
+sudo udevadm trigger --settle --action=add --name-match=ublk-control
 ```
 
-The checked-in project does not install or reload these host files. The commands above are operator actions. Do not use the vendored rule unchanged: it grants mode `0666` on `/dev/ublk-control`. If operator policy requires root instead of a udev permission rule, run `sudo ./target/debug/block-storage-lab ublk-fio` only after the user-owned build. Do not run `make` or Cargo as root, which would create root-owned build artifacts.
+The project does not install or reload these host files automatically. Do not install the vendored rule unchanged because it grants mode `0666` on `/dev/ublk-control`. Do not run Make or Cargo as root because they create root-owned build artifacts.
 
-Timing limits can be overridden with `TEST_PER_TEST_SECONDS` and `TEST_SUITE_SECONDS`.
+Override test limits with `TEST_PER_TEST_SECONDS` and `TEST_SUITE_SECONDS`.
 
 ## Historical Zig experiment
 
