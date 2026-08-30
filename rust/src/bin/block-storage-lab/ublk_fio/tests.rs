@@ -66,6 +66,76 @@ fn command_construction_is_exact_and_bounded() {
 }
 
 #[test]
+fn control_preflight_reports_missing_node_with_operator_command() {
+    let root = root("control-missing");
+    let path = root.join("ublk-control");
+
+    let error = validate_control_node_with(&path, |_| unreachable!()).unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{} is missing; ask an operator to load the ublk driver with: sudo modprobe ublk_drv; no resources created",
+            path.display()
+        )
+    );
+    fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn control_preflight_reports_wrong_node_type() {
+    let root = root("control-type");
+    let path = root.join("ublk-control");
+    fs::write(&path, "not a device").unwrap();
+
+    let error = validate_control_node_with(&path, |_| unreachable!()).unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{} has the wrong node type; expected a character device; no resources created",
+            path.display()
+        )
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn control_preflight_reports_inaccessible_node_observations_and_remedy() {
+    let path = Path::new("/dev/null");
+    let metadata = fs::metadata(path).unwrap();
+
+    let error = validate_control_node_with(path, |_| {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "test permission denial",
+        ))
+    })
+    .unwrap_err();
+
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    let owner = match (metadata.uid(), metadata.gid()) {
+        (0, 0) => "0:0 (root:root)".to_owned(),
+        (uid, gid) => format!("{uid}:{gid}"),
+    };
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "/dev/null is present but inaccessible: observed path=/dev/null mode={:04o} owner={owner}; open read/write failed: test permission denial; the already-built lab binary needs appropriate privilege or an operator-installed udev permission rule; no resources created",
+            metadata.permissions().mode() & 0o7777,
+        )
+    );
+}
+
+#[test]
+fn control_preflight_accepts_accessible_character_device() {
+    validate_control_node_with(Path::new("/dev/null"), |path| {
+        OpenOptions::new().read(true).write(true).open(path)
+    })
+    .unwrap();
+}
+
+#[test]
 fn validates_owned_backing_path_identity_and_size() {
     let root = root("backing");
     let mut owned = OwnedTempDir::create(&root).unwrap();

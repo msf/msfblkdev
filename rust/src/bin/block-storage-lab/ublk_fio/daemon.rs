@@ -27,44 +27,71 @@ pub(super) fn preflight(paths: &Paths, timeout: Duration) -> io::Result<Prefligh
         )));
     }
 
+    validate_control_node_with(&paths.control, |path| {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(path)
+    })?;
+
     for fio in scenario::all_fio_commands(Path::new("/nonexistent/block-storage-lab-preflight")) {
         validate_fio_bounded(&fio, Instant::now() + timeout)?;
     }
     let fio_version = fio_version_bounded(Instant::now() + timeout)?;
-
-    let control_metadata = fs::symlink_metadata(&paths.control).map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!(
-                "{} must be the ublk control character device and open read/write; no resources created: {error}",
-                paths.control.display()
-            ),
-        )
-    })?;
-    if !control_metadata.file_type().is_char_device() {
-        return Err(io::Error::other(format!(
-            "{} is not the exact character device; no resources created",
-            paths.control.display()
-        )));
-    }
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(&paths.control)
-        .map_err(|error| {
-            io::Error::new(
-                error.kind(),
-                format!(
-                    "{} cannot be opened read/write; no resources created: {error}",
-                    paths.control.display()
-                ),
-            )
-        })?;
     Ok(Preflight {
         daemon,
         fio_version,
     })
+}
+
+pub(super) fn validate_control_node_with<F>(path: &Path, open: F) -> io::Result<()>
+where
+    F: FnOnce(&Path) -> io::Result<File>,
+{
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(io::Error::new(
+                error.kind(),
+                format!(
+                    "{} is missing; ask an operator to load the ublk driver with: sudo modprobe ublk_drv; no resources created",
+                    path.display()
+                ),
+            ));
+        }
+        Err(error) => {
+            return Err(io::Error::new(
+                error.kind(),
+                format!(
+                    "cannot inspect {}: {error}; no resources created",
+                    path.display()
+                ),
+            ));
+        }
+    };
+    if !metadata.file_type().is_char_device() {
+        return Err(io::Error::other(format!(
+            "{} has the wrong node type; expected a character device; no resources created",
+            path.display()
+        )));
+    }
+    open(path).map_err(|error| {
+        let owner = match (metadata.uid(), metadata.gid()) {
+            (0, 0) => "0:0 (root:root)".to_owned(),
+            (uid, gid) => format!("{uid}:{gid}"),
+        };
+        io::Error::new(
+            error.kind(),
+            format!(
+                "{} is present but inaccessible: observed path={} mode={:04o} owner={owner}; open read/write failed: {error}; the already-built lab binary needs appropriate privilege or an operator-installed udev permission rule; no resources created",
+                path.display(),
+                path.display(),
+                metadata.permissions().mode() & 0o7777,
+            ),
+        )
+    })?;
+    Ok(())
 }
 
 pub(super) fn poll_readiness(

@@ -56,6 +56,16 @@ Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT
 - `make test-acceptance` runs the long engine matrix, including 20 fresh repetitions of each crash scenario; defaults are 30 minutes per test and 60 minutes for the suite.
 - `make test-ublk-fio` is explicit opt-in. It requires Linux, `fio`, ublk kernel support, read/write access to `/dev/ublk-control`, and the feature-enabled sibling binaries built by the target. It creates only fresh regular files in owned temporary directories, validates each recorded `/dev/ublkbN` identity, and never accepts a backing or device path. Do not run it while ublk access or cleanup safety is uncertain.
 
+Build the lab binaries as the normal user, then execute the already-built lab binary directly:
+
+```sh
+cd rust
+cargo build --features test-failpoints --bin block-storage-ublk --bin block-storage-lab
+./target/debug/block-storage-lab ublk-fio
+```
+
+If operator policy requires root instead of a udev permission rule, run `sudo ./target/debug/block-storage-lab ublk-fio` only after the user-owned build. Do not run `make` or Cargo as root, which would create root-owned build artifacts.
+
 Timing limits can be overridden with `TEST_PER_TEST_SECONDS` and `TEST_SUITE_SECONDS`.
 
 ## Historical Zig experiment
