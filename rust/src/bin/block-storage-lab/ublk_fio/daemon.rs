@@ -100,20 +100,27 @@ pub(super) fn poll_readiness(
     paths: &Paths,
     deadline: Instant,
 ) -> io::Result<ValidatedDevice> {
-    poll_readiness_with(child, stdout_path, paths, deadline, |paths, device| {
-        ublk::validate_device_identity(&paths.dev_root, &paths.sys_root, device)
-    })
+    poll_readiness_with(
+        child,
+        stdout_path,
+        paths,
+        deadline,
+        |paths, device| ublk::validate_device_identity(&paths.dev_root, &paths.sys_root, device),
+        open_device_read_write,
+    )
 }
 
-pub(super) fn poll_readiness_with<F>(
+pub(super) fn poll_readiness_with<F, A>(
     child: &mut ManagedChild,
     stdout_path: &Path,
     paths: &Paths,
     deadline: Instant,
     mut validate: F,
+    mut access: A,
 ) -> io::Result<ValidatedDevice>
 where
     F: FnMut(&Paths, &DevicePath) -> io::Result<FileIdentity>,
+    A: FnMut(&DevicePath) -> io::Result<()>,
 {
     loop {
         let bytes = fs::read(stdout_path)?;
@@ -132,7 +139,9 @@ where
                 .unwrap()
                 .parse()
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-            match validate(paths, &device) {
+            let validation = validate(paths, &device)
+                .and_then(|class_identity| access(&device).map(|()| class_identity));
+            match validation {
                 Ok(class_identity) => {
                     return Ok(ValidatedDevice {
                         path: device,
@@ -164,6 +173,24 @@ where
         }
         thread::sleep(POLL_INTERVAL);
     }
+}
+
+fn open_device_read_write(device: &DevicePath) -> io::Result<()> {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(device.as_path())
+        .map(drop)
+        .map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "cannot open validated device {} read/write: {error}",
+                    device.as_path().display()
+                ),
+            )
+        })
 }
 
 pub(super) fn early_exit(status: ExitStatus, validation: &io::Error) -> io::Error {

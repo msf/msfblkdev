@@ -248,9 +248,21 @@ fn run_fio_success(
 ) -> io::Result<()> {
     let (status, stdout, stderr) =
         run_fio(paths, timeout, resources, evidence, started, outputs, job)?;
-    require_success(job.name, status)?;
-    evidence_file(evidence, "fio stdout", &stdout)?;
-    evidence_file(evidence, "fio stderr", &stderr)
+    record_fio_success(evidence, job.name, status, &stdout, &stderr)
+}
+
+pub(super) fn record_fio_success(
+    evidence: &mut Evidence,
+    label: &str,
+    status: ExitStatus,
+    stdout: &Path,
+    stderr: &Path,
+) -> io::Result<()> {
+    let stdout_result = evidence_file(evidence, "fio stdout", stdout);
+    let stderr_result = evidence_file(evidence, "fio stderr", stderr);
+    stdout_result?;
+    stderr_result?;
+    require_success(label, status)
 }
 
 fn run_exhaustion(

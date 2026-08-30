@@ -191,9 +191,108 @@ fn readiness_polls_fake_roots_and_current_exe_child() {
                 Ok(identity)
             }
         },
+        |_| Ok(()),
     )
     .unwrap();
     assert_eq!(device.id(), 7);
+    child.cleanup().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn readiness_validates_identity_before_retrying_permission_denied_access() {
+    let root = root("ready-permission-retry");
+    let paths = fake_paths(&root);
+    let stdout_path = root.join("ready.stdout");
+    create_output(&stdout_path).unwrap();
+    let mut command = current_exe_child(
+        "ublk_fio::tests::readiness_writer_child",
+        "BLOCK_STORAGE_READY_WRITER",
+    );
+    command
+        .env("BLOCK_STORAGE_READY_PATH", &stdout_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = ManagedChild::spawn(&mut command).unwrap();
+    let identity = FileIdentity::from_metadata(&fs::metadata(&root).unwrap());
+    let events = std::cell::RefCell::new(Vec::new());
+    let access_attempts = std::cell::Cell::new(0);
+
+    let device = poll_readiness_with(
+        &mut child,
+        &stdout_path,
+        &paths,
+        Instant::now() + Duration::from_secs(2),
+        |_, _| {
+            events.borrow_mut().push("identity");
+            Ok(identity)
+        },
+        |device| {
+            events.borrow_mut().push("access");
+            assert_eq!(device.as_path(), Path::new("/dev/ublkb7"));
+            let attempt = access_attempts.get() + 1;
+            access_attempts.set(attempt);
+            if attempt < 3 {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "udev has not granted access",
+                ))
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(device.id(), 7);
+    assert_eq!(access_attempts.get(), 3);
+    assert_eq!(
+        events.into_inner(),
+        [
+            "identity", "access", "identity", "access", "identity", "access"
+        ]
+    );
+    child.cleanup().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn readiness_times_out_while_device_access_remains_permission_denied() {
+    let root = root("ready-permission-timeout");
+    let paths = fake_paths(&root);
+    let stdout_path = root.join("ready.stdout");
+    create_output(&stdout_path).unwrap();
+    let mut command = current_exe_child(
+        "ublk_fio::tests::readiness_writer_child",
+        "BLOCK_STORAGE_READY_WRITER",
+    );
+    command
+        .env("BLOCK_STORAGE_READY_PATH", &stdout_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = ManagedChild::spawn(&mut command).unwrap();
+    let identity = FileIdentity::from_metadata(&fs::metadata(&root).unwrap());
+    let access_attempts = std::cell::Cell::new(0);
+
+    let error = poll_readiness_with(
+        &mut child,
+        &stdout_path,
+        &paths,
+        Instant::now() + Duration::from_millis(50),
+        |_, _| Ok(identity),
+        |_| {
+            access_attempts.set(access_attempts.get() + 1);
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "udev permission pending",
+            ))
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert!(error.to_string().contains("udev permission pending"));
+    assert!(access_attempts.get() > 1);
     child.cleanup().unwrap();
     fs::remove_dir_all(root).unwrap();
 }
@@ -234,6 +333,35 @@ fn readiness_reports_early_exit_and_timeout() {
     .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::TimedOut);
     child.cleanup().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn failed_fio_records_both_outputs_before_returning_status_error() {
+    let root = root("fio-output-before-status");
+    let stdout = root.join("fio.stdout");
+    let stderr = root.join("fio.stderr");
+    fs::write(&stdout, "fio stdout root cause\n").unwrap();
+    fs::write(&stderr, "fio stderr root cause\n").unwrap();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let mut evidence = Evidence::create_ublk(repo, "test").unwrap();
+    let evidence_path = evidence.path().to_owned();
+
+    let error = scenario_run::record_fio_success(
+        &mut evidence,
+        "test fio",
+        ExitStatus::from_raw(1 << 8),
+        &stdout,
+        &stderr,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.to_string(), "test fio failed with exit status: 1");
+    let recorded = fs::read_to_string(&evidence_path).unwrap();
+    assert!(recorded.contains("fio stdout root cause"));
+    assert!(recorded.contains("fio stderr root cause"));
+    drop(evidence);
+    fs::remove_file(evidence_path).unwrap();
     fs::remove_dir_all(root).unwrap();
 }
 
