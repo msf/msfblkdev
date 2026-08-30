@@ -353,10 +353,7 @@ fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Requ
                 Ok(Request::Write(lba))
             }
         }
-        UBLK_IO_OP_FLUSH if descriptor.nr_sectors == 0 && descriptor.start_sector == 0 => {
-            Ok(Request::Flush)
-        }
-        UBLK_IO_OP_FLUSH => Err(-libc::EINVAL),
+        UBLK_IO_OP_FLUSH => Ok(Request::Flush),
         _ => Err(-libc::EOPNOTSUPP),
     }
 }
@@ -1179,10 +1176,13 @@ mod tests {
             decode_request(&descriptor(UBLK_IO_OP_WRITE, 0, 8), dev_sectors),
             Ok(Request::Write(0))
         );
-        assert_eq!(
-            decode_request(&descriptor(UBLK_IO_OP_FLUSH, 0, 0), dev_sectors),
-            Ok(Request::Flush)
-        );
+        for flush in [
+            descriptor(UBLK_IO_OP_FLUSH, 0, 0),
+            descriptor(UBLK_IO_OP_FLUSH, 120, 8),
+            descriptor(UBLK_IO_OP_FLUSH, u64::MAX, u32::MAX),
+        ] {
+            assert_eq!(decode_request(&flush, dev_sectors), Ok(Request::Flush));
+        }
 
         for invalid in [
             descriptor(UBLK_IO_OP_READ, 0, 7),
@@ -1190,21 +1190,23 @@ mod tests {
             descriptor(UBLK_IO_OP_READ, 32, 8),
             descriptor(UBLK_IO_OP_READ, 33, 8),
             descriptor(UBLK_IO_OP_READ, u64::MAX, 8),
-            descriptor(UBLK_IO_OP_FLUSH, 8, 0),
-            descriptor(UBLK_IO_OP_FLUSH, 0, 8),
         ] {
             assert_eq!(decode_request(&invalid, dev_sectors), Err(-libc::EINVAL));
         }
 
-        let mut fua = descriptor(UBLK_IO_OP_WRITE, 0, 8);
-        fua.op_flags |= UBLK_IO_F_FUA;
-        assert_eq!(decode_request(&fua, dev_sectors), Err(-libc::EOPNOTSUPP));
-        let mut unsupported_flag = descriptor(UBLK_IO_OP_READ, 0, 8);
-        unsupported_flag.op_flags |= libublk::sys::UBLK_IO_F_META;
-        assert_eq!(
-            decode_request(&unsupported_flag, dev_sectors),
-            Err(-libc::EOPNOTSUPP)
-        );
+        for (operation, flag) in [
+            (UBLK_IO_OP_WRITE, UBLK_IO_F_FUA),
+            (UBLK_IO_OP_READ, libublk::sys::UBLK_IO_F_META),
+            (UBLK_IO_OP_FLUSH, UBLK_IO_F_FUA),
+            (UBLK_IO_OP_FLUSH, libublk::sys::UBLK_IO_F_META),
+        ] {
+            let mut flagged = descriptor(operation, 120, 8);
+            flagged.op_flags |= flag;
+            assert_eq!(
+                decode_request(&flagged, dev_sectors),
+                Err(-libc::EOPNOTSUPP)
+            );
+        }
         assert_eq!(
             decode_request(
                 &descriptor(libublk::sys::UBLK_IO_OP_DISCARD, 0, 8),
@@ -1215,11 +1217,11 @@ mod tests {
     }
 
     #[test]
-    fn adapter_targets_exact_lba_and_flushes_durable_data() -> io::Result<()> {
+    fn adapter_targets_exact_lba_and_flushes_with_stale_descriptor_geometry() -> io::Result<()> {
         let backing = TemporaryBacking::formatted(4)?;
         let mut volume = block_storage::open(&backing.0)?;
         let write = descriptor(UBLK_IO_OP_WRITE, 16, 8);
-        let flush = descriptor(UBLK_IO_OP_FLUSH, 0, 0);
+        let flush = descriptor(UBLK_IO_OP_FLUSH, 120, 8);
         let read = descriptor(UBLK_IO_OP_READ, 16, 8);
         let read_neighbor = descriptor(UBLK_IO_OP_READ, 8, 8);
         let expected = [0xa5; IO_BUFFER_BYTES as usize];
