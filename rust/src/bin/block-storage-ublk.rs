@@ -4,9 +4,12 @@ compile_error!("block-storage-ublk requires Linux");
 use libublk::ctrl::{UblkCtrl, UblkCtrlBuilder};
 use libublk::helpers::IoBuf;
 use libublk::io::{BufDescList, UblkDev, UblkQueue};
+#[cfg(test)]
+use libublk::sys::UBLK_F_USER_RECOVERY;
 use libublk::sys::{
-    UBLK_ATTR_VOLATILE_CACHE, UBLK_IO_F_FUA, UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE,
-    UBLK_PARAM_TYPE_BASIC, ublk_param_basic, ublk_params, ublksrv_io_desc,
+    UBLK_ATTR_VOLATILE_CACHE, UBLK_F_UNPRIVILEGED_DEV, UBLK_IO_F_FUA, UBLK_IO_OP_FLUSH,
+    UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_PARAM_TYPE_BASIC, ublk_param_basic, ublk_params,
+    ublksrv_io_desc,
 };
 use libublk::{BufDesc, UblkError, UblkFlags, UblkIORes};
 use std::ffi::{OsStr, OsString};
@@ -33,6 +36,7 @@ const QUEUE_STOPPING: u8 = 2;
 const SHUTDOWN_COMPLETION: i32 = -libc::ESHUTDOWN;
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const DEVICE_REMOVAL_TIMEOUT: Duration = Duration::from_secs(2);
+const CONTROL_FLAGS: u64 = UBLK_F_UNPRIVILEGED_DEV as u64;
 
 static SIGTERM_REQUESTED: AtomicBool = AtomicBool::new(false);
 
@@ -286,6 +290,7 @@ fn controller_builder(device_id: i32) -> UblkCtrlBuilder<'static> {
         .nr_queues(QUEUE_COUNT)
         .depth(QUEUE_DEPTH)
         .io_buf_bytes(IO_BUFFER_BYTES)
+        .ctrl_flags(CONTROL_FLAGS)
         .dev_flags(UblkFlags::UBLK_DEV_F_ADD_DEV)
 }
 
@@ -565,12 +570,24 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainS
     close_after_queue(&state, volume, queue_error.map_or(Ok(()), Err));
 }
 
-fn wait_for_stop(controller: &libublk::ctrl::UblkCtrl, drain: &DrainState) -> io::Result<()> {
+fn stop_device(device_id: i32) -> io::Result<()> {
+    UblkCtrl::new_simple(device_id)
+        .map_err(ublk_error)?
+        .kill_dev()
+        .map(|_| ())
+        .map_err(ublk_error)
+}
+
+fn wait_for_stop(
+    device_id: i32,
+    drain: &DrainState,
+    stop_device: impl FnOnce(i32) -> io::Result<()>,
+) -> io::Result<()> {
     loop {
         let stop_requested =
             SIGTERM_REQUESTED.load(Ordering::Relaxed) || drain.queue_failed.load(Ordering::Acquire);
         if stop_requested && drain.stop_if_idle() && drain.device_ready.load(Ordering::Acquire) {
-            return controller.kill_dev().map(|_| ()).map_err(ublk_error);
+            return stop_device(device_id);
         }
         if drain.target_done.load(Ordering::Acquire) {
             return Ok(());
@@ -624,14 +641,16 @@ fn serve(backing_path: &Path, device_id: i32) -> io::Result<()> {
     let (target_result, stop_result, shutdown_result, device_id) = {
         let controller = controller_builder(device_id).build().map_err(ublk_error)?;
         let device_id = controller.dev_info().dev_id;
+        let stop_device_id = i32::try_from(device_id)
+            .map_err(|_| io::Error::other("ublk device ID does not fit i32"))?;
         let queue_state = Arc::clone(&state);
         let queue_drain = Arc::clone(&drain);
         let ready_drain = Arc::clone(&drain);
         let ready_error = Arc::clone(&readiness_error);
         let (target_result, stop_result) = std::thread::scope(|scope| {
             let stop_drain = Arc::clone(&drain);
-            let controller_ref = &controller;
-            let stop_thread = scope.spawn(move || wait_for_stop(controller_ref, &stop_drain));
+            let stop_thread =
+                scope.spawn(move || wait_for_stop(stop_device_id, &stop_drain, stop_device));
             let target_result = controller
                 .run_target(
                     move |dev| {
@@ -1115,8 +1134,38 @@ mod tests {
             .nr_queues(1)
             .depth(1)
             .io_buf_bytes(4096)
+            .ctrl_flags(CONTROL_FLAGS)
             .dev_flags(UblkFlags::UBLK_DEV_F_ADD_DEV);
         assert_eq!(controller_builder(4), expected);
+    }
+
+    #[test]
+    fn configures_unprivileged_control_without_user_recovery() {
+        assert_ne!(CONTROL_FLAGS & UBLK_F_UNPRIVILEGED_DEV as u64, 0);
+        assert_eq!(CONTROL_FLAGS & UBLK_F_USER_RECOVERY as u64, 0);
+    }
+
+    #[test]
+    fn stop_control_uses_recorded_id_on_stop_thread() -> io::Result<()> {
+        let drain = DrainState::new();
+        drain.queue_failed.store(true, Ordering::Release);
+        drain.device_ready.store(true, Ordering::Release);
+        let caller_thread = std::thread::current().id();
+
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let stop_thread = std::thread::current().id();
+                    wait_for_stop(17, &drain, |device_id| {
+                        assert_eq!(device_id, 17);
+                        assert_eq!(std::thread::current().id(), stop_thread);
+                        assert_ne!(std::thread::current().id(), caller_thread);
+                        Ok(())
+                    })
+                })
+                .join()
+                .expect("stop thread must not panic")
+        })
     }
 
     #[test]

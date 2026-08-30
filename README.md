@@ -64,7 +64,24 @@ cargo build --features test-failpoints --bin block-storage-ublk --bin block-stor
 ./target/debug/block-storage-lab ublk-fio
 ```
 
-If operator policy requires root instead of a udev permission rule, run `sudo ./target/debug/block-storage-lab ublk-fio` only after the user-owned build. Do not run `make` or Cargo as root, which would create root-owned build artifacts.
+The preferred operator setup gives only the existing `plugdev` group access to the global control node. Each device is created with `UBLK_F_UNPRIVILEGED_DEV`; the upstream helper then reads its kernel-recorded owner and owns both `/dev/ublkcN` and `/dev/ublkbN` accordingly. The helper script and `ublk_user_id` binary must be installed together in `/usr/local/sbin`, and `ublk_user_id` requires the vendored `libublksrv` shared library. Build them as the normal user before the administrator installs them:
+
+```sh
+make -C ublksrv lib/libublksrv.la ublk_user_id
+sudo ublksrv/libtool --mode=install install -m 0755 ublksrv/lib/libublksrv.la /usr/local/lib
+sudo ublksrv/libtool --mode=install install -m 0755 ublksrv/ublk_user_id /usr/local/sbin
+sudo install -m 0755 ublksrv/utils/ublk_chown.sh /usr/local/sbin/ublk_chown.sh
+sudo ldconfig
+sudo tee /etc/udev/rules.d/90-ublk.rules >/dev/null <<'EOF'
+KERNEL=="ublk-control", GROUP="plugdev", MODE="0660", OPTIONS+="static_node=ublk-control"
+ACTION=="add",KERNEL=="ublk[bc]*",RUN+="/usr/local/sbin/ublk_chown.sh %k 'add' '%M' '%m'"
+ACTION=="remove",KERNEL=="ublk[bc]*",RUN+="/usr/local/sbin/ublk_chown.sh %k 'remove' '%M' '%m'"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger --name-match=ublk-control
+```
+
+The checked-in project does not install or reload these host files. The commands above are operator actions. Do not use the vendored rule unchanged: it grants mode `0666` on `/dev/ublk-control`. If operator policy requires root instead of a udev permission rule, run `sudo ./target/debug/block-storage-lab ublk-fio` only after the user-owned build. Do not run `make` or Cargo as root, which would create root-owned build artifacts.
 
 Timing limits can be overridden with `TEST_PER_TEST_SECONDS` and `TEST_SUITE_SECONDS`.
 
