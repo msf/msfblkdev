@@ -277,15 +277,21 @@ fn effective_uid() -> u32 {
 }
 
 pub fn validate_sysfs_geometry(sys_root: &Path, id: DeviceId) -> io::Result<()> {
+    validate_sysfs_geometry_for(sys_root, id, Geometry::expected().volume_bytes())
+}
+
+pub fn validate_sysfs_geometry_for(
+    sys_root: &Path,
+    id: DeviceId,
+    volume_bytes: u64,
+) -> io::Result<()> {
     let device = sys_root.join("block").join(format!("ublkb{id}"));
     let logical = read_u64(&device.join("queue/logical_block_size"))?;
     let sectors = read_u64(&device.join("size"))?;
-    let expected = Geometry::expected();
-    if logical != expected.block_bytes || sectors != expected.sectors() {
+    if logical != BLOCK_BYTES || sectors != volume_bytes / 512 {
         return Err(io::Error::other(format!(
-            "ublkb{id} geometry is {logical}-byte blocks/{sectors} sectors, expected {}/{}",
-            expected.block_bytes,
-            expected.sectors()
+            "ublkb{id} geometry is {logical}-byte blocks/{sectors} sectors, expected {BLOCK_BYTES}/{}",
+            volume_bytes / 512
         )));
     }
     Ok(())
@@ -307,6 +313,20 @@ pub fn validate_device_identity(
     sys_root: &Path,
     device: &DevicePath,
 ) -> io::Result<FileIdentity> {
+    validate_device_identity_for(
+        dev_root,
+        sys_root,
+        device,
+        Geometry::expected().volume_bytes(),
+    )
+}
+
+pub fn validate_device_identity_for(
+    dev_root: &Path,
+    sys_root: &Path,
+    device: &DevicePath,
+    volume_bytes: u64,
+) -> io::Result<FileIdentity> {
     let id = device.id();
     let metadata = fs::metadata(dev_root.join(format!("ublkb{id}")))?;
     if !metadata.file_type().is_block_device() {
@@ -326,7 +346,14 @@ pub fn validate_device_identity(
             actual.0, actual.1, expected.0, expected.1
         )));
     }
-    validate_sysfs_device_identity(sys_root, id)
+    validate_sysfs_geometry_for(sys_root, id, volume_bytes)?;
+    let metadata = fs::metadata(sys_root.join("class/ublk-char").join(format!("ublkc{id}")))?;
+    if !metadata.is_dir() {
+        return Err(io::Error::other(
+            "ublk sysfs class entry is not a directory",
+        ));
+    }
+    Ok(FileIdentity::from_metadata(&metadata))
 }
 
 fn read_u64(path: &Path) -> io::Result<u64> {
@@ -521,6 +548,25 @@ mod tests {
         assert!(read_device_number(&device.join("dev")).is_err());
         fs::write(device.join("size"), "4096\n").unwrap();
         assert!(validate_sysfs_geometry(&root, id).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ext4_geometry_is_validated_independently_of_fio_geometry() {
+        let root = test_root("ext4-sysfs");
+        let device = root.join("block/ublkb7");
+        fs::create_dir_all(device.join("queue")).unwrap();
+        fs::write(device.join("queue/logical_block_size"), "4096\n").unwrap();
+        fs::write(
+            device.join("size"),
+            (crate::fs_support::VOLUME_BYTES / 512).to_string(),
+        )
+        .unwrap();
+        let id = "7".parse().unwrap();
+        validate_sysfs_geometry_for(&root, id, crate::fs_support::VOLUME_BYTES).unwrap();
+        assert!(validate_sysfs_geometry(&root, id).is_err());
+        fs::write(device.join("queue/logical_block_size"), "512\n").unwrap();
+        assert!(validate_sysfs_geometry_for(&root, id, crate::fs_support::VOLUME_BYTES).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

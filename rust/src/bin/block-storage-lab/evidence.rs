@@ -14,6 +14,22 @@ impl Evidence {
         Self::create_named(repo, "engine-crash", None)
     }
 
+    pub fn create_ext4(repo: &Path) -> io::Result<Self> {
+        // The ext4 runner captures git/kernel metadata through its bounded command runner.
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(io::Error::other)?
+            .as_nanos();
+        let directory = repo.join("evidence");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join(format!("ext4-{timestamp}.log"));
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+        Ok(Self { file, path })
+    }
+
     pub fn create_ublk(repo: &Path, fio_version: &str) -> io::Result<Self> {
         Self::create_named(repo, "ublk-fio", Some(fio_version))
     }

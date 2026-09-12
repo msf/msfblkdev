@@ -66,6 +66,12 @@ impl ManagedChild {
         self.child.id()
     }
 
+    /// Leave an ambiguous mounted-device session for explicit operator recovery.
+    /// The caller must preserve its backing and record this child's PID.
+    pub fn preserve(&mut self) {
+        self.cleaned = true;
+    }
+
     pub fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
         self.child.stdout.take()
     }

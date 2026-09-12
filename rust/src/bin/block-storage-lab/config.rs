@@ -10,6 +10,10 @@ pub enum Mode {
     Test,
     EngineCrash,
     UblkFio,
+    Ext4,
+    Ext4Preflight,
+    Ext4Populate,
+    Ext4Verify,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,6 +40,10 @@ where
         Some("test") => Ok(Mode::Test),
         Some("engine-crash") => Ok(Mode::EngineCrash),
         Some("ublk-fio") => Ok(Mode::UblkFio),
+        Some("ext4") => Ok(Mode::Ext4),
+        Some("ext4-preflight") => Ok(Mode::Ext4Preflight),
+        Some("ext4-populate") => Ok(Mode::Ext4Populate),
+        Some("ext4-verify") => Ok(Mode::Ext4Verify),
         _ => Err(usage(&program)),
     }
 }
@@ -48,6 +56,7 @@ where
         Mode::Test => (15, 55),
         Mode::EngineCrash => (1800, 3600),
         Mode::UblkFio => (30, 180),
+        Mode::Ext4 | Mode::Ext4Preflight | Mode::Ext4Populate | Mode::Ext4Verify => (60, 600),
     };
     Ok(Config {
         mode,
@@ -102,7 +111,7 @@ fn invalid_env(name: &str, value: &OsString, allow_zero: bool) -> String {
 
 fn usage(program: &OsString) -> String {
     format!(
-        "usage: {} test | engine-crash | ublk-fio",
+        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight",
         program.to_string_lossy()
     )
 }
@@ -130,6 +139,9 @@ mod tests {
             vec!["lab"],
             vec!["lab", "unknown"],
             vec!["lab", "test", "extra"],
+            vec!["lab", "ext4", "/dev/sda"],
+            vec!["lab", "ext4", "/tmp/mount"],
+            vec!["lab", "ext4-populate", "/tmp/mount"],
         ] {
             assert!(parse_args(args.into_iter().map(OsString::from)).is_err());
         }
@@ -141,6 +153,14 @@ mod tests {
         let test = from_env(Mode::Test, |name| empty.get(name).cloned()).unwrap();
         assert_eq!(test.per_test, Duration::from_secs(15));
         assert_eq!(test.suite, Duration::from_secs(55));
+
+        let ext4 = from_env(Mode::Ext4, |_| None).unwrap();
+        assert_eq!(ext4.per_test, Duration::from_secs(60));
+        assert_eq!(ext4.suite, Duration::from_secs(600));
+        assert_eq!(
+            parse_args(["lab", "ext4"].map(OsString::from)),
+            Ok(Mode::Ext4)
+        );
 
         let values = HashMap::from([
             (SLOW_ENV, OsString::from("0")),

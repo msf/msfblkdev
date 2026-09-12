@@ -4,7 +4,7 @@ ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
-.PHONY: setup build build-zig build-rust lint lint-zig lint-rust test test-acceptance test-ublk-fio test-zig test-rust run
+.PHONY: setup build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-zig test-rust run
 
 build: build-rust
 
@@ -48,6 +48,18 @@ test-acceptance:
 test-ublk-fio:
 	@cd rust && cargo build --quiet --features test-failpoints --bin block-storage-ublk --bin block-storage-lab
 	@cd rust && cargo run --quiet --features test-failpoints --bin block-storage-lab -- ublk-fio
+
+# Build as the normal user. The operator installs only the separate mount helper.
+build-ext4:
+	@cd rust && cargo build --quiet --bin block-storage-ublk --bin block-storage-lab --bin block-storage-mount
+
+# Checks prerequisites without creating a backing image, device, or mount.
+check-ext4: build-ext4
+	@rust/target/debug/block-storage-lab ext4-preflight
+
+# Explicit operator opt-in; the lab itself stays unprivileged.
+test-ext4: build-ext4
+	@rust/target/debug/block-storage-lab ext4
 
 test-zig: setup
 	@$(ZIG) build test

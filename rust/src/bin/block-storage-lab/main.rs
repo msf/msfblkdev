@@ -1,5 +1,8 @@
 mod config;
 mod evidence;
+mod ext4;
+#[path = "../fs_support/mod.rs"]
+mod fs_support;
 pub mod process;
 mod suite;
 pub mod ublk;
@@ -38,6 +41,19 @@ fn execute() -> io::Result<ExitCode> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("rust crate must have a repository parent");
+
+    if mode == Mode::Ext4Preflight {
+        ext4::preflight(repo, config.per_test, config.suite)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if mode == Mode::Ext4 {
+        ext4::run(repo, config.per_test, config.suite)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if matches!(mode, Mode::Ext4Populate | Mode::Ext4Verify) {
+        ext4::workload::worker(mode == Mode::Ext4Populate)?;
+        return Ok(ExitCode::SUCCESS);
+    }
 
     if mode == Mode::UblkFio {
         ublk_fio::run(repo, config.per_test)?;
