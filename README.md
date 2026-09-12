@@ -6,6 +6,8 @@ A Linux-only log-structured block device experiment. Rust is authoritative and i
 
 Goals 1 and 2 are complete. ADR-03's engine, serialized ublk frontend and live regular-file `fio` acceptance gates pass. V0.8 acceptance is complete.
 
+[ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
+
 The completed minimum credible device sequence is:
 
 ```text
@@ -24,7 +26,7 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - [ADR-02: basic read and write](ADR-02-GOAL-1-BASIC-READ-WRITE.md) records V0.0 through V0.4 and its closure gate.
 - [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5 through V0.8.
 - [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
-- [Deterministic fault testing and simulation](DETERMINISTIC_FAULT_TESTING_AND_SIMULATION.md) is a TMD for future work. Simulation is an aspiration, not part of ADR-03's scope.
+- [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API

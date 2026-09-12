@@ -4,7 +4,7 @@ Date: 2026-08-29
 Author: Miguel Filipe
 Status: proposed
 On-disk format: 2
-Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md)
+Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
 Would update: ADR-01 persistent-format sections when accepted and implemented
 
 ## Context
@@ -86,7 +86,7 @@ All persistent structures are 4 KiB aligned and explicitly encoded little-endian
 
 The on-disk format version is `2`. Readers reject an unknown format version or record kind before interpreting kind-specific fields. Unknown state transitions are not skippable.
 
-V2 keeps XXH3-64 checksums under the same accidental-corruption fault model as ADR-01. Each root, record header and checkpoint descriptor uses unseeded XXH3-64 over its complete 4 KiB block with the checksum field set to zero. Unused bytes inside a checksummed block must be zero. These checksums are not authentication.
+The proposed [fault model and failure policy](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md#fault-model-and-failure-policy) lives in ADR-05. Its checksum-chain and tail-reuse proposals remain unresolved; this ADR does not yet encode them. V2 keeps XXH3-64 checksums. Each root, record header and checkpoint descriptor uses unseeded XXH3-64 over its complete 4 KiB block with the checksum field set to zero. Unused bytes inside a checksummed block must be zero. These checksums are not authentication.
 
 ## Fixed root pointers
 
@@ -185,7 +185,7 @@ The next record normally starts at:
 record_header_block + 1 + payload_blocks
 ```
 
-A `CHECKPOINT_ARENA` header instead supplies the block after its reserved mutable extent. Recovery reads exactly one header at each expected record start. It rejects an invalid header and ignores every later block.
+A `CHECKPOINT_ARENA` header instead supplies the block after its reserved mutable extent. Recovery reads exactly one header at each expected record start and classifies it under the referenced failure policy.
 
 A WRITE header uses the common prefix followed by fixed arrays:
 
@@ -198,7 +198,7 @@ Only the first `payload_blocks` entries are used. Remaining entries must be zero
 
 WRITE payload checksums use the ADR-01 formula. The record-header checksum uses unseeded XXH3-64 over the complete header with its checksum field set to zero. Recovery validates the header checksum, volume ID, LSN, previous-record link, self-position, payload range, current logical-size bound, LBA uniqueness and unused zero entries before applying it.
 
-Header-first WRITE is no weaker than the V0 footer under ADR-01's fault model. An exact completed write publishes the mapping. Recovery may accept a valid header whose payload was later corrupted or torn; `read_block` detects that damage through the payload checksum before returning bytes.
+An exact completed write publishes the mapping. Header-first framing does not change the distinction between metadata and payload validation. Payload validation and online read failures follow the proposed ADR-05 policy.
 
 ## Sparse checkpoint mapping
 
@@ -396,7 +396,7 @@ Normal startup remains checkpoint based:
 6. Replay immutable record headers in LSN order from the checkpoint append block.
 7. Apply `GROW_LOGICAL` and `PROVISION_BACKING` before validating later writes against their updated bounds.
 8. Validate each `CHECKPOINT_ARENA` header and skip its mutable extent. Treat its slots as relocation candidates, not replay state.
-9. Stop at the first invalid record header. Zero and fsync `min(339, provisioned_backing_blocks - append_block)` blocks from the recovered append position.
+9. Handle replay termination under the proposed ADR-05 policy. The [replacement for recovery-time zeroing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md#proposal-checksum-chaining-instead-of-recovery-time-zeroing) must be resolved before this recovery algorithm is complete.
 10. From the selected and replayed arenas, find the newest arena whose two slots are valid and equivalent. Complete its missing root updates before serving requests.
 
 Normal startup fails closed if neither fixed root reaches a usable checkpoint. That remains the ADR-03 contract.
