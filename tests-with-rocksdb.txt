@@ -1,0 +1,110 @@
+# RocksDB benchmark and stress-test plan
+
+ 1. Scope and setup
+
+ Run RocksDB on a filesystem mounted over the ublk device. Reuse db_bench for performance and
+ db_stress for correctness stress; the lab manages setup, execution, verification, and cleanup.
+ Use the same filesystem and lifecycle as tests-with-sqlite.txt.
+
+ Use disposable backing files and a fresh filesystem per case. Bound runtime and cumulative
+ physical writes, leaving room for flushing, compaction, and cleanup. Database size is not a write
+ budget: compaction and overwrites consume the block device's finite append log. Do not change
+ global cache settings or run performance measurements alongside other workloads.
+
+ Pin the RocksDB release, benchmark sources, and build options. Keep database, WAL, and SST files
+ on the tested filesystem. Keep db_stress expected-state files and lab evidence outside the tested
+ device. Disable tool fault injection for this first suite.
+
+ Test two configurations:
+ - WAL enabled, sync=true: durable writes, comparable in purpose to SQLite WAL/FULL.
+ - WAL enabled, sync=false: asynchronous writes with weaker power-loss durability, comparable in
+   purpose, but not identical in mechanism, to SQLite WAL/NORMAL.
+
+ Do not add a WAL-disabled profile initially. Start with buffered I/O, mmap disabled, one column
+ family, fixed block-cache and memtable budgets, and automatic level compaction enabled. Fix and
+ record compression, table block size, background concurrency, and effective options. RocksDB
+ table blocks are not equivalent to SQLite database pages; do not force identical internal layouts.
+
+ 2. Benchmarks and stress workloads
+
+ Use db_bench fillseq and fillrandom for sequential and random-key population, overwrite for
+ replacements, and readseq and readrandom for reads. Initialize the required dataset before each
+ read or overwrite case. Report individual workloads rather than only a combined score.
+
+ Compare small and multi-page values, and individual writes against WriteBatch groups. Record
+ actual operations and batch sizes; some benchmark modes override general options. These cases
+ correspond to SQLite kvtest reads, updates, and transaction grouping, not SQL semantics.
+
+ Add readwhilewriting as a separate concurrency case once single-threaded cases pass. Use db_stress
+ for bounded mixed reads, writes, deletes, iteration, and its built-in expected-state verification.
+ Audit the pinned tool's options for synchronization, checksum verification, persistent expected
+ state, and reopening before integration; do not interpret an unchecked benchmark exit as validation.
+
+ Size selected write cases to trigger memtable flushes and automatic compactions within the physical
+ write budget. Confirm both occurred from RocksDB statistics. Include a bounded final memtable flush
+ and wait for background jobs before closing. Record the completion condition and status; do not
+ assume a command named waitforcompaction proves all work completed. Forced full compaction is a
+ separate workload, not mandatory cleanup for every case.
+
+ Use fixed operation counts for performance comparisons, with deadlines as safety limits. Give
+ each case a stable name and fix its seed, dataset size, value sizes, batch size, and concurrency.
+ Repeat each case three times from fresh state. Extend selected cases into longer stress runs only
+ after the short runs pass.
+
+ 3. Correctness checks
+
+ After each workload:
+ - Require successful completion and check reported read, write, flush, compaction, and close errors.
+ - Verify data-block checksums during a full scan and require the selected upstream verification
+   workload or db_stress expected-state checks to pass. Checksums alone do not prove logical contents.
+ - For deterministic benchmark cases, compare key counts and a canonical key/value digest against
+   an expected dataset or reference run outside the tested device. Compare logical data, not SST
+   file bytes or file layout. For concurrent stress cases, use the tool's expected-state checker.
+ - Close RocksDB, unmount, restart the block daemon, remount, and repeat verification without
+   replacing or repopulating the database. Preserve the matching expected-state files.
+
+ This first suite uses clean shutdown and restart only. Crash injection, power-loss claims, and
+ acknowledged-commit durability testing are out of scope.
+
+ 4. Measurements and acceptance
+
+ Use the same result format and phase names as tests-with-sqlite.txt. These plans compare each
+ database against its own previous runs, not SQLite transactions against RocksDB operations.
+
+ Time initialization, workload, final drain and close, validation, clean device restart and remount,
+ and reopen plus revalidation separately with a monotonic clock. Also record full case elapsed
+ time, including filesystem setup and cleanup. Final drain includes the memtable flush and bounded
+ wait for background jobs. Report workload time and workload-plus-drain time separately. Keep
+ validation outside benchmark timings and label stress timings that include built-in verification.
+
+ Record completed operations, operations per second, and latency percentiles where the tool
+ provides them. Collect per-phase deltas for actual ublk reads, writes, flushes, and backing bytes
+ written. Record RocksDB flush and compaction counts and bytes, write stalls, and pending compaction
+ bytes where available. Record unavailable metrics as unavailable, not zero. Label cache conditions;
+ do not claim device-read performance unless reads reach ublk.
+
+ Save one machine-readable JSONL result per case repetition under a unique evidence run directory,
+ alongside raw tool output and commands. Record case name, seed, operation count, dataset and value
+ sizes, batch size, concurrency, effective RocksDB settings, tool versions and build options,
+ block-device commit and dirty state, kernel, filesystem and mount options, backing geometry and
+ medium, cache conditions, phase timings, device counters, and validation results. Preserve failed
+ and timed-out runs with their status and partial measurements; never count them as completed runs.
+
+ Correctness passes only if verification succeeds before and after restart, with no unexplained
+ errors, corruption, hangs, or leaked resources. Only correctness-passing runs qualify for the
+ performance baseline.
+
+ Keep an explicitly selected baseline run; do not overwrite it automatically. Report all three
+ samples, their median and range, and percentage changes in workload time, workload-plus-drain time,
+ throughput, and available tail latency against that baseline. Compare only matching workloads,
+ settings, hardware, and cache conditions. Record intentional differences, including the tested
+ block-device commit. Database or benchmark upgrades require a new baseline.
+
+ Three repetitions are an initial noise check, not proof of a small improvement. Rerun apparent
+ changes when they overlap observed variation; use interleaved baseline and candidate runs when
+ practical. Set regression thresholds only after measuring repeatability. Do not claim sustainable
+ throughput from a short run or improvement from timing alone when correctness fails.
+
+ Upstream tool sources (pin to the selected release when implementing):
+ https://github.com/facebook/rocksdb/blob/main/tools/db_bench_tool.cc
+ https://github.com/facebook/rocksdb/blob/main/db_stress_tool/db_stress_gflags.cc

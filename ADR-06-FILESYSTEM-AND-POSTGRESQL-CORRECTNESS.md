@@ -1,9 +1,9 @@
-# ADR-06 Filesystem and PostgreSQL correctness
+# ADR-06 Filesystem and database correctness
 
 Date: 2026-08-30
 Author: Miguel Filipe
 Status: proposed
-Goal status: V0.9 complete; V1.0 and V1.2 not started
+Goal status: V0.9 complete; V1.0, V1.1 and V1.2 not started
 On-disk format: 1 (unchanged)
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
 Updates: the ADR-01 delivery order when accepted
@@ -14,7 +14,7 @@ ADR-03 proves direct 4 KiB I/O through ublk. It does not prove that a filesystem
 
 The first ext4 trial found this difference. `mkfs.ext4` and `e2fsck` succeed because they issue flag-free I/O. The ext4 mount path marks metadata reads with `UBLK_IO_F_META`. At that commit, the daemon rejected the flag with `EOPNOTSUPP`, so ext4 could not read its superblock. The existing `fio` tests do not issue metadata-tagged requests and did not detect this problem.
 
-ADR-01 currently places backing-medium fault injection before filesystem workloads. ADR-04 also says that it does not change that order. This sequence is no longer useful. We need to learn the block operations and flags that ext4, XFS and PostgreSQL use before we change the persistent format or build a broad fault matrix.
+ADR-01 currently places backing-medium fault injection before filesystem workloads. ADR-04 also says that it does not change that order. This sequence is no longer useful. We need to learn the block operations and flags that ext4, XFS, SQLite, RocksDB and PostgreSQL use before we change the persistent format or build a broad fault matrix. SQLite and RocksDB add embedded-database validation before PostgreSQL's server lifecycle.
 
 ## Decision
 
@@ -24,14 +24,17 @@ The implementation order is:
 
 ```text
 ADR-03 complete
-→ ADR-06 ext4, XFS and PostgreSQL correctness
+→ ADR-06 V0.9 ext4 correctness
+→ ADR-06 V1.0 XFS correctness
+→ ADR-06 V1.1 SQLite, then RocksDB correctness
+→ ADR-06 V1.2 PostgreSQL correctness
 → ADR-04 growable thin-provisioned format
 → ADR-05 backing-medium fault resilience
 ```
 
 This order supersedes the numbered goal order in ADR-01 and the ordering statement in ADR-04. Supporting ext4 and XFS is a hard prerequisite for both ADR-04 and ADR-05.
 
-This ADR keeps on-disk format version 1. It does not add thin provisioning, compaction, medium-fault injection or performance concurrency. It adds only the ublk semantics required by the accepted functional workloads.
+This ADR keeps on-disk format version 1. It does not add thin provisioning, block-engine compaction, medium-fault injection or engine concurrency optimizations. It adds only the ublk semantics required by the accepted functional workloads.
 
 Optional block operations remain unadvertised until the engine implements their semantics. The daemon must reject an unsupported operation instead of returning false success. An implementation may accept a request hint only after proving that the hint does not change data or durability semantics.
 
@@ -122,9 +125,43 @@ Acceptance tests:
 
 V0.9 and V1.0 are complete before any ADR-04 or ADR-05 implementation delivery starts.
 
-## Delivery 3: V1.2 PostgreSQL correctness
+## Shared database measurements
 
-V1.2 runs PostgreSQL on each filesystem accepted by V0.9 and V1.0. It is a correctness test, not a performance result.
+V1.1 and V1.2 establish correctness and repeatable performance baselines. They do not require a throughput target or introduce engine concurrency optimizations. Compare each database against its own previous runs, not SQLite transactions against RocksDB operations or PostgreSQL transactions.
+
+Use fixed operation counts, stable case names and pinned database and tool versions. Fix the seed, dataset size, value sizes, transaction or batch size, concurrency and durability settings for each case. Run three repetitions from fresh backing images on each filesystem. Bound child lifetimes, suite duration and cumulative physical writes, including initialization, background work and cleanup. Do not change global cache settings or run performance measurements alongside other workloads.
+
+Time initialization, workload, final drain and shutdown, validation, clean device restart and remount, and reopen plus revalidation separately with a monotonic clock. Record full case elapsed time, including filesystem setup and cleanup. Final drain includes the SQLite WAL checkpoint or RocksDB memtable flush and bounded wait for background jobs where applicable. Record completion results rather than assuming background work finished. Report workload time and workload-plus-drain time separately. Keep validation outside benchmark timings; label stress timings that include built-in verification.
+
+Save one JSONL result per case repetition under a unique evidence run directory, alongside commands and raw output. Record effective database settings, workload parameters, tool versions and build options, block-device commit and dirty state, kernel, filesystem and mount options, backing geometry and medium, and cache conditions. Include phase timings, completed operations, throughput, available latency statistics, per-phase device I/O counters and validation results. Device counters cover ublk reads, writes, flushes and backing bytes written. Record unavailable metrics as unavailable, not zero. Preserve failed and timed-out runs with their status and partial measurements.
+
+Only correctness-passing runs qualify for a performance baseline. Keep an explicitly selected baseline rather than replacing it automatically. Report all samples, their median and range, and percentage changes in workload time, workload-plus-drain time, throughput and available tail latency. Compare matching workloads, settings, hardware and cache conditions; record intentional differences, including the tested block-device commit. Database or benchmark upgrades require a new baseline. Three repetitions are an initial noise check, not proof of a small improvement. Rerun apparent changes that overlap observed variation and set regression thresholds only after measuring repeatability.
+
+## Delivery 3: V1.1 SQLite and RocksDB correctness
+
+V1.1 starts after V1.0 and validates SQLite and RocksDB on both accepted filesystems before PostgreSQL integration. SQLite runs first, followed by RocksDB. It reuses upstream workload tools and the existing clean filesystem lifecycle.
+
+The workload plans are recorded in [tests-with-sqlite.txt](tests-with-sqlite.txt) and [tests-with-rocksdb.txt](tests-with-rocksdb.txt). This ADR owns the acceptance requirements; those files describe workloads and measurement details.
+
+Each case uses a fresh backing image. Database, journal, WAL and SST files stay on the tested filesystem. Expected results and evidence stay outside it. RocksDB compaction and repeated overwrites consume the block device's finite append log even when database size stays constant; database size is not a physical-write budget.
+
+Run and validate the workload, close the database cleanly, unmount, restart the block daemon, remount, and repeat database verification without repopulating it. Use the V0.9 filesystem-check boundaries: before the first mount, after the first unmount, after daemon restart before remount, and after the final unmount. Each check runs against the unmounted device. Crash injection, power-loss claims and acknowledged-commit durability testing remain outside this delivery.
+
+Acceptance tests:
+
+- [ ] SQLite completes bounded `speedtest1` and `kvtest` cases on ext4 and XFS under DELETE/EXTRA, WAL/FULL and WAL/NORMAL.
+- [ ] SQLite `integrity_check`, `foreign_key_check` where applicable, and logical-content verification pass before and after the clean restart.
+- [ ] RocksDB completes bounded `db_bench` cases and `db_stress` on ext4 and XFS with WAL enabled, covering synchronous and asynchronous writes. Tool fault injection is disabled.
+- [ ] RocksDB checksum and expected-content checks pass before and after the clean restart. Deterministic cases compare logical contents; concurrent stress cases use the tool's expected-state checker. Checksums alone do not prove logical contents.
+- [ ] Selected SQLite WAL cases cross the automatic checkpoint threshold; selected RocksDB write cases demonstrably trigger memtable flushes and automatic compactions. Final drain completes within the case limits.
+- [ ] All required `e2fsck -f -n` or `xfs_repair -n` checks pass on the unmounted filesystem.
+- [ ] Every case passes three fresh-image repetitions per filesystem within its process, suite and physical-write limits, and preserves the shared measurement evidence.
+- [ ] The lab removes every owned mount, ublk device, child process and temporary directory on success.
+- [ ] `make lint test` passes without weakening V0.9, V1.0 or ADR-03 coverage.
+
+## Delivery 4: V1.2 PostgreSQL correctness
+
+V1.2 starts after V1.1 and runs PostgreSQL on each filesystem accepted by V0.9 and V1.0. It follows the shared database measurement requirements.
 
 The PostgreSQL scenario uses this lifecycle:
 
@@ -152,15 +189,14 @@ Acceptance tests:
 - [ ] `xfs_repair -n` reports clean XFS state at every required check.
 - [ ] PostgreSQL starts and returns the expected application-level rows after remount.
 - [ ] The complete scenario stays within its process, suite and physical-write limits.
-- [ ] `make lint test` passes without weakening V0.9, V1.0 or ADR-03 coverage.
-
-This ADR does not define V1.1. A milestone number does not need a delivery created only to fill the sequence.
+- [ ] Every case passes three fresh-image repetitions per filesystem and preserves the shared measurement evidence.
+- [ ] `make lint test` passes without weakening V0.9, V1.0, V1.1 or ADR-03 coverage.
 
 ## Later fault testing
 
 ADR-05 defines the later fault mechanisms and detailed fault matrix. That work must consider both ADR-05 and this ADR.
 
-Fault acceptance must include end-to-end user behavior, not only engine recovery. Selected faults must run through the accepted ext4, XFS and PostgreSQL workflows. After a daemon or backing failure, the lab must prove that it can safely re-expose the volume, check the unmounted filesystem, remount it when valid, and verify durable user data. PostgreSQL cases must also run database checks.
+Fault acceptance must include end-to-end user behavior, not only engine recovery. Selected faults must run through the accepted ext4, XFS, SQLite, RocksDB and PostgreSQL workflows. After a daemon or backing failure, the lab must prove that it can safely re-expose the volume, check the unmounted filesystem, remount it when valid, and verify durable user data under the selected database settings and fault model. All database cases must also run database-specific structural and logical-content checks.
 
 The exact ublk recovery mode, stale-mount handling, forced-unmount policy and repair policy belong to ADR-05. This ADR does not choose them.
 
@@ -168,10 +204,10 @@ The exact ublk recovery mode, stale-mount handling, forced-unmount policy and re
 
 This ADR is complete only when:
 
-- [ ] V0.9, V1.0 and V1.2 acceptance items are complete.
+- [ ] V0.9, V1.0, V1.1 and V1.2 acceptance items are complete.
 - [ ] ext4 and XFS pass every required read-only filesystem check.
-- [ ] PostgreSQL passes the bounded correctness workload on ext4 and XFS.
-- [ ] Evidence records the commit, kernel, tool versions, backing geometry, commands, timings and results.
+- [ ] SQLite, RocksDB and PostgreSQL pass their bounded correctness workloads on ext4 and XFS.
+- [ ] Evidence records the commit, kernel, tool versions, backing geometry, commands, timings and results. Database cases also preserve the shared per-repetition measurements and establish an explicit correctness-passing performance baseline.
 - [ ] The operator-run lab leaves no owned mount, ublk device, child process or temporary directory after success.
 - [ ] The top-level Rust lint and developer test gates pass.
 
