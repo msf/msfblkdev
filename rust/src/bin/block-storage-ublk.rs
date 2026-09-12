@@ -4,13 +4,14 @@ compile_error!("block-storage-ublk requires Linux");
 use libublk::ctrl::{UblkCtrl, UblkCtrlBuilder};
 use libublk::helpers::IoBuf;
 use libublk::io::{BufDescList, UblkDev, UblkQueue};
-#[cfg(test)]
-use libublk::sys::UBLK_F_USER_RECOVERY;
 use libublk::sys::{
-    UBLK_ATTR_VOLATILE_CACHE, UBLK_F_UNPRIVILEGED_DEV, UBLK_IO_F_FUA, UBLK_IO_OP_FLUSH,
+    UBLK_ATTR_VOLATILE_CACHE, UBLK_F_UNPRIVILEGED_DEV, UBLK_IO_F_FAILFAST_DEV,
+    UBLK_IO_F_FAILFAST_DRIVER, UBLK_IO_F_FAILFAST_TRANSPORT, UBLK_IO_F_META, UBLK_IO_OP_FLUSH,
     UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_PARAM_TYPE_BASIC, ublk_param_basic, ublk_params,
     ublksrv_io_desc,
 };
+#[cfg(test)]
+use libublk::sys::{UBLK_F_USER_RECOVERY, UBLK_IO_F_FUA};
 use libublk::{BufDesc, UblkError, UblkFlags, UblkIORes};
 use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions};
@@ -329,10 +330,18 @@ enum Request {
 fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Request, i32> {
     let operation = descriptor.op_flags & 0xff;
     let flags = descriptor.op_flags & !0xff;
-    if flags & UBLK_IO_F_FUA != 0 {
-        return Err(-libc::EOPNOTSUPP);
-    }
-    if flags != 0 {
+    let allowed_hints = match operation {
+        // Linux blk_types.h defines FAILFAST as no driver retries; this adapter never retries reads.
+        UBLK_IO_OP_READ => {
+            UBLK_IO_F_META
+                | UBLK_IO_F_FAILFAST_DEV
+                | UBLK_IO_F_FAILFAST_TRANSPORT
+                | UBLK_IO_F_FAILFAST_DRIVER
+        }
+        UBLK_IO_OP_WRITE => UBLK_IO_F_META,
+        _ => 0,
+    };
+    if flags & !allowed_hints != 0 {
         return Err(-libc::EOPNOTSUPP);
     }
 
@@ -381,6 +390,10 @@ fn handle_request(
     let request = match decode_request(descriptor, dev_sectors) {
         Ok(request) => request,
         Err(completion) => {
+            eprintln!(
+                "request rejected: op_flags={:#x} start_sector={} nr_sectors={} errno={completion}",
+                descriptor.op_flags, descriptor.start_sector, descriptor.nr_sectors
+            );
             return RequestOutcome {
                 completion,
                 fatal: false,
@@ -1166,6 +1179,60 @@ mod tests {
     }
 
     #[test]
+    fn metadata_hint_preserves_read_write_decoding_and_validation() {
+        for operation in [UBLK_IO_OP_READ, UBLK_IO_OP_WRITE] {
+            for (sector, count) in [(0, 8), (24, 8), (1, 8), (32, 8), (0, 7), (u64::MAX, 8)] {
+                let plain = descriptor(operation, sector, count);
+                let mut metadata = descriptor(operation, sector, count);
+                metadata.op_flags |= libublk::sys::UBLK_IO_F_META;
+                assert_eq!(decode_request(&metadata, 32), decode_request(&plain, 32));
+            }
+        }
+    }
+
+    #[test]
+    fn failfast_read_hints_preserve_results_and_geometry_checks() {
+        let failfast = [
+            libublk::sys::UBLK_IO_F_FAILFAST_DEV,
+            libublk::sys::UBLK_IO_F_FAILFAST_TRANSPORT,
+            libublk::sys::UBLK_IO_F_FAILFAST_DRIVER,
+        ];
+        for mask in 0..8 {
+            let flags = failfast
+                .iter()
+                .enumerate()
+                .filter(|(bit, _)| mask & (1 << bit) != 0)
+                .fold(0, |flags, (_, flag)| flags | flag);
+            for metadata in [0, UBLK_IO_F_META] {
+                for (sector, count) in [(0, 8), (24, 8), (1, 8), (32, 8), (0, 7)] {
+                    let plain = descriptor(UBLK_IO_OP_READ, sector, count);
+                    let mut hinted = descriptor(UBLK_IO_OP_READ, sector, count);
+                    hinted.op_flags |= flags | metadata;
+                    assert_eq!(decode_request(&hinted, 32), decode_request(&plain, 32));
+                    for unsupported in [UBLK_IO_F_FUA, 1 << 31] {
+                        hinted.op_flags |= unsupported;
+                        assert_eq!(decode_request(&hinted, 32), Err(-libc::EOPNOTSUPP));
+                        hinted.op_flags &= !unsupported;
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_fua_and_unknown_flags_even_with_metadata_hint() {
+        for operation in [UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_IO_OP_FLUSH] {
+            for unsupported in [UBLK_IO_F_FUA, 1 << 31] {
+                for hint in [0, libublk::sys::UBLK_IO_F_META] {
+                    let mut request = descriptor(operation, 0, 8);
+                    request.op_flags |= unsupported | hint;
+                    assert_eq!(decode_request(&request, 32), Err(-libc::EOPNOTSUPP));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn decodes_only_exact_supported_requests() {
         let dev_sectors = 32;
         assert_eq!(
@@ -1196,7 +1263,6 @@ mod tests {
 
         for (operation, flag) in [
             (UBLK_IO_OP_WRITE, UBLK_IO_F_FUA),
-            (UBLK_IO_OP_READ, libublk::sys::UBLK_IO_F_META),
             (UBLK_IO_OP_FLUSH, UBLK_IO_F_FUA),
             (UBLK_IO_OP_FLUSH, libublk::sys::UBLK_IO_F_META),
         ] {
