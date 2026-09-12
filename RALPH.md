@@ -6,7 +6,8 @@ Active specifications:
 
 1. [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md)
 2. [ADR-02](ADR-02-GOAL-1-BASIC-READ-WRITE.md)
-3. [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md)
+3. [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), completed regression baseline
+4. [ADR-06 Delivery 1: V0.9 ext4 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md#delivery-1-v09-ext4-correctness), completed delivery
 
 ## One-hour loop
 
@@ -19,7 +20,7 @@ If the criterion cannot be completed safely in the time box, make no commit. Rep
 
 ## Rules
 
-- ADR-02 is closed. Work on the earliest unchecked ADR-03 item.
+- ADR-02 and ADR-03 are closed. Work on the earliest worker-sized unchecked ADR-06 Delivery 1 item. SQLite, XFS, PostgreSQL, batching, format changes and crash testing are outside this loop.
 - Evolve only the Rust implementation. Do not update Zig or restore image compatibility.
 - Do not redesign the persistent format from a worker loop.
 - ADR acceptance text is immutable to workers. A worker may only change `[ ]` to `[x]` for behavior proved by the same commit and add concise evidence.
@@ -32,13 +33,13 @@ If the criterion cannot be completed safely in the time box, make no commit. Rep
 
 ## Required gate
 
-Run from `rust/`:
+Run from the repository root as the normal user:
 
 ```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
+make lint test
 ```
+
+Use focused Cargo tests for the inner loop. `make check-ext4` checks operator prerequisites without creating a device or mount. `make test-ext4` is a separate, explicitly approved operator run; installation of the helper alone does not authorize a worker to run it.
 
 Run any delivery-specific repetition count required by its ADR before checking that acceptance item.
 
@@ -55,4 +56,4 @@ next: <earliest unchecked criterion>
 blocker: <none or exact blocker>
 ```
 
-When all non-privileged criteria are complete, stop and report `AWAITING OPERATOR VALIDATION`. Do not attempt the privileged tests.
+If code gates pass but live acceptance remains unverified, stop and report `AWAITING OPERATOR VALIDATION`. Do not attempt privileged tests without approval. When every Delivery 1 criterion is verified, report completion and stop. Starting a later delivery requires a new approved goal.

@@ -3,7 +3,7 @@
 Date: 2026-08-30
 Author: Miguel Filipe
 Status: proposed
-Goal status: not started
+Goal status: V0.9 complete; V1.0 and V1.2 not started
 On-disk format: 1 (unchanged)
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
 Updates: the ADR-01 delivery order when accepted
@@ -12,7 +12,7 @@ Updates: the ADR-01 delivery order when accepted
 
 ADR-03 proves direct 4 KiB I/O through ublk. It does not prove that a filesystem can mount or use the device.
 
-The first ext4 trial found this difference. `mkfs.ext4` and `e2fsck` succeed because they issue flag-free I/O. The ext4 mount path marks metadata reads with `UBLK_IO_F_META`. The daemon rejects that flag with `EOPNOTSUPP`, so ext4 cannot read its superblock. The existing `fio` tests do not issue metadata-tagged requests and did not detect this problem.
+The first ext4 trial found this difference. `mkfs.ext4` and `e2fsck` succeed because they issue flag-free I/O. The ext4 mount path marks metadata reads with `UBLK_IO_F_META`. At that commit, the daemon rejected the flag with `EOPNOTSUPP`, so ext4 could not read its superblock. The existing `fio` tests do not issue metadata-tagged requests and did not detect this problem.
 
 ADR-01 currently places backing-medium fault injection before filesystem workloads. ADR-04 also says that it does not change that order. This sequence is no longer useful. We need to learn the block operations and flags that ext4, XFS and PostgreSQL use before we change the persistent format or build a broad fault matrix.
 
@@ -37,7 +37,9 @@ Optional block operations remain unadvertised until the engine implements their 
 
 ## Operator and test boundary
 
-Filesystem tests require mount privileges. Build Rust binaries as the normal user. Run only the already-built filesystem lab mode with the required privilege.
+Build and run the filesystem lab as the normal user. Only mount and unmount use a separately installed, root-owned helper through a user-specific sudo rule. The helper accepts only caller-owned unprivileged ublk devices and owned lab directories. Do not grant sudo access to a user-writable lab binary.
+
+Use default ext4 formatting and storage behavior. The helper adds only `nosuid,nodev` to restrict the privilege grant. It does not disable journaling or durability barriers. Live mount operations require explicit operator approval.
 
 The lab must:
 
@@ -45,7 +47,7 @@ The lab must:
 - format and use only the ublk device identity returned by its child daemon;
 - verify the device identity and geometry before every destructive operation;
 - verify the mount source before unmounting;
-- stop all child processes before unmounting;
+- stop and reap all workload children before unmounting; keep the block daemon running until the filesystem is unmounted;
 - use a fresh image for each filesystem run;
 - remove only its recorded device, mount and temporary directory;
 - preserve the image and evidence if identity or cleanup state becomes ambiguous;
@@ -55,7 +57,9 @@ The normal `make test` target must not mount filesystems or require root. Filesy
 
 ## Delivery 1: V0.9 ext4 correctness
 
-The daemon will accept `UBLK_IO_F_META` as a request hint. The flag does not change the read or write result. The daemon will continue to reject `UBLK_IO_F_FUA` and unknown flags with `EOPNOTSUPP`.
+The daemon accepts `UBLK_IO_F_META` on READ and WRITE as a request hint. The flag does not change the read or write result. The daemon continues to reject `UBLK_IO_F_FUA` and unknown flags with `EOPNOTSUPP`.
+
+Live validation also observed READ requests with `op_flags=0x700` during device discovery. These are `UBLK_IO_F_FAILFAST_DEV`, `UBLK_IO_F_FAILFAST_TRANSPORT` and `UBLK_IO_F_FAILFAST_DRIVER`. Linux defines them as requests not to retry device, transport and driver errors. The adapter already issues each read once and returns failures. It accepts these hints on READ, including combinations with META; WRITE and FLUSH support is unchanged. Tests cover all hint combinations, invalid geometry, FUA and unknown flags.
 
 The ext4 scenario uses this lifecycle:
 
@@ -73,18 +77,32 @@ The ext4 scenario uses this lifecycle:
 
 Every filesystem check runs while the filesystem is unmounted. Every `e2fsck -f -n` command must report a clean filesystem and exit successfully. The lab must preserve its output when any check fails.
 
+Acceptance requires three complete repetitions, each with a fresh backing image. The initial fixture exposes 128 MiB backed by a 1 GiB regular file. Each child command has a 60-second deadline; the three-run suite has a 600-second deadline. Failure cleanup has one additional 60-second reserve plus bounded process reaping. These are test limits, not performance claims.
+
+The workload compares exact bytes, lengths, directory entries and required absences against an independent expected result. It also records content hashes outside the tested filesystem. It checks partial-block overwrite, cross-directory rename, truncate, zero-filled extension and deletion. Failures preserve the backing image and command output. An ambiguous mount preserves the daemon and records its PID instead of forcing an unmount.
+
+`make check-ext4` checks prerequisites without creating a device or mount. `make test-ext4` runs the explicit operator-approved acceptance gate. Neither is part of `make test`.
+
 Acceptance tests:
 
-- [ ] A metadata-tagged READ decodes to the same engine request as a flag-free READ.
-- [ ] A metadata-tagged WRITE decodes to the same engine request as a flag-free WRITE.
-- [ ] FUA and unknown request flags still return `EOPNOTSUPP`.
-- [ ] `mkfs.ext4` and all four `e2fsck -f -n` checks succeed against the recorded ublk device.
-- [ ] The mounted file operations complete without an unsupported request, panic or hang.
-- [ ] File hashes match before unmount, after remount and after the clean daemon restart.
-- [ ] The lab removes every owned mount, ublk device and temporary file on success.
-- [ ] `make lint test` passes without weakening ADR-03 coverage.
+- [x] A metadata-tagged READ decodes to the same engine request as a flag-free READ.
+- [x] A metadata-tagged WRITE decodes to the same engine request as a flag-free WRITE.
+- [x] FUA and unknown request flags still return `EOPNOTSUPP`.
+- [x] `mkfs.ext4` and all four `e2fsck -f -n` checks succeed against the recorded ublk device.
+- [x] The mounted file operations complete without an unsupported request, panic or hang.
+- [x] File hashes match before unmount, after remount and after the clean daemon restart.
+- [x] The lab removes every owned mount, ublk device and temporary file on success.
+- [x] `make lint test` passes without weakening ADR-03 coverage.
 
-The known ext4 mount issue in the appendix closes only after these acceptance tests pass.
+Initial acceptance evidence (2026-09-12, before implementation commits, based on `b5a294a`):
+
+- `evidence/ext4-1789253771549431348.log`: three fresh-image repetitions passed in 3.989 seconds on Linux 7.0.0-31-generic with e2fsprogs 1.47.2. All 12 filesystem checks, exact content/hash checks and six clean daemon exits passed. A post-run audit confirmed that all three temporary directories, six daemon PIDs and owned mounts/devices were gone.
+- `evidence/ext4-development-2026-09-12.log`: the final `make lint test` passed after live acceptance. META and FAILFAST regression tests each failed before their corresponding fix and passed afterward.
+- Failed runs remain preserved: `ext4-1789252944846851909.log` records the missing libublk runtime-directory prerequisite; `ext4-1789253603159228766.log` records FAILFAST READ rejection; `ext4-1789253701121336829.log` records the udev permission race. The lab now waits for read/write access before declaring device readiness.
+
+Release verification (2026-09-13): committed implementation `e635c5e` passed another three fresh-image repetitions in 3.861 seconds; see `evidence/ext4-1789255520952406853.log`. The release developer gate is recorded in `evidence/ext4-release-development-2026-09-13.log`.
+
+The known ext4 mount issue in the appendix is closed. This proves the clean filesystem lifecycle, not crash or power-loss durability.
 
 ## Delivery 2: V1.0 XFS correctness
 
@@ -170,7 +188,7 @@ We gain filesystem and database workloads that expose real block-protocol requir
 ### Report
 
 ```text
-Status:       open
+Status:       closed by V0.9 acceptance on 2026-09-12
 Observed at:  commit 1e2899d
 System:       Linux 7.0.0-29-generic, ublk_drv, mke2fs 1.47.0
 Works:        mkfs.ext4, e2fsck, direct flag-free fio
@@ -206,7 +224,7 @@ Daemon result: any nonzero flag bits after the opcode return EOPNOTSUPP
 Test state:   the existing unit test requires META-tagged READ to fail
 ```
 
-`decode_request` currently applies this rule:
+At the observed commit, `decode_request` applied this rule:
 
 ```rust
 let operation = descriptor.op_flags & 0xff;

@@ -6,6 +6,8 @@ A Linux-only log-structured block device experiment. Rust is authoritative and i
 
 Goals 1 and 2 are complete. ADR-03's engine, serialized ublk frontend and live regular-file `fio` acceptance gates pass. V0.8 acceptance is complete.
 
+ADR-06 Delivery 1 (V0.9 ext4) is complete. Three fresh-image ext4 lifecycles passed, including all 12 filesystem checks, exact content verification, clean daemon restarts and cleanup. The final `make lint test` passed. This does not establish crash or power-loss durability.
+
 [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
 
 The completed minimum credible device sequence is:
@@ -27,6 +29,7 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5 through V0.8.
 - [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
 - [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
+- [ADR-06: filesystem and PostgreSQL correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the filesystem acceptance sequence. Delivery 1 is complete; later deliveries have not started.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API
@@ -46,7 +49,7 @@ Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT
 
 ## Testing
 
-These descriptions record the test behavior at V0.8. Update them when a target changes.
+V0.8 gates remain the regression baseline. V0.9 adds the accepted ext4 lifecycle.
 
 ### Development loop
 
@@ -94,6 +97,44 @@ Run all repository gates with:
 ```sh
 make lint test test-acceptance test-ublk-fio
 ```
+
+### Normal-user ext4 development and acceptance
+
+Build and test as the normal user:
+
+```sh
+make lint test
+make build-ext4
+make check-ext4
+```
+
+`make test` includes META/FAILFAST regression tests, file-workload checks, mount-table validation, helper ownership/argument checks, runtime-directory preflight, command deadlines and failure-evidence tests. It does not mount filesystems, invoke sudo or require filesystem tools. `make check-ext4` checks live prerequisites but creates no backing image, device or mount.
+
+The live lab also runs as the normal user. It uses a separately installed root-owned helper only for mount and unmount. Complete the normal-user ublk setup in the next section. After reviewing the helper and granting operator approval, install it once:
+
+```sh
+sudo bash scripts/install-ext4-helper.sh
+```
+
+The installer copies the already-built `block-storage-mount` binary into `/usr/local/libexec` and installs a sudo rule for the invoking user. It also creates `/run/ublksrvd` as a private directory for that user. A tmpfiles rule recreates it after reboot: libublk writes its device metadata there. This setup supports one developer and refuses to take over a runtime directory owned by someone else. It does not build code, load modules, create devices or mount filesystems. Reinstall after changing the helper; preflight refuses a stale installed binary. Never grant passwordless sudo to the lab binary in the writable build directory.
+
+The helper validates the kernel-recorded ublk owner, device geometry and the owned directory under `/tmp`. It pins device/directory descriptors and serializes helper calls with a root-owned lock. It mounts only ext4 with `nosuid,nodev`; filesystem journaling and barrier defaults remain unchanged. It creates a caller-owned `work` directory inside the filesystem. Unmount validates the exact mount and refuses aliases, nested mounts, force and lazy unmount.
+
+This is a privilege grant for a trusted local developer, not a sandbox for hostile filesystem images. The kernel still parses ext4 data supplied by that developer. Use a disposable VM for untrusted images.
+
+Once the operator approves live mount operations, run:
+
+```sh
+make test-ext4
+```
+
+The gate runs three fresh-image repetitions. Each exposes a 128 MiB device backed by a 1 GiB regular file. It uses default `mkfs.ext4`, four unmounted `e2fsck -f -n` checks, synced file operations, exact content comparisons, hashes and a clean daemon restart. The accepted run took 3.989 seconds on Linux 7.0.0-31-generic with e2fsprogs 1.47.2; see `evidence/ext4-1789253771549431348.log`. No crash or power-loss guarantee is inferred.
+
+Defaults are 60 seconds per child command and 600 seconds for the suite. `TEST_PER_TEST_SECONDS` and `TEST_SUITE_SECONDS` override the lab limits; the privileged helper has its own 60-second alarm. Failure cleanup gets one 60-second reserve plus bounded child reaping. The lab fails rather than starting another operation after its deadline.
+
+Evidence is written to `evidence/ext4-*.log`, including versions, binary fingerprints, geometry, commands, timings and results. Failures retain the owned temporary directory, image and raw output. If mount or device identity is ambiguous, the lab preserves the daemon and reports its PID and paths for operator recovery. Do not delete those resources until their identities and mount state have been checked. On success, the lab removes its mount, device, children and temporary directory.
+
+To revoke the helper grant, remove `/etc/sudoers.d/block-storage-ext4-<user>` and `/usr/local/libexec/block-storage-mount` as an administrator after confirming no lab run is active. Remove `/etc/tmpfiles.d/block-storage-ublk.conf` if the private runtime directory is no longer needed.
 
 ### Normal-user ublk setup
 
@@ -146,4 +187,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance; medium-write faults, compaction and wraparound remain outside ADR-03.
+The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 adds ext4 correctness across clean restarts. Medium-write faults, compaction and wraparound remain outside ADR-03.
