@@ -108,6 +108,141 @@ The USENIX ’95 comparison found LFS about 50% faster than FFS without cleaning
 
 Do not choose a shared cross-volume log solely from the volume count. It can improve batching and allocation but couples recovery, cleaning, and failure scope. Per-volume logs simplify whole-volume deletion and isolation. Measure those trade-offs before introducing a shared pool.
 
+## Proposed on-disk changes for online reclamation
+
+Status: proposal for discussion, not an accepted format. [ADR-04](../ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) says that "V2 does not define segment reuse". Its last open question asks when replacement compaction stops being enough and segmented online cleaning is needed. This section writes down the on-disk changes that cleaning needs, so we can judge the cost before drafting a compaction ADR.
+
+### This is segment cleaning, not LSM merging
+
+An LSM tree merges its files because it stores keys in sorted runs, and one lookup may have to check every run. Merging keeps that read cost bounded.
+
+This engine does not have that problem. It keeps an exact map from LBA to physical block, so one read touches one record. There is nothing to merge.
+
+The mechanism we need is segment cleaning, taken from LFS, F2FS and flash translation layers. It works like this:
+
+1. Split the physical log into fixed-size segments.
+2. Count how many blocks in each segment are still live.
+3. Pick a segment with few live blocks.
+4. Copy those live blocks to the head of the log.
+5. Mark the segment free and write to it again.
+
+One rule from the LSM world still applies: write the copies, then write the new map, then release the old space. WiscKey section 3.3.2 states it.
+
+### What V2 already does, and what it leaves open
+
+Most of V2 grows the volume. Very little of it reuses space.
+
+| V2 mechanism | What it does | What it leaves open |
+|---|---|---|
+| Fixed roots, arena generation | Boots without reading a size-dependent layout, and moves metadata safely. | Frees no payload blocks. |
+| `GROW_LOGICAL` | Grows the size the user sees. | Adds no physical space. |
+| `PROVISION_BACKING` | Claims more physical space. | Delays the problem. It takes more medium instead of reusing the medium it holds. |
+| `CHECKPOINT_ARENA` | Grows checkpoint capacity. | Strands the old arena until a full-image compaction runs. |
+| Replacement-image compaction | Frees space offline, with a short crash argument. | Needs a pause, a second image, and an external owner to swap them. |
+
+When the log fills, V2 grows. That works while the medium can grow and the volume can go offline to compact. It is not a way to run sustained overwrites.
+
+One boundary matters for scoping:
+
+**Cleaning frees physical blocks. It does not reduce `mapped_entries`.**
+
+Checkpoint write volume, arena capacity and resident RAM all follow `mapped_entries`. That number drops only when a discard path removes mappings. The RAM and checkpoint costs described earlier in this document are therefore separate work, and a cleaning ADR should not claim to fix them.
+
+### The on-disk changes
+
+Five changes. Segments cover only the data-log region. Checkpoint arenas stay outside it and keep V2's existing rules.
+
+**1. Store the segment size in FORMAT.**
+
+Add an immutable `segment_blocks` field. The log region runs from the first log block to `provisioned_backing_blocks` and splits into segments of that size. Arenas are not part of the split.
+
+**2. Put a header block at the start of each segment.**
+
+It holds the volume ID, the segment index, a `segment_epoch`, and the LSN at which the segment was opened. The epoch rises by one every time the segment is reused.
+
+The epoch is not needed to stop replay. V2 already checks the record LSN and the previous-record link. A record left over from the segment's earlier life carries an old LSN and a back-link that does not match, so replay stops there, exactly as it stops at a stale tail today.
+
+The epoch is needed for three other things: an offline salvage tool, which scans blocks without that chain context; telling a reused region apart from a corrupt one under ADR-05's policy; rebuilding segment state cheaply at startup.
+
+ADR-04 already asks for this, as "recycle that segment with a new generation".
+
+**3. Write a summary at the end of each segment.**
+
+When a segment is sealed, write its reverse map, physical block to LBA, into the last blocks of the segment. It needs `ceil(segment_blocks * 4 / 4096)` blocks.
+
+At 64 MiB segments that is 16 blocks out of 16384, or 0.10%. Without it, the cleaner reads one record header every few blocks to learn which LBAs a segment holds. With it, the cleaner does one sequential read.
+
+**4. Add a segment table to the checkpoint body.**
+
+The body becomes the segment table followed by the existing sorted mapping entries, with one checksum over both. The descriptor field at offset 60, currently zero, becomes `segment_table_blocks`.
+
+Each segment gets a 16-byte entry holding its epoch and its state: free, open, sealed, cleaning or reclaimable. At 64 MiB segments over 1 TiB provisioned that is 16384 entries, 64 blocks, 256 KiB per checkpoint.
+
+Do not store live-block counts. Derive them at startup by counting how many recovered mapping entries fall in each segment. Then keep them current on the write path: when a write moves LBA `L`, subtract one from the segment holding its old physical block and add one to the segment holding the new one. One array decrement per write pays for victim selection.
+
+**5. Change two validation rules.**
+
+V2 rejects a mapping entry whose physical block sits at or after the checkpoint's append block. Once segments are reused, a block's position no longer tells you its age, so that test breaks. Replace it: the block must fall inside the log region, and its segment must not be free.
+
+V2 also finds the next record at `header + 1 + payload_blocks`. That still holds inside a segment. It does not hold across a segment boundary. So recovery stores an append position as a segment plus an offset, and replays segments in the order given by their header's open LSN.
+
+### When a segment may be reused
+
+ADR-04 already gives the rule:
+
+> Never overwrite or reclaim a physical payload while either valid root can select a checkpoint that references it.
+
+There are two roots and they alternate, so a segment is safe to reuse only after both have been rewritten without it. That gives this order:
+
+```text
+1. copy the live blocks out as normal WRITE records, then fsync
+2. update the in-memory map
+3. write a checkpoint into the inactive slot   -> one root is now clean
+4. write a checkpoint into the other slot      -> both roots are now clean
+5. mark the segment free and raise its epoch
+```
+
+Between steps 2 and 4 the segment is `reclaimable` and the allocator must not hand it out. Each release costs two checkpoints, so clean several segments per cycle and release them together.
+
+Two more rules follow from the format as it stands.
+
+A record is live only if `mapping[lba]` holds that exact physical block. Checking that the block sits inside the victim segment is not enough. If a write lands on that LBA while the cleaner runs, the cleaner must not overwrite it with the older copy it is carrying.
+
+Payload checksums are seeded with the physical block, so a cleaner that moves a block must verify it with the old address and recompute it with the new one. That is CPU work, not a reason to drop the physical block from the seed. Keeping it is what detects a misdirected write.
+
+Keep the single serialized writer, and submit the cleaner's copies as ordinary WRITE records through it. Then there is no cleaner-versus-writer race to get right. Give the cleaner its own thread later, if a latency measurement says you must.
+
+### Free space and backpressure
+
+The cleaner needs somewhere to write. Reserve at least two segments, one for foreground writes and one for the cleaner's copies, and stall foreground writes above that reserve.
+
+The device advertises a fixed size and cannot return `ENOSPC`, so stalling is the only correct behaviour when space runs out. This means the cleaner must make progress while every foreground write is blocked.
+
+Giving the cleaner its own segment is also the cheapest useful placement rule. A block that survived cleaning is colder than a fresh write, almost by definition, and mixing the two is what leaves segments stuck at half live. Do this before trying to guess which LBAs are hot. An opaque block layer cannot know.
+
+Build victim selection in this order. FIFO first, because it is correct and small. Then greedy, picking the segment with the fewest live blocks. Then cost-benefit, but only if a trace shows greedy copying the same cold data again and again.
+
+### Two open questions
+
+**How big should a segment be?**
+
+`segment_blocks` is fixed when the image is formatted and never changes. But a volume can start at 128 MiB and reach 8 TiB, and no single value covers both ends:
+
+- At 64 MiB, a 128 MiB volume holds 2 segments. Cleaning needs 2 free segments to work, so that volume can never clean.
+- At 4 MiB, an 8 TiB volume holds 2 million segments. The segment table reaches 32 MiB, written in every checkpoint.
+
+There are two ways out.
+
+Accept the limit. Pick a large segment size. A small volume then never cleans: when it fills it calls `PROVISION_BACKING` and grows. V2 already behaves this way, so this costs nothing new. This is the recommended option.
+
+Or let the size change. Add a record that sets a new `segment_blocks`. A region cannot be re-cut into different-sized segments while data sits in it, so every live block must be copied out first. That copy costs as much as the offline compaction V2 already has.
+
+**When should the engine grow, and when should it clean?**
+
+Both answer the same signal: free space is low. V2 has only the growth answer. The obvious policy is a threshold on the live fraction, cleaning when the log holds enough dead blocks to be worth recovering and growing when it does not. Where that threshold sits depends on the price of medium against the write amplification of copying. Take it from the trace model, not from a guess.
+
+**Recommendation:** build the metadata-only trace model described in the next section before writing any of this format. It needs no format change and no I/O, and it tells you the segment size, the reserve, and whether greedy selection is enough. Review the on-disk changes above against ADR-04's reuse rule now, but do not implement them until those numbers exist.
+
 ## Small experiments that can change the design
 
 These are proposed investigations, not completed tests or new acceptance requirements. They do not replace the current filesystem correctness work.
