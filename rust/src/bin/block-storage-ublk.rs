@@ -1,6 +1,9 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("block-storage-ublk requires Linux");
 
+#[path = "ublk_support/request_counts.rs"]
+mod request_counts;
+
 use libublk::ctrl::{UblkCtrl, UblkCtrlBuilder};
 use libublk::helpers::IoBuf;
 use libublk::io::{BufDescList, UblkDev, UblkQueue};
@@ -437,6 +440,26 @@ fn handle_buffered_request(
     }
 }
 
+fn handle_queue_request(
+    volume: &mut block_storage::Volume,
+    descriptor: &ublksrv_io_desc,
+    buffer: &mut [u8],
+    drain: &DrainState,
+    queue_error: &mut Option<io::Error>,
+) -> i32 {
+    let outcome = handle_buffered_request(volume, descriptor, buffer);
+    if outcome.fatal {
+        drain.queue_failed.store(true, Ordering::Release);
+        queue_error.get_or_insert_with(|| {
+            io::Error::other(format!(
+                "fatal request: op_flags={:#x} errno={}",
+                descriptor.op_flags, outcome.completion
+            ))
+        });
+    }
+    outcome.completion
+}
+
 fn complete_fetched_request<C, E>(
     work: EngineWork<'_>,
     context: &mut C,
@@ -549,19 +572,21 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainS
     };
 
     let mut queue_error = None;
+    let mut requests = request_counts::RequestCounts::new();
     queue.wait_and_handle_io(|queue, tag, _context| {
+        let before_ready = !drain.device_ready.load(Ordering::Acquire);
+        let op_flags = queue.get_iod(tag).op_flags;
         let mut context = (&mut volume, buffers[0].as_mut_slice());
+        let work = drain.begin_engine_work();
+        let cancelled = matches!(&work, EngineWork::Rejected(_));
         let completion = complete_fetched_request(
-            drain.begin_engine_work(),
+            work,
             &mut context,
             |(volume, buffer)| {
-                let outcome = handle_buffered_request(volume, queue.get_iod(tag), buffer);
-                if outcome.fatal {
-                    drain.queue_failed.store(true, Ordering::Release);
-                }
-                outcome.completion
+                handle_queue_request(volume, queue.get_iod(tag), buffer, &drain, &mut queue_error)
             },
             |(_, buffer), result| {
+                requests.record(op_flags, before_ready, result, cancelled);
                 queue.complete_io_cmd_unified(
                     tag,
                     BufDesc::Slice(buffer),
@@ -577,6 +602,11 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainS
         }
     });
 
+    if let Err(error) = requests.report(&mut io::stderr().lock()) {
+        queue_error = Some(io::Error::other(format!(
+            "request evidence failed: {error}; queue error: {queue_error:?}"
+        )));
+    }
     close_after_queue(&state, volume, queue_error.map_or(Ok(()), Err));
 }
 
@@ -1352,7 +1382,16 @@ mod tests {
         );
 
         let drain = DrainState::new();
-        drain.queue_failed.store(failure.fatal, Ordering::Release);
+        let mut queue_error = None;
+        assert_eq!(
+            handle_queue_request(&mut volume, &read, &mut buffer, &drain, &mut queue_error),
+            -libc::EIO
+        );
+        assert!(drain.queue_failed.load(Ordering::Acquire));
+        assert!(queue_error.is_some());
+        let close_result = volume.close();
+        assert!(close_result.is_ok());
+        assert!(combine_shutdown_results(queue_error.map_or(Ok(()), Err), close_result).is_err());
         let mut post_failure = (0, Vec::new());
         complete_fetched_request(
             drain.begin_engine_work(),
