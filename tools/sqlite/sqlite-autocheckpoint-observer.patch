@@ -1,0 +1,27 @@
+--- sqlite3.c
++++ sqlite3.c
+@@ -187372,6 +187372,8 @@
+ ** is greater than sqlite3.pWalArg cast to an integer (the value configured by
+ ** wal_autocheckpoint()).
+ */
++extern void sqlite_lab_auto_checkpoint(const char*, int, int, int, int);
++
+ SQLITE_PRIVATE int sqlite3WalDefaultHook(
+   void *pClientData,     /* Argument */
+   sqlite3 *db,           /* Connection */
+@@ -187379,9 +187381,14 @@
+   int nFrame             /* Size of WAL */
+ ){
+   if( nFrame>=SQLITE_PTR_TO_INT(pClientData) ){
++    int nLog = -1;
++    int nCkpt = -1;
++    int rc;
+     sqlite3BeginBenignMalloc();
+-    sqlite3_wal_checkpoint(db, zDb);
++    rc = sqlite3_wal_checkpoint_v2(
++        db, zDb, SQLITE_CHECKPOINT_PASSIVE, &nLog, &nCkpt);
+     sqlite3EndBenignMalloc();
++    sqlite_lab_auto_checkpoint(zDb, nFrame, rc, nLog, nCkpt);
+   }
+   return SQLITE_OK;
+ }
