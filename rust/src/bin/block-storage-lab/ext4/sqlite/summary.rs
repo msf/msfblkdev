@@ -331,6 +331,14 @@ mod tests {
     }
 
     #[test]
+    fn summary_preserves_reported_throughput_exactly() {
+        let input = "119551.02984339283";
+        let value: Value = serde_json::from_str(input).unwrap();
+        assert_eq!(value.as_f64(), Some(input.parse::<f64>().unwrap()));
+        assert_eq!(serde_json::to_string(&value).unwrap(), input);
+    }
+
+    #[test]
     fn expected_set_is_exact() {
         assert!(validate_expected_set(&matrix::full()).is_ok());
         assert!(validate_expected_set(&matrix::full()[..2]).is_err());
