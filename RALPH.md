@@ -8,7 +8,8 @@ Active specifications:
 2. [ADR-02](ADR-02-GOAL-1-BASIC-READ-WRITE.md)
 3. [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), completed regression baseline
 4. [ADR-06 Delivery 1: V0.9 ext4 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md#delivery-1-v09-ext4-correctness), completed delivery
-5. [GOAL-XFS.md](GOAL-XFS.md), prepared V1.0 goal with its operator prerequisites and acceptance scope
+5. [GOAL-XFS.md](GOAL-XFS.md), completed V1.0 delivery
+6. [ADR-06 Delivery 3: V1.1 SQLite and RocksDB correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md#delivery-3-v11-sqlite-and-rocksdb-correctness), approved after the XFS closure commits
 
 ## One-hour loop
 
@@ -21,14 +22,14 @@ If the criterion cannot be completed safely in the time box, make no commit. Rep
 
 ## Rules
 
-- ADR-02, ADR-03 and ADR-06 Delivery 1 are closed. Work only on the delivery selected by the active approved goal. GOAL-XFS.md selects ADR-06 Delivery 2; SQLite, RocksDB, PostgreSQL, batching, format changes and crash testing are outside that loop.
+- ADR-02, ADR-03 and ADR-06 Deliveries 1 and 2 are closed. Work only on the delivery selected by the active approved goal. Delivery 3 runs SQLite first, then RocksDB, on both accepted filesystems. PostgreSQL, engine batching, format changes and crash testing remain outside this loop.
 - Evolve only the Rust implementation. Do not update Zig or restore image compatibility.
 - Do not redesign the persistent format from a worker loop.
 - ADR acceptance text is immutable to workers. A worker may only change `[ ]` to `[x]` for behavior proved by the same commit and add concise evidence.
 - Prefer a failing test followed by its fix in the same local iteration. The committed state must be green.
 - Stage explicit paths only. Never use `git add .` or `git add -A`.
 - Do not push, amend, rebase or reset existing commits.
-- Do not load kernel modules, create or format LVM logical volumes, manipulate arbitrary block devices, reboot the host or trigger a real out-of-memory condition. The only permitted `sudo` command is the installed `block-storage-mount` helper, and only when the active goal explicitly approves its scoped live mount operations.
+- Do not load kernel modules, create or format LVM logical volumes, manipulate arbitrary block devices, reboot the host or trigger a real out-of-memory condition. The only permitted `sudo` command is the installed `block-storage-mount` helper, and only for the operator-approved mount, unmount and XFS formatter actions on owned test fixtures.
 - `SIGKILL` tests must target only child processes created by the test.
 - Live acceptance requires explicit operator approval, which may be granted in the active goal for unattended runs through the installed helper. Workers must not install or modify privileged host configuration. Dedicated-LV validation is optional and never blocks Ralph.
 

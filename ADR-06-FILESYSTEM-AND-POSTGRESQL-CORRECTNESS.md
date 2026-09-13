@@ -3,7 +3,7 @@
 Date: 2026-08-30
 Author: Miguel Filipe
 Status: proposed
-Goal status: V0.9 complete; V1.0, V1.1 and V1.2 not started
+Goal status: V0.9 and V1.0 complete; V1.1 and V1.2 not started
 On-disk format: 1 (unchanged)
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
 Updates: the ADR-01 delivery order when accepted
@@ -40,9 +40,9 @@ Optional block operations remain unadvertised until the engine implements their 
 
 ## Operator and test boundary
 
-Build and run the filesystem lab as the normal user. Only mount and unmount use a separately installed, root-owned helper through a user-specific sudo rule. The helper accepts only caller-owned unprivileged ublk devices and owned lab directories. Do not grant sudo access to a user-writable lab binary.
+Build and run the filesystem lab as the normal user. Mount, unmount and XFS formatting use a separately installed, root-owned helper through a user-specific sudo rule. Default `mkfs.xfs` requires privilege for Linux's `BLKBSZSET` ioctl; the operator approved this narrow formatter exception. The daemon, ext4 formatter, filesystem checkers and workload remain unprivileged. The helper accepts only caller-owned unprivileged ublk devices and owned lab directories. Do not grant sudo access to a user-writable lab binary.
 
-Use default ext4 formatting and storage behavior. The helper adds only `nosuid,nodev` to restrict the privilege grant. It does not disable journaling or durability barriers. Live mount operations require explicit operator approval.
+Use default ext4 and XFS formatting and storage behavior. The helper adds only `nosuid,nodev` to restrict the privilege grant. It does not disable journaling or durability barriers. Live mount operations require explicit operator approval.
 
 The lab must:
 
@@ -115,13 +115,23 @@ XFS validation uses `xfs_repair -n` against the unmounted ublk device. `fsck.xfs
 
 Acceptance tests:
 
-- [ ] `mkfs.xfs` succeeds on a fresh recorded ublk device with a supported volume size.
-- [ ] `xfs_repair -n` succeeds before the first mount, after the first unmount, after the daemon restart and after the final unmount.
-- [ ] The mounted file operations complete without an unsupported request, panic or hang.
-- [ ] File hashes match before unmount, after remount and after the clean daemon restart.
-- [ ] The evidence records every ublk operation and flag that the XFS lifecycle uses.
-- [ ] The lab removes every owned mount, ublk device and temporary file on success.
-- [ ] `make lint test` passes without weakening V0.9 or ADR-03 coverage.
+- [x] `mkfs.xfs` succeeds on a fresh recorded ublk device with a supported volume size.
+- [x] `xfs_repair -n` succeeds before the first mount, after the first unmount, after the daemon restart and after the final unmount.
+- [x] The mounted file operations complete without an unsupported request, panic or hang.
+- [x] File hashes match before unmount, after remount and after the clean daemon restart.
+- [x] The evidence records every ublk operation and flag that the XFS lifecycle uses.
+- [x] The lab removes every owned mount, ublk device and temporary file on success.
+- [x] `make lint test` passes without weakening V0.9 or ADR-03 coverage.
+
+Acceptance on 2026-09-13, committed implementation `0a5af77`:
+
+- `evidence/xfs-1789263094765541439.log`: three fresh 512 MiB XFS devices with 4 GiB backing files passed in 6783 ms. All 12 unmounted `xfs_repair -n` checks, exact content/hash/directory verification and six clean daemon stops passed. XFS tools were version 6.18.0 on Linux 7.0.0-31-generic; backing files were on `/tmp` tmpfs.
+- The observed `op_flags` were `0x0` (READ), `0x1` (WRITE), `0x2` (FLUSH), `0x700` (READ with FAILFAST hints), `0x800` (META READ) and `0x801` (META WRITE). No additional request hints were enabled. Counters cover every fetched request from queue startup through shutdown, with a 64-combination bound. The lab requires complete reports and zero real I/O errors. It records drain-rejected `ESHUTDOWN` cancellations separately; they are not engine requests or unsupported operations.
+- `evidence/ext4-1789263101551586783.log`: the three-repetition ext4 regression passed in 3858 ms, including all 12 checks. `evidence/xfs-release-development-2026-09-13.log` records passing `make lint test check-xfs test-xfs test-ext4`. `evidence/xfs-release-audit-2026-09-13.log` records independent fixture, process, device and mount cleanup verification.
+
+Protocol 3 adds only the approved `format-xfs` helper action. It validates the unmounted owned device, uses the default system formatter through a pinned descriptor, clears its environment, and preserves the lock and deadline across exec. The original privilege failure and its diagnosis are preserved in `evidence/xfs-privilege-blocker-2026-09-13.md`. Review also fixed propagation of pre-existing fatal engine errors into daemon exit status; an existing checksum-error regression now exercises that queue path.
+
+This proves the clean lifecycle, not crash or power-loss durability.
 
 V0.9 and V1.0 are complete before any ADR-04 or ADR-05 implementation delivery starts.
 
@@ -293,4 +303,4 @@ Reject:  unknown flags until each flag has reviewed semantics and tests
 Verify:  unit decoding, ext4 mount lifecycle, hashes and e2fsck checks
 ```
 
-The claim is limited to the observed ext4 failure. XFS behavior remains unverified until V1.0.
+The original claim was limited to the observed ext4 failure. Delivery 2 records the subsequent XFS validation.

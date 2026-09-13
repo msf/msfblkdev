@@ -1,0 +1,141 @@
+filesystem: xfs
+limits: repetitions=3 per_command_s=60 suite_s=600 volume_bytes=536870912 backing_bytes=4294967296
+repetition: 1/3
+fixture: /tmp/my-block-storage-ublk.131553.0 identity=52:22252
+command commit at_ms=0: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.131553.0/001-commit.stdout ---
+12dbe34a4eaa3247fb767837edf85611da9d84ae
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.131553.0/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=10: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.131553.0/002-worktree.stdout ---
+ M Makefile
+ M rust/src/bin/block-storage-lab/config.rs
+ M rust/src/bin/block-storage-lab/evidence.rs
+ M rust/src/bin/block-storage-lab/ext4/commands.rs
+ M rust/src/bin/block-storage-lab/ext4/lifecycle.rs
+ M rust/src/bin/block-storage-lab/ext4/mod.rs
+ M rust/src/bin/block-storage-lab/ext4/workload.rs
+ M rust/src/bin/block-storage-lab/main.rs
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258053832864833.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789258389760150553.log
+?? manual-test-ext4.txt
+?? rust/src/bin/block-storage-lab/filesystem.rs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.131553.0/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=21: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.131553.0/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.131553.0/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=19994288 xxh3=989b81e6979bd3f5
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=20655960 xxh3=09e54a1dcb96cbb7
+command mkfs-version at_ms=339: "mkfs.xfs" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.131553.0/004-mkfs-version.stdout ---
+mkfs.xfs version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.131553.0/004-mkfs-version.stderr ---
++++ exited with 0 +++
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command xfs-repair-version at_ms=350: "xfs_repair" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.131553.0/005-xfs-repair-version.stdout ---
+xfs_repair version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.131553.0/005-xfs-repair-version.stderr ---
+
+--- end stderr ---
+command xfs-repair-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+resources: available_memory_bytes=51054637056 available_tmp_bytes=32461004800
+kernel filesystem support: xfs
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17675384 xxh3=9035735403cbd110
+binary: /usr/local/libexec/block-storage-mount bytes=17675384 xxh3=9035735403cbd110
+helper binary match: PASS
+command helper-preflight at_ms=598: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.131553.0/006-helper-preflight.stdout ---
+block-storage-mount protocol=2 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.131553.0/006-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=614: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.131553.0/backing.img", "4294967296", "536870912"]
+--- stdout: /tmp/my-block-storage-ublk.131553.0/007-format.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.131553.0/007-format.stderr ---
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=625: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.131553.0/backing.img", "-1"]
+daemon pid=131566
+device: /dev/ublkb0 number=(259, 4) class=25:85043 node=7:1747
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Mkfs
+command Mkfs at_ms=707: "mkfs.xfs" ["/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.131553.0/009-Mkfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.131553.0/009-Mkfs.stderr ---
+ioctl(3, BLKGETSIZE64, [536870912])     = 0
+ioctl(3, FDGETFDCSTAT, 0x7ffca802cf20)  = -1 ENOTTY (Inappropriate ioctl for device)
+ioctl(3, CDROM_GET_CAPABILITY, 0)       = -1 ENOTTY (Inappropriate ioctl for device)
+ioctl(3, CDROM_LAST_WRITTEN, 0x7ffca802ce60) = -1 ENOTTY (Inappropriate ioctl for device)
+ioctl(3, BLKGETZONESZ, [0])             = 0
+ioctl(3, BLKIOOPT, [4096])              = 0
+ioctl(3, BLKSSZGET, [4096])             = 0
+ioctl(3, BLKGETSIZE64, [536870912])     = 0
+ioctl(3, BLKGETZONESZ, [0])             = 0
+ioctl(3, BLKBSZSET, [4096])             = -1 EACCES (Permission denied)
+mkfs.xfs: error - cannot set blocksize 4096 on block device /dev/ublkb0: Permission denied
++++ exited with 1 +++
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(256)))) elapsed_ms=10 cleanup=Ok(())
+result: FAIL Mkfs failed: exit status: 1
+failure cleanup: at most 60s plus bounded child reaping; backing and logs are retained
+kernel block I/O counters before stop: 489        0     3912        7        0        0        0        0        0        6        7        0        0        0        0        0        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.131553.0/008-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.131553.0/008-daemon.stderr ---
+
+--- end daemon stderr ---
+preserved fixture: /tmp/my-block-storage-ublk.131553.0

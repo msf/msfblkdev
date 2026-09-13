@@ -1,0 +1,3 @@
+xfs-1789263094765541439.log: PASS; 3 fresh fixtures, 12 unmounted checks, 9 workload checks, 6 clean stops, 6 complete request reports; elapsed_ms=6783; op_flags=['0x0', '0x1', '0x2', '0x700', '0x800', '0x801']; fixtures/PIDs absent
+ext4-1789263101551586783.log: PASS; 3 fresh fixtures, 12 unmounted checks, 9 workload checks, 6 clean stops, 6 complete request reports; elapsed_ms=3858; op_flags=['0x0', '0x1', '0x2', '0x700', '0x800', '0x801', '0xf00']; fixtures/PIDs absent
+post-run host audit: no ublk devices or lab mounts

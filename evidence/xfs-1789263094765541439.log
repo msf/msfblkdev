@@ -1,0 +1,1216 @@
+filesystem: xfs
+limits: repetitions=3 per_command_s=60 suite_s=600 volume_bytes=536870912 backing_bytes=4294967296
+repetition: 1/3
+fixture: /tmp/my-block-storage-ublk.178194.0 identity=52:25594
+command commit at_ms=0: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/001-commit.stdout ---
+0a5af7768eb029a010f38397969025b99767aef4
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=10: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/002-worktree.stdout ---
+ M GOAL-XFS.md
+M  papers/README.md
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789258515152971194.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258053832864833.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789258389760150553.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? evidence/xfs-1789263094226909258.log
+?? evidence/xfs-1789263094765541439.log
+?? evidence/xfs-privilege-blocker-2026-09-13.md
+?? manual-test-ext4.txt
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command kernel at_ms=22: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command backing-filesystem at_ms=33: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.178194.0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/004-backing-filesystem.stdout ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/004-backing-filesystem.stderr ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=20343496 xxh3=3e52d6536f7032db
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=21073400 xxh3=d790da2c3501fe47
+command mkfs-version at_ms=276: "/usr/sbin/mkfs.xfs" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/005-mkfs-version.stdout ---
+mkfs.xfs version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/005-mkfs-version.stderr ---
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command xfs-repair-version at_ms=287: "/usr/sbin/xfs_repair" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/006-xfs-repair-version.stdout ---
+xfs_repair version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/006-xfs-repair-version.stderr ---
+
+--- end stderr ---
+command xfs-repair-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+resources: available_memory_bytes=50675515392 available_tmp_bytes=32404258816
+kernel filesystem support: xfs
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+binary: /usr/local/libexec/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+helper binary match: PASS
+command helper-preflight at_ms=477: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/007-helper-preflight.stdout ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/007-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=493: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.178194.0/backing.img", "4294967296", "536870912"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/008-format.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/008-format.stderr ---
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=504: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.178194.0/backing.img", "-1"]
+daemon pid=178207
+device: /dev/ublkb0 number=(259, 4) class=25:95592 node=7:2516
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Mkfs
+command Mkfs at_ms=588: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "format-xfs", "0", "my-block-storage-ublk.178194.0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/010-Mkfs.stdout ---
+meta-data=/proc/self/fd/5        isize=512    agcount=4, agsize=32768 blks
+         =                       sectsz=4096  attr=2, projid32bit=1
+         =                       crc=1        finobt=1, sparse=1, rmapbt=1
+         =                       reflink=1    bigtime=1 inobtcount=1 nrext64=1
+         =                       exchange=0   metadir=0
+data     =                       bsize=4096   blocks=131072, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0, ftype=1, parent=0
+log      =internal log           bsize=4096   blocks=16384, version=2
+         =                       sectsz=4096  sunit=1 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+         =                       rgcount=0    rgsize=0 extents
+         =                       zoned=0      start=0 reserved=0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/010-Mkfs.stderr ---
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=1037 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=1626: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/011-Check(1).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/011-Check(1).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 3
+        - agno = 1
+        - agno = 2
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=1647: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.178194.0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/012-mount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/012-mount-xfs.stderr ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=50 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.178194.0/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Populate
+command workload at_ms=1699: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-populate"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/013-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/013-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=60 cleanup=Ok(())
+step: Verify
+command workload at_ms=1764: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-verify"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/014-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/014-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=1800: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.178194.0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/015-unmount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/015-unmount-xfs.stderr ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=1821: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/016-Check(2).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/016-Check(2).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 1
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1839        0    14712       51    17422        0   139328     1111        0     1023     1163        0        0        0        0       35        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.178194.0/009-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.178194.0/009-daemon.stderr ---
+request-count op_flags=0x0 count=748 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x1 count=16849 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=35 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1019 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x800 count=72 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=567 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=19290 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=1912: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.178194.0/backing.img", "-1"]
+daemon pid=178738
+device: /dev/ublkb0 number=(259, 4) class=25:95792 node=7:2536
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Check(3)
+command Check(3) at_ms=1984: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/018-Check(3).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/018-Check(3).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 3
+        - agno = 2
+        - agno = 1
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=40 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=2025: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.178194.0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/019-mount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/019-mount-xfs.stderr ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=61 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.178194.0/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Verify
+command workload at_ms=2087: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-verify"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/020-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/020-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=2122: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.178194.0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/021-unmount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/021-unmount-xfs.stderr ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=2143: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.0/022-Check(4).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.0/022-Check(4).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 3
+        - agno = 1
+        - agno = 2
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1819        0    14552       81      519        0     4120       71        0       84      153        0        0        0        0        8        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.178194.0/017-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.178194.0/017-daemon.stderr ---
+request-count op_flags=0x0 count=791 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=8 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=932 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x800 count=96 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=515 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=5 total=2342 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 1: PASS; all owned resources removed
+repetition: 2/3
+fixture: /tmp/my-block-storage-ublk.178194.1 identity=52:25642
+command commit at_ms=2250: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/001-commit.stdout ---
+0a5af7768eb029a010f38397969025b99767aef4
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=2261: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/002-worktree.stdout ---
+ M GOAL-XFS.md
+M  papers/README.md
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789258515152971194.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258053832864833.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789258389760150553.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? evidence/xfs-1789263094226909258.log
+?? evidence/xfs-1789263094765541439.log
+?? evidence/xfs-privilege-blocker-2026-09-13.md
+?? manual-test-ext4.txt
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=2271: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=2281: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.178194.1"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/004-backing-filesystem.stdout ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/004-backing-filesystem.stderr ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=20343496 xxh3=3e52d6536f7032db
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=21073400 xxh3=d790da2c3501fe47
+command mkfs-version at_ms=2496: "/usr/sbin/mkfs.xfs" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/005-mkfs-version.stdout ---
+mkfs.xfs version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/005-mkfs-version.stderr ---
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command xfs-repair-version at_ms=2508: "/usr/sbin/xfs_repair" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/006-xfs-repair-version.stdout ---
+xfs_repair version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/006-xfs-repair-version.stderr ---
+
+--- end stderr ---
+command xfs-repair-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+resources: available_memory_bytes=50536427520 available_tmp_bytes=32404258816
+kernel filesystem support: xfs
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+binary: /usr/local/libexec/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+helper binary match: PASS
+command helper-preflight at_ms=2692: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/007-helper-preflight.stdout ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/007-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=2708: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.178194.1/backing.img", "4294967296", "536870912"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/008-format.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/008-format.stderr ---
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=2719: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.178194.1/backing.img", "-1"]
+daemon pid=179271
+device: /dev/ublkb0 number=(259, 4) class=25:95992 node=7:2552
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Mkfs
+command Mkfs at_ms=2792: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "format-xfs", "0", "my-block-storage-ublk.178194.1"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/010-Mkfs.stdout ---
+meta-data=/proc/self/fd/5        isize=512    agcount=4, agsize=32768 blks
+         =                       sectsz=4096  attr=2, projid32bit=1
+         =                       crc=1        finobt=1, sparse=1, rmapbt=1
+         =                       reflink=1    bigtime=1 inobtcount=1 nrext64=1
+         =                       exchange=0   metadir=0
+data     =                       bsize=4096   blocks=131072, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0, ftype=1, parent=0
+log      =internal log           bsize=4096   blocks=16384, version=2
+         =                       sectsz=4096  sunit=1 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+         =                       rgcount=0    rgsize=0 extents
+         =                       zoned=0      start=0 reserved=0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/010-Mkfs.stderr ---
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=1017 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=3809: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/011-Check(1).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/011-Check(1).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=3840: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.178194.1"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/012-mount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/012-mount-xfs.stderr ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=50 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.178194.1/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Populate
+command workload at_ms=3892: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-populate"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/013-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/013-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=70 cleanup=Ok(())
+step: Verify
+command workload at_ms=3967: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-verify"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/014-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/014-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=3992: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.178194.1"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/015-unmount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/015-unmount-xfs.stderr ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=4014: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/016-Check(2).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/016-Check(2).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 3
+        - agno = 2
+        - agno = 1
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 2006        0    16048       56    17422        0   139328     1085        0     1010     1142        0        0        0        0       35        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.178194.1/009-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.178194.1/009-daemon.stderr ---
+request-count op_flags=0x0 count=757 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x1 count=16849 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=35 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1177 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x800 count=72 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=567 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=19457 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=4115: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.178194.1/backing.img", "-1"]
+daemon pid=179801
+device: /dev/ublkb0 number=(259, 4) class=25:96192 node=7:2572
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Check(3)
+command Check(3) at_ms=4207: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/018-Check(3).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/018-Check(3).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=40 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=4248: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.178194.1"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/019-mount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/019-mount-xfs.stderr ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=51 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.178194.1/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Verify
+command workload at_ms=4300: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-verify"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/020-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/020-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=4335: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.178194.1"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/021-unmount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/021-unmount-xfs.stderr ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=4356: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.1/022-Check(4).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.1/022-Check(4).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 3
+        - agno = 1
+        - agno = 2
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=40 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1811        0    14488      100      519        0     4120       55        0       88      155        0        0        0        0        8        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.178194.1/017-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.178194.1/017-daemon.stderr ---
+request-count op_flags=0x0 count=791 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=8 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=924 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x800 count=96 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=515 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=5 total=2334 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 2: PASS; all owned resources removed
+repetition: 3/3
+fixture: /tmp/my-block-storage-ublk.178194.2 identity=52:25690
+command commit at_ms=4475: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/001-commit.stdout ---
+0a5af7768eb029a010f38397969025b99767aef4
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=4486: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/002-worktree.stdout ---
+ M GOAL-XFS.md
+M  papers/README.md
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789258515152971194.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258053832864833.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789258389760150553.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? evidence/xfs-1789263094226909258.log
+?? evidence/xfs-1789263094765541439.log
+?? evidence/xfs-privilege-blocker-2026-09-13.md
+?? manual-test-ext4.txt
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=4496: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=4507: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.178194.2"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/004-backing-filesystem.stdout ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/004-backing-filesystem.stderr ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=20343496 xxh3=3e52d6536f7032db
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=21073400 xxh3=d790da2c3501fe47
+command mkfs-version at_ms=4722: "/usr/sbin/mkfs.xfs" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/005-mkfs-version.stdout ---
+mkfs.xfs version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/005-mkfs-version.stderr ---
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command xfs-repair-version at_ms=4733: "/usr/sbin/xfs_repair" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/006-xfs-repair-version.stdout ---
+xfs_repair version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/006-xfs-repair-version.stderr ---
+
+--- end stderr ---
+command xfs-repair-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+resources: available_memory_bytes=50582368256 available_tmp_bytes=32404258816
+kernel filesystem support: xfs
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+binary: /usr/local/libexec/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+helper binary match: PASS
+command helper-preflight at_ms=4921: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/007-helper-preflight.stdout ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/007-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=4936: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.178194.2/backing.img", "4294967296", "536870912"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/008-format.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/008-format.stderr ---
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=4947: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.178194.2/backing.img", "-1"]
+daemon pid=180346
+device: /dev/ublkb0 number=(259, 4) class=25:96392 node=7:2589
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Mkfs
+command Mkfs at_ms=5020: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "format-xfs", "0", "my-block-storage-ublk.178194.2"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/010-Mkfs.stdout ---
+meta-data=/proc/self/fd/5        isize=512    agcount=4, agsize=32768 blks
+         =                       sectsz=4096  attr=2, projid32bit=1
+         =                       crc=1        finobt=1, sparse=1, rmapbt=1
+         =                       reflink=1    bigtime=1 inobtcount=1 nrext64=1
+         =                       exchange=0   metadir=0
+data     =                       bsize=4096   blocks=131072, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0, ftype=1, parent=0
+log      =internal log           bsize=4096   blocks=16384, version=2
+         =                       sectsz=4096  sunit=1 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+         =                       rgcount=0    rgsize=0 extents
+         =                       zoned=0      start=0 reserved=0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/010-Mkfs.stderr ---
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=1069 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=6091: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/011-Check(1).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/011-Check(1).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 3
+        - agno = 1
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=6122: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.178194.2"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/012-mount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/012-mount-xfs.stderr ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=51 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.178194.2/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Populate
+command workload at_ms=6175: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-populate"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/013-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/013-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=71 cleanup=Ok(())
+step: Verify
+command workload at_ms=6252: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-verify"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/014-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/014-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=31 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=6288: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.178194.2"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/015-unmount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/015-unmount-xfs.stderr ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=6310: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/016-Check(2).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/016-Check(2).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 3
+        - agno = 1
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 2132        0    17056       63    17422        0   139328     1140        0     1078     1205        0        0        0        0       35        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.178194.2/009-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.178194.2/009-daemon.stderr ---
+request-count op_flags=0x0 count=756 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x1 count=16849 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=35 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1304 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x800 count=72 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=567 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=19583 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=6402: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.178194.2/backing.img", "-1"]
+daemon pid=180877
+device: /dev/ublkb0 number=(259, 4) class=25:96592 node=7:2608
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Check(3)
+command Check(3) at_ms=6485: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/018-Check(3).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/018-Check(3).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 1
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=40 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=6526: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.178194.2"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/019-mount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/019-mount-xfs.stderr ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=50 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.178194.2/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Verify
+command workload at_ms=6578: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["xfs-verify"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/020-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/020-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=6612: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.178194.2"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/021-unmount-xfs.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/021-unmount-xfs.stderr ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=71 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=6685: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.178194.2/022-Check(4).stdout ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178194.2/022-Check(4).stderr ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 3
+        - agno = 1
+        - agno = 2
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=40 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1653        0    13224      102      519        0     4120       64        0       90      167        0        0        0        0        8        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.178194.2/017-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.178194.2/017-daemon.stderr ---
+request-count op_flags=0x0 count=791 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=8 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=766 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x800 count=96 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=515 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=5 total=2176 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 3: PASS; all owned resources removed
+elapsed_ms: 6783
+result: PASS

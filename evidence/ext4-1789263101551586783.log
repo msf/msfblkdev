@@ -1,0 +1,977 @@
+filesystem: ext4
+limits: repetitions=3 per_command_s=60 suite_s=600 volume_bytes=134217728 backing_bytes=1073741824
+repetition: 1/3
+fixture: /tmp/my-block-storage-ublk.181401.0 identity=52:25738
+command commit at_ms=0: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/001-commit.stdout ---
+0a5af7768eb029a010f38397969025b99767aef4
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=10: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/002-worktree.stdout ---
+ M GOAL-XFS.md
+M  papers/README.md
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789258515152971194.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/ext4-1789263101551586783.log
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258053832864833.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789258389760150553.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? evidence/xfs-1789263094226909258.log
+?? evidence/xfs-1789263094765541439.log
+?? evidence/xfs-privilege-blocker-2026-09-13.md
+?? manual-test-ext4.txt
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=20: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=31: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.181401.0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/004-backing-filesystem.stdout ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/004-backing-filesystem.stderr ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=20343496 xxh3=3e52d6536f7032db
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=21073400 xxh3=d790da2c3501fe47
+command mkfs-version at_ms=258: "mkfs.ext4" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/005-mkfs-version.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/005-mkfs-version.stderr ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command e2fsck-version at_ms=269: "e2fsck" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/006-e2fsck-version.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/006-e2fsck-version.stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+binary: /usr/local/libexec/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+helper binary match: PASS
+command helper-preflight at_ms=457: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/007-helper-preflight.stdout ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/007-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=473: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.181401.0/backing.img", "1073741824", "134217728"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/008-format.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/008-format.stderr ---
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=484: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.181401.0/backing.img", "-1"]
+daemon pid=181413
+device: /dev/ublkb0 number=(259, 4) class=25:96792 node=7:2626
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Mkfs
+command Mkfs at_ms=558: "mkfs.ext4" ["/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/010-Mkfs.stdout ---
+Creating filesystem with 32768 4k blocks and 32768 inodes
+
+Allocating group tables: 0/1   done                            
+Writing inode tables: 0/1   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/1   done
+
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/010-Mkfs.stderr ---
+mke2fs 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=232 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=791: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/011-Check(1).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 12/32768 files (8.3% non-contiguous), 6201/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/011-Check(1).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=802: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.181401.0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/012-mount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/012-mount.stderr ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.181401.0/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Populate
+command workload at_ms=823: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-populate"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/013-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/013-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=71 cleanup=Ok(())
+step: Verify
+command workload at_ms=900: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-verify"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/014-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/014-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=31 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=936: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.181401.0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/015-unmount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/015-unmount.stderr ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=957: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/016-Check(2).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/016-Check(2).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1008        0     8064       29     4607        0    36728      347        0      273      377        0        0        0        0       48        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.181401.0/009-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.181401.0/009-daemon.stderr ---
+first negative completion: op_flags=0x700 errno=-108 cancelled=true
+first negative completion: op_flags=0x0 errno=-108 cancelled=true
+request-count op_flags=0x0 count=2 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x1 count=4499 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=48 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=971 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x800 count=36 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=92 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0xf00 count=1 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=7 total=5649 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=1029: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.181401.0/backing.img", "-1"]
+daemon pid=181472
+device: /dev/ublkb0 number=(259, 4) class=25:97015 node=7:2643
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Check(3)
+command Check(3) at_ms=1112: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/018-Check(3).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/018-Check(3).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+step: Mount
+command mount at_ms=1124: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.181401.0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/019-mount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/019-mount.stderr ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.181401.0/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Verify
+command workload at_ms=1146: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-verify"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/020-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/020-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=1181: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.181401.0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/021-unmount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/021-unmount.stderr ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=21 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=1204: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.0/022-Check(4).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.0/022-Check(4).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1079        0     8632       72       15        0       72        1        0       43       73        0        0        0        0       13        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.181401.0/017-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.181401.0/017-daemon.stderr ---
+first negative completion: op_flags=0x700 errno=-108 cancelled=true
+first negative completion: op_flags=0x0 errno=-108 cancelled=true
+request-count op_flags=0x0 count=2 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x1 count=1 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=13 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1043 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x800 count=36 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=8 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=1103 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 1: PASS; all owned resources removed
+repetition: 2/3
+fixture: /tmp/my-block-storage-ublk.181401.1 identity=52:25786
+command commit at_ms=1269: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/001-commit.stdout ---
+0a5af7768eb029a010f38397969025b99767aef4
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=1279: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/002-worktree.stdout ---
+ M GOAL-XFS.md
+M  papers/README.md
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789258515152971194.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/ext4-1789263101551586783.log
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258053832864833.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789258389760150553.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? evidence/xfs-1789263094226909258.log
+?? evidence/xfs-1789263094765541439.log
+?? evidence/xfs-privilege-blocker-2026-09-13.md
+?? manual-test-ext4.txt
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=1290: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command backing-filesystem at_ms=1302: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.181401.1"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/004-backing-filesystem.stdout ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/004-backing-filesystem.stderr ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=20343496 xxh3=3e52d6536f7032db
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=21073400 xxh3=d790da2c3501fe47
+command mkfs-version at_ms=1516: "mkfs.ext4" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/005-mkfs-version.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/005-mkfs-version.stderr ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command e2fsck-version at_ms=1528: "e2fsck" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/006-e2fsck-version.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/006-e2fsck-version.stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+binary: /usr/local/libexec/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+helper binary match: PASS
+command helper-preflight at_ms=1712: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/007-helper-preflight.stdout ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/007-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=21 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=1738: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.181401.1/backing.img", "1073741824", "134217728"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/008-format.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/008-format.stderr ---
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+step: Start
+command serve at_ms=1750: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.181401.1/backing.img", "-1"]
+daemon pid=181530
+device: /dev/ublkb0 number=(259, 4) class=25:97238 node=7:2659
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Mkfs
+command Mkfs at_ms=1823: "mkfs.ext4" ["/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/010-Mkfs.stdout ---
+Creating filesystem with 32768 4k blocks and 32768 inodes
+
+Allocating group tables: 0/1   done                            
+Writing inode tables: 0/1   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/1   done
+
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/010-Mkfs.stderr ---
+mke2fs 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=242 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=2066: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/011-Check(1).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 12/32768 files (8.3% non-contiguous), 6201/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/011-Check(1).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=2077: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.181401.1"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/012-mount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/012-mount.stderr ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.181401.1/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Populate
+command workload at_ms=2098: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-populate"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/013-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/013-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=50 cleanup=Ok(())
+step: Verify
+command workload at_ms=2153: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-verify"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/014-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/014-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=2189: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.181401.1"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/015-unmount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/015-unmount.stderr ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=2210: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/016-Check(2).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/016-Check(2).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1289        0    10312       35     4607        0    36728      346        2      265      382        0        0        0        0       48        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.181401.1/009-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.181401.1/009-daemon.stderr ---
+first negative completion: op_flags=0x700 errno=-108 cancelled=true
+first negative completion: op_flags=0x0 errno=-108 cancelled=true
+request-count op_flags=0x0 count=1 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x1 count=4499 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=48 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1283 before_ready=0 errors=0 cancelled=23
+request-count op_flags=0x800 count=32 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=92 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=5955 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=2272: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.181401.1/backing.img", "-1"]
+daemon pid=181581
+device: /dev/ublkb0 number=(259, 4) class=25:97461 node=7:2677
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Check(3)
+command Check(3) at_ms=2354: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/018-Check(3).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/018-Check(3).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Mount
+command mount at_ms=2376: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.181401.1"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/019-mount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/019-mount.stderr ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.181401.1/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Verify
+command workload at_ms=2397: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-verify"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/020-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/020-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=2422: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.181401.1"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/021-unmount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/021-unmount.stderr ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=2443: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.1/022-Check(4).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.1/022-Check(4).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1111        0     8888       63       15        0       72        1        0       40       65        0        0        0        0       13        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.181401.1/017-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.181401.1/017-daemon.stderr ---
+request-count op_flags=0x1 count=1 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=13 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1076 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x800 count=35 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=8 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=5 total=1133 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 2: PASS; all owned resources removed
+repetition: 3/3
+fixture: /tmp/my-block-storage-ublk.181401.2 identity=52:25834
+command commit at_ms=2527: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/001-commit.stdout ---
+0a5af7768eb029a010f38397969025b99767aef4
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=2537: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/002-worktree.stdout ---
+ M GOAL-XFS.md
+M  papers/README.md
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789258515152971194.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/ext4-1789263101551586783.log
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258053832864833.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789258389760150553.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? evidence/xfs-1789263094226909258.log
+?? evidence/xfs-1789263094765541439.log
+?? evidence/xfs-privilege-blocker-2026-09-13.md
+?? manual-test-ext4.txt
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=2548: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=2558: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.181401.2"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/004-backing-filesystem.stdout ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/004-backing-filesystem.stderr ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=20343496 xxh3=3e52d6536f7032db
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=21073400 xxh3=d790da2c3501fe47
+command mkfs-version at_ms=2774: "mkfs.ext4" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/005-mkfs-version.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/005-mkfs-version.stderr ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command e2fsck-version at_ms=2786: "e2fsck" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/006-e2fsck-version.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/006-e2fsck-version.stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+binary: /usr/local/libexec/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+helper binary match: PASS
+command helper-preflight at_ms=2974: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/007-helper-preflight.stdout ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/007-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=2990: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.181401.2/backing.img", "1073741824", "134217728"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/008-format.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/008-format.stderr ---
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=3001: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.181401.2/backing.img", "-1"]
+daemon pid=181646
+device: /dev/ublkb0 number=(259, 4) class=25:97684 node=7:2693
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Mkfs
+command Mkfs at_ms=3085: "mkfs.ext4" ["/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/010-Mkfs.stdout ---
+Creating filesystem with 32768 4k blocks and 32768 inodes
+
+Allocating group tables: 0/1   done                            
+Writing inode tables: 0/1   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/1   done
+
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/010-Mkfs.stderr ---
+mke2fs 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=313 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=3399: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/011-Check(1).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 12/32768 files (8.3% non-contiguous), 6201/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/011-Check(1).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=3410: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.181401.2"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/012-mount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/012-mount.stderr ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.181401.2/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Populate
+command workload at_ms=3432: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-populate"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/013-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/013-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=70 cleanup=Ok(())
+step: Verify
+command workload at_ms=3507: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-verify"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/014-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/014-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=3532: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.181401.2"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/015-unmount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/015-unmount.stderr ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=3553: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/016-Check(2).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/016-Check(2).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1244        0     9952       36     4607        0    36728      425        2      338      462        0        0        0        0       48        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.181401.2/009-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.181401.2/009-daemon.stderr ---
+first negative completion: op_flags=0x700 errno=-108 cancelled=true
+first negative completion: op_flags=0x0 errno=-108 cancelled=true
+request-count op_flags=0x0 count=4 before_ready=0 errors=0 cancelled=4
+request-count op_flags=0x1 count=4499 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=48 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1247 before_ready=0 errors=0 cancelled=34
+request-count op_flags=0x800 count=33 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=92 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=5923 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=3625: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.181401.2/backing.img", "-1"]
+daemon pid=181697
+device: /dev/ublkb0 number=(259, 4) class=25:97907 node=7:2711
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Check(3)
+command Check(3) at_ms=3688: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/018-Check(3).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/018-Check(3).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=3699: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.181401.2"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/019-mount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/019-mount.stderr ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.181401.2/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Verify
+command workload at_ms=3721: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab" ["ext4-verify"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/020-workload.stdout ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/020-workload.stderr ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=3760: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.181401.2"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/021-unmount.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/021-unmount.stderr ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=3782: "e2fsck" ["-f", "-n", "/dev/ublkb0"]
+--- stdout: /tmp/my-block-storage-ublk.181401.2/022-Check(4).stdout ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.181401.2/022-Check(4).stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1143        0     9144       75       15        0       72        1        0       45       77        0        0        0        0       13        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.181401.2/017-daemon.stdout ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.181401.2/017-daemon.stderr ---
+first negative completion: op_flags=0x700 errno=-108 cancelled=true
+first negative completion: op_flags=0x0 errno=-108 cancelled=true
+request-count op_flags=0x0 count=2 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x1 count=1 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=13 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1107 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x800 count=36 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=8 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=1167 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 3: PASS; all owned resources removed
+elapsed_ms: 3858
+result: PASS

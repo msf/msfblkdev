@@ -6,7 +6,7 @@ A Linux-only log-structured block device experiment. Rust is authoritative and i
 
 Goals 1 and 2 are complete. ADR-03's engine, serialized ublk frontend and live regular-file `fio` acceptance gates pass. V0.8 acceptance is complete.
 
-ADR-06 Delivery 1 (V0.9 ext4) is complete. Three fresh-image ext4 lifecycles passed, including all 12 filesystem checks, exact content verification, clean daemon restarts and cleanup. The final `make lint test` passed. This does not establish crash or power-loss durability.
+ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem passed three fresh-image lifecycles, all 12 filesystem checks, exact content verification, clean daemon restarts and cleanup. The final `make lint test` passed. This does not establish crash or power-loss durability.
 
 [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
 
@@ -29,7 +29,7 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5 through V0.8.
 - [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
 - [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
-- [ADR-06: filesystem and PostgreSQL correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the filesystem acceptance sequence. Delivery 1 is complete; later deliveries have not started.
+- [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 are complete; SQLite and RocksDB are next.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API
@@ -49,7 +49,7 @@ Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT
 
 ## Testing
 
-V0.8 gates remain the regression baseline. V0.9 adds the accepted ext4 lifecycle.
+V0.8 gates remain the regression baseline. V0.9 and V1.0 add the accepted ext4 and XFS lifecycles.
 
 ### Development loop
 
@@ -118,9 +118,9 @@ sudo bash scripts/install-ext4-helper.sh
 
 The installer copies the already-built `block-storage-mount` binary into `/usr/local/libexec` and installs a sudo rule for the invoking user. It also creates `/run/ublksrvd` as a private directory for that user. A tmpfiles rule recreates it after reboot: libublk writes its device metadata there. This setup supports one developer and refuses to take over a runtime directory owned by someone else. It does not build code, load modules, create devices or mount filesystems. Reinstall after changing the helper; preflight refuses a stale installed binary. Never grant passwordless sudo to the lab binary in the writable build directory.
 
-The helper validates the kernel-recorded ublk owner, device geometry and the owned directory under `/tmp`. It pins device/directory descriptors and serializes helper calls with a root-owned lock. Protocol 2 permits only ext4 and XFS with `nosuid,nodev`; filesystem journaling and barrier defaults remain unchanged. It creates a caller-owned `work` directory inside the filesystem. Unmount validates the exact mount and refuses aliases, nested mounts, force and lazy unmount.
+The helper validates the kernel-recorded ublk owner, device geometry and the owned directory under `/tmp`. It pins device/directory descriptors and serializes helper calls with a root-owned lock. Protocol 3 permits only ext4 and XFS with `nosuid,nodev`; filesystem journaling and barrier defaults remain unchanged. It creates a caller-owned `work` directory inside the filesystem. Unmount validates the exact mount and refuses aliases, nested mounts, force and lazy unmount.
 
-This is a privilege grant for a trusted local developer, not a sandbox for hostile filesystem images. The kernel still parses ext4 data supplied by that developer. Use a disposable VM for untrusted images.
+This is a privilege grant for a trusted local developer, not a sandbox for hostile filesystem images. The kernel still parses filesystem data supplied by that developer. Use a disposable VM for untrusted images.
 
 Once the operator approves live mount operations, run:
 
@@ -136,11 +136,22 @@ Evidence is written to `evidence/ext4-*.log`, including versions, binary fingerp
 
 To revoke the helper grant, remove `/etc/sudoers.d/block-storage-ext4-<user>` and `/usr/local/libexec/block-storage-mount` as an administrator after confirming no lab run is active. Remove `/etc/tmpfiles.d/block-storage-ublk.conf` if the private runtime directory is no longer needed.
 
-### Prepared XFS worker goal
+### XFS development and acceptance
 
-[GOAL-XFS.md](GOAL-XFS.md) defines the unattended V1.0 scope. XFS acceptance is not yet implemented or verified. The helper upgrade preserves the ext4 commands and adds `mount-xfs` / `unmount-xfs` with a fixed 512 MiB logical device and 4 GiB backing file. It does not accept arbitrary filesystems or geometry. `check` reports protocol 2 and both supported geometries.
+[GOAL-XFS.md](GOAL-XFS.md) records the completed V1.0 scope. After operator approval and protocol-3 helper installation, run:
 
-Before activating the XFS goal, build as the normal user, then have the operator rerun `sudo bash scripts/install-ext4-helper.sh`. Confirm `sudo -n /usr/local/libexec/block-storage-mount check` reports protocol 2. Keep the host awake and the Pi session running. Activation must explicitly approve live XFS and ext4 regression mounts through that helper. The overnight worker must not change or reinstall privileged helper code.
+```sh
+make check-xfs
+make test-xfs
+```
+
+`check-xfs` checks tool versions, kernel support, helper identity, device access, memory and temporary space without creating a device or mount. `test-xfs` runs the same file workload and restart lifecycle as ext4, using three fresh 512 MiB devices with 4 GiB backing files. It uses default `mkfs.xfs` and four unmounted `xfs_repair -n` checks per repetition. `fsck.xfs` is not a filesystem check.
+
+Default `mkfs.xfs` requires privilege for Linux's `BLKBSZSET` ioctl even when the block size is already correct. Protocol 3 adds a scoped `format-xfs` action alongside `mount-xfs` and `unmount-xfs`. It runs only `/usr/sbin/mkfs.xfs` with default options on the validated, unmounted XFS fixture. The helper keeps the device descriptor, lock and 60-second alarm across exec and clears the formatter environment. The daemon, lab, workload and read-only checker remain unprivileged. No general formatter sudo grant or developer capability is needed.
+
+The committed implementation `0a5af77` passed in 6783 ms with XFS tools 6.18.0 on Linux 7.0.0-31-generic. See `evidence/xfs-1789263094765541439.log` and the release audit. The ext4 regression passed in 3858 ms. Backing files were on tmpfs; these are correctness results, not durability or performance claims.
+
+Evidence includes actual mount options and bounded counts for every ublk operation/flag combination from queue startup through shutdown. Reports distinguish real I/O errors from drain-rejected shutdown cancellations. Missing, inconsistent or truncated reports fail acceptance, as do real I/O errors. Both live targets retain failed images and raw output and use the existing 60-second command and 600-second suite limits.
 
 ### Normal-user ublk setup
 
@@ -193,4 +204,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 adds ext4 correctness across clean restarts. Medium-write faults, compaction and wraparound remain outside ADR-03.
+The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. Medium-write faults, compaction and wraparound remain outside ADR-03.

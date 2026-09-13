@@ -1,0 +1,104 @@
+fixture: /tmp/my-block-storage-ublk.178184.0 identity=52:25578
+command commit at_ms=0: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.178184.0/001-commit.stdout ---
+0a5af7768eb029a010f38397969025b99767aef4
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178184.0/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=10: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.178184.0/002-worktree.stdout ---
+ M GOAL-XFS.md
+M  papers/README.md
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789258515152971194.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258053832864833.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789258389760150553.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? evidence/xfs-1789263094226909258.log
+?? evidence/xfs-privilege-blocker-2026-09-13.md
+?? manual-test-ext4.txt
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178184.0/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=21: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.178184.0/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178184.0/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=31: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.178184.0"]
+--- stdout: /tmp/my-block-storage-ublk.178184.0/004-backing-filesystem.stdout ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178184.0/004-backing-filesystem.stderr ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=20343496 xxh3=3e52d6536f7032db
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=21073400 xxh3=d790da2c3501fe47
+command mkfs-version at_ms=321: "/usr/sbin/mkfs.xfs" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.178184.0/005-mkfs-version.stdout ---
+mkfs.xfs version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178184.0/005-mkfs-version.stderr ---
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command xfs-repair-version at_ms=332: "/usr/sbin/xfs_repair" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.178184.0/006-xfs-repair-version.stdout ---
+xfs_repair version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178184.0/006-xfs-repair-version.stderr ---
+
+--- end stderr ---
+command xfs-repair-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+resources: available_memory_bytes=50700365824 available_tmp_bytes=32404258816
+kernel filesystem support: xfs
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+binary: /usr/local/libexec/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+helper binary match: PASS
+command helper-preflight at_ms=519: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.178184.0/007-helper-preflight.stdout ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.178184.0/007-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+preflight: PASS; no device created or mounted
