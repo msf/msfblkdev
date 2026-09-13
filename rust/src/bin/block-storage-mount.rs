@@ -6,14 +6,18 @@ use libublk::ctrl::UblkCtrl;
 use std::ffi::CString;
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, Stdio};
+
+const XFS_FORMATTER: &str = "/usr/sbin/mkfs.xfs";
 
 #[derive(Debug, PartialEq)]
 enum Action {
     Check,
+    FormatXfs(u32, String),
     Mount(Filesystem, u32, String),
     Unmount(Filesystem, u32, String),
 }
@@ -33,6 +37,7 @@ fn parse_args(args: &[String]) -> io::Result<Action> {
         return Err(usage());
     }
     match action.as_str() {
+        "format-xfs" => Ok(Action::FormatXfs(id, name.clone())),
         "mount" => Ok(Action::Mount(Filesystem::Ext4, id, name.clone())),
         "unmount" => Ok(Action::Unmount(Filesystem::Ext4, id, name.clone())),
         "mount-xfs" => Ok(Action::Mount(Filesystem::Xfs, id, name.clone())),
@@ -45,7 +50,7 @@ fn usage() -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {MOUNT_HELPER} check | mount|unmount|mount-xfs|unmount-xfs <ublk-id> <owned-directory-name>"
+            "usage: {MOUNT_HELPER} check | format-xfs|mount|unmount|mount-xfs|unmount-xfs <ublk-id> <owned-directory-name>"
         ),
     )
 }
@@ -127,6 +132,30 @@ impl Fixture {
             path,
             number,
         })
+    }
+
+    fn format_xfs(&self, lock: &File) -> io::Result<()> {
+        if self.filesystem != Filesystem::Xfs {
+            return Err(io::Error::other(
+                "privileged formatting requires an XFS fixture",
+            ));
+        }
+        fs_support::require_unmounted(&fs_support::mounts()?, self.number, &self.path)?;
+        let metadata = fs::symlink_metadata(XFS_FORMATTER)?;
+        if !metadata.is_file()
+            || metadata.uid() != 0
+            || metadata.mode() & 0o022 != 0
+            || metadata.mode() & 0o111 == 0
+        {
+            return Err(io::Error::other(
+                "XFS formatter must be a protected root-owned executable regular file",
+            ));
+        }
+        let device = inherit_descriptor(&self.device)?;
+        let _lock = inherit_descriptor(lock)?;
+        let path = PathBuf::from(format!("/proc/self/fd/{}", device.as_raw_fd()));
+        // exec preserves the alarm, pinned device and flock; there is no detached root child.
+        Err(formatter_command(&path).exec())
     }
 
     fn mount(&self, uid: u32, gid: u32) -> io::Result<()> {
@@ -275,6 +304,30 @@ impl Fixture {
     }
 }
 
+fn inherit_descriptor(file: &File) -> io::Result<OwnedFd> {
+    // F_DUPFD retains the descriptor across exec and avoids the standard I/O slots.
+    // SAFETY: file owns a live descriptor; fcntl returns a new descriptor or -1.
+    let fd = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, 3) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: fcntl returned a new, uniquely owned descriptor above.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+fn formatter_command(device: &Path) -> Command {
+    let mut command = Command::new(XFS_FORMATTER);
+    command
+        .arg("--")
+        .arg(device)
+        .env_clear()
+        .env("LC_ALL", "C")
+        .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
+        .current_dir("/")
+        .stdin(Stdio::null());
+    command
+}
+
 fn helper_lock() -> io::Result<File> {
     let file = OpenOptions::new()
         .read(true)
@@ -381,13 +434,16 @@ fn execute() -> io::Result<()> {
         }
         libc::alarm(60);
     }
-    let _lock = helper_lock()?;
+    let lock = helper_lock()?;
     match action {
         Action::Check => println!(
-            "block-storage-mount protocol=2 uid={uid} ext4={VOLUME_BYTES}/{BACKING_BYTES} xfs={}/{}",
+            "block-storage-mount protocol=3 uid={uid} ext4={VOLUME_BYTES}/{BACKING_BYTES} xfs={}/{}",
             Filesystem::Xfs.volume_bytes(),
             Filesystem::Xfs.backing_bytes()
         ),
+        Action::FormatXfs(id, name) => {
+            Fixture::open(id, &name, uid, Filesystem::Xfs)?.format_xfs(&lock)?
+        }
         Action::Mount(filesystem, id, name) => {
             Fixture::open(id, &name, uid, filesystem)?.mount(uid, gid)?
         }
@@ -411,6 +467,48 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formatter_uses_only_the_system_binary_and_pinned_device() {
+        let path = Path::new("/proc/self/fd/17");
+        let command = formatter_command(path);
+        assert_eq!(command.get_program(), XFS_FORMATTER);
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["--", "/proc/self/fd/17"]
+        );
+        assert_eq!(command.get_current_dir(), Some(Path::new("/")));
+        assert_eq!(
+            command.get_envs().collect::<Vec<_>>(),
+            [
+                (
+                    std::ffi::OsStr::new("LC_ALL"),
+                    Some(std::ffi::OsStr::new("C"))
+                ),
+                (
+                    std::ffi::OsStr::new("PATH"),
+                    Some(std::ffi::OsStr::new("/usr/sbin:/usr/bin:/sbin:/bin"))
+                )
+            ]
+        );
+    }
+
+    #[test]
+    fn inherited_descriptors_survive_exec_without_reusing_standard_io() {
+        let original = File::open("/dev/null").unwrap();
+        let inherited = inherit_descriptor(&original).unwrap();
+        assert!(inherited.as_raw_fd() >= 3);
+        let path = format!("/proc/self/fd/{}", inherited.as_raw_fd());
+        assert_eq!(
+            fs::metadata(&path).unwrap().rdev(),
+            original.metadata().unwrap().rdev()
+        );
+        let status = Command::new("/bin/sh")
+            .args(["-c", "test -c \"$1\"", "descriptor-test", &path])
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
 
     #[test]
     fn helper_requires_kernel_ownership_unprivileged_flag_and_exact_geometry() {
@@ -462,7 +560,20 @@ mod tests {
             .unwrap(),
             Action::Unmount(Filesystem::Xfs, 7, "my-block-storage-ublk.12.0".into())
         );
+        assert_eq!(
+            parse_args(&[
+                "format-xfs".into(),
+                "7".into(),
+                "my-block-storage-ublk.12.0".into()
+            ])
+            .unwrap(),
+            Action::FormatXfs(7, "my-block-storage-ublk.12.0".into())
+        );
         for args in [
+            vec!["format-xfs", "/dev/sda", "my-block-storage-ublk.12.0"],
+            vec!["format-xfs", "7", "my-block-storage-ublk.12.0", "-f"],
+            vec!["format-xfs", "7", "../../etc"],
+            vec!["format-ext4", "7", "my-block-storage-ublk.12.0"],
             vec!["mount-btrfs", "7", "my-block-storage-ublk.12.0"],
             vec!["mount-xfs", "7", "/tmp/arbitrary"],
             vec!["mount", "/dev/sda", "my-block-storage-ublk.12.0"],
