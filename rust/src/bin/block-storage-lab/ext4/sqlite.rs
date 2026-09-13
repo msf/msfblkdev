@@ -9,67 +9,22 @@ use std::ffi::OsStr;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 
+mod hardware;
+mod matrix;
+pub(crate) mod params;
+mod parser;
+mod runner;
+mod summary;
 mod telemetry;
 
+use params::{CACHE_PAGES, Case, MMAP_BYTES, PAGE_BYTES, PROFILE_ENV, Profile, SEED};
+use parser::{filter_evidence_directory, parse_sha256sum, parse_validation, parse_workload_stdout};
+
+pub(crate) use runner::{run, run_ext4};
+
 const LEDGER_NAME: &str = "io-ledger";
-const WRITE_LIMIT_BYTES: u64 = 512 * 1024 * 1024;
-const PROFILE_ENV: &str = "BLOCK_STORAGE_SQLITE_PROFILE";
 const TOOL_ROOT: &str = ".tools/sqlite-3.51.3";
-const OPERATIONS: u64 = 4096;
-const BLOBS: u64 = 2;
-const BLOB_BYTES: u64 = 8192;
-const CACHE_PAGES: u64 = 256;
-const PAGE_BYTES: u64 = 4096;
-const MMAP_BYTES: u64 = 0;
-const SEED: &str = "0x6a09e667f3bcc909";
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Profile {
-    DeleteExtra,
-    WalFull,
-    WalNormal,
-}
-
-impl Profile {
-    const ALL: [Self; 3] = [Self::DeleteExtra, Self::WalFull, Self::WalNormal];
-
-    const fn name(self) -> &'static str {
-        match self {
-            Self::DeleteExtra => "delete-extra",
-            Self::WalFull => "wal-full",
-            Self::WalNormal => "wal-normal",
-        }
-    }
-
-    const fn journal(self) -> &'static str {
-        match self {
-            Self::DeleteExtra => "delete",
-            Self::WalFull | Self::WalNormal => "wal",
-        }
-    }
-
-    const fn synchronous(self) -> u64 {
-        match self {
-            Self::DeleteExtra => 3,
-            Self::WalFull => 2,
-            Self::WalNormal => 1,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Case {
-    KvSeededRandomUpdate,
-}
-
-impl Case {
-    const fn name(self) -> &'static str {
-        match self {
-            Self::KvSeededRandomUpdate => "kv-seeded-random-update",
-        }
-    }
-}
-
+const WRITE_LIMIT_BYTES: u64 = 512 * 1024 * 1024;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct LedgerCounters {
     read_bytes: u64,
@@ -89,12 +44,16 @@ struct IoPoint {
 pub(super) struct State {
     profile: Profile,
     case: Case,
+    repetition: u8,
+    repetitions: u8,
+    matrix_run: bool,
     ledger_path: PathBuf,
     reader: Option<io_accounting::Reader>,
     tool_root: PathBuf,
     result_path: PathBuf,
     reference_path: PathBuf,
     reference_digest: Option<String>,
+    reference_tool_verification: Option<String>,
     validation_count: u8,
     daemon_stops: u8,
     restart_started: Option<Instant>,
@@ -131,13 +90,17 @@ impl State {
             .ok_or_else(|| io::Error::other("crate has no repository parent"))?;
         Ok(Self {
             profile: Profile::WalFull,
-            case: Case::KvSeededRandomUpdate,
+            case: Case::ProbeSeededRandomUpdate,
+            repetition: 1,
+            repetitions: 1,
+            matrix_run: false,
             ledger_path,
             reader: Some(reader),
             tool_root: repo.join(TOOL_ROOT),
             result_path: evidence_directory.join("result.jsonl"),
             reference_path: fixture.join("reference.db"),
             reference_digest: None,
+            reference_tool_verification: None,
             validation_count: 0,
             daemon_stops: 0,
             restart_started: None,
@@ -160,6 +123,14 @@ impl State {
 
     pub(super) fn ledger_path(&self) -> &Path {
         &self.ledger_path
+    }
+
+    fn select(&mut self, selection: matrix::Selection) {
+        self.case = selection.case;
+        self.profile = selection.profile;
+        self.repetition = selection.repetition;
+        self.repetitions = matrix::REPETITIONS;
+        self.matrix_run = true;
     }
 
     fn tool(&self, name: &str) -> PathBuf {
@@ -220,24 +191,20 @@ impl State {
 
     fn result(&self, status: &str) -> Value {
         json!({
-            "schema": "block-storage-sqlite-probe",
+            "schema": "block-storage-sqlite",
             "schema_version": 2,
+            "scope": if self.matrix_run { "ext4_matrix" } else { "probe" },
             "status": status,
-            "acceptance_claim": false,
-            "case": {
-                "name": self.case.name(), "profile": self.profile.name(),
-                "filesystem": "ext4", "repetition": 1, "repetitions": 1,
+            "labels": {
+                "fs": "Ext4", "case": self.case.name(), "profile": self.profile.name(),
+                "repetition": self.repetition, "expected": self.repetitions,
             },
-            "parameters": {
-                "operations": OPERATIONS, "dataset_blobs": BLOBS,
-                "blob_bytes": BLOB_BYTES, "page_bytes": PAGE_BYTES,
-                "transaction_size": 1, "concurrency": 1,
-                "seed": SEED, "access": "seeded-random", "operation": "update",
-                "multitrans": true, "blob_api": false,
-                "cache_pages": CACHE_PAGES, "mmap_bytes": MMAP_BYTES,
-                "wal_autocheckpoint_frames": 1000,
+            "parameters": self.case.parameters(),
+            "cache_condition": if self.case.is_speedtest() {
+                "fresh database; upstream mixed workload warms caches; no global cache changes"
+            } else {
+                "warm-from-initialization; no global cache changes"
             },
-            "cache_condition": "warm-from-initialization; no global cache changes",
             "phases": self.phases,
             "telemetry": self.telemetry,
             "validations": self.validations,
@@ -247,8 +214,8 @@ impl State {
             "full_case_elapsed_ns": duration_ns(self.started.elapsed()),
             "measurement_gaps": {
                 "device_read_performance_claim": false,
-                "latency_tail_percentiles": {"available": false, "reason": "probe records aggregate process and drain durations only"},
-                "matrix_and_baseline": "not implemented by this bounded probe",
+                "latency_tail_percentiles": {"available": false, "reason": "upstream tools do not report latency percentiles for these cases"},
+                "baseline": "no performance baseline was selected",
             }
         })
     }
@@ -259,8 +226,8 @@ impl State {
         }
         let value = self.result(status);
         let mut file = OpenOptions::new()
-            .write(true)
             .create_new(true)
+            .write(true)
             .open(&self.result_path)?;
         serde_json::to_writer(&mut file, &value).map_err(io::Error::other)?;
         file.write_all(b"\n")?;
@@ -297,11 +264,15 @@ impl Lab<'_> {
                 .args(["-f", "-c", "%T"])
                 .arg(self.owned.path()),
         )?;
-        let profiles: Vec<_> = Profile::ALL.iter().map(|profile| profile.name()).collect();
+        let profiles: Vec<_> = matrix::PROFILES
+            .iter()
+            .map(|profile| profile.name())
+            .collect();
         self.sqlite_state_mut()?.metadata.insert(
             "tested_source".into(),
             json!({"commit": commit.trim(), "dirty": !dirty.trim().is_empty(), "status_short": dirty,
                    "kernel": kernel.trim(), "backing_medium": medium.trim(),
+                   "hardware": hardware::read()?,
                    "geometry": {"logical_block_bytes": 4096, "physical_block_bytes": 4096,
                                 "max_request_bytes": 4096, "volume_bytes": Filesystem::Ext4.volume_bytes(),
                                 "backing_bytes": Filesystem::Ext4.backing_bytes()},
@@ -320,7 +291,7 @@ impl Lab<'_> {
             return Err(io::Error::other("unexpected SQLite manifest version"));
         }
         let mut actual = Map::new();
-        for name in ["kvtest", "sqlite3"] {
+        for name in ["kvtest", "speedtest1", "sqlite3"] {
             let path = self.sqlite_state()?.tool(name);
             let output = self.run_command(
                 &format!("sha256-{name}"),
@@ -335,7 +306,11 @@ impl Lab<'_> {
             actual.insert(name.into(), json!({"path": path, "sha256": digest}));
         }
         let sqlite3 = self.sqlite_state()?.tool("sqlite3");
-        let version = self.run_command("sqlite-version", Command::new(sqlite3).arg("--version"))?;
+        let reference = self.sqlite_state()?.reference_path.clone();
+        let mut version_command = Command::new(sqlite3);
+        version_command.arg("--version");
+        self.prepare_sqlite_command("sqlite-version", &mut version_command, &reference)?;
+        let version = self.run_command("sqlite-version", &mut version_command)?;
         self.sqlite_state_mut()?.metadata.insert(
             "tools".into(),
             json!({"manifest": manifest, "manifest_path": manifest_path, "actual": actual,
@@ -346,24 +321,32 @@ impl Lab<'_> {
 
     fn build_reference(&mut self) -> io::Result<()> {
         let path = self.sqlite_state()?.reference_path.clone();
+        let case = self.sqlite_state()?.case;
+        let profile = self.sqlite_state()?.profile;
         let start = Instant::now();
-        let mut init = kv_init_command(self.sqlite_state()?.tool("kvtest"), &path);
-        set_profile(&mut init, self.sqlite_state()?.profile);
-        require_success(
-            self.run_captured_command("reference-init", &mut init)?,
-            "reference-init",
-        )?;
-        let mut workload = kv_workload_command(self.sqlite_state()?.tool("kvtest"), &path);
-        set_profile(&mut workload, self.sqlite_state()?.profile);
+        if !case.is_speedtest() {
+            let mut init = kv_init_command(self.sqlite_state()?.tool("kvtest"), &path, case);
+            self.prepare_sqlite_command("reference-init", &mut init, &path)?;
+            set_profile(&mut init, profile);
+            require_success(
+                self.run_captured_command("reference-init", &mut init)?,
+                "reference-init",
+            )?;
+        }
+        let mut workload = workload_command(self.sqlite_state()?, &path);
+        self.prepare_sqlite_command("reference-workload", &mut workload, &path)?;
+        set_profile(&mut workload, profile);
         let captured = self.run_captured_command("reference-workload", &mut workload)?;
         if !captured.success() {
             return command_failure("reference-workload", &captured);
         }
-        telemetry::parse(&captured.stderr, self.sqlite_state()?.profile, false)?;
-        parse_workload_stdout(&captured.stdout)?;
+        telemetry::parse(&captured.stderr, profile, case, false)?;
+        let output = parse_workload_stdout(&captured.stdout, case, profile)?;
         let digest = self.run_sqlite_validation("reference-validation", &path)?;
-        self.sqlite_state_mut()?.reference_digest = Some(digest.clone());
-        self.sqlite_state_mut()?.phases.insert(
+        let state = self.sqlite_state_mut()?;
+        state.reference_digest = Some(digest.clone());
+        state.reference_tool_verification = output.verification;
+        state.phases.insert(
             "reference_setup".into(),
             json!({"duration_ns": duration_ns(start.elapsed()), "location": "outside_tested_filesystem", "digest": digest}),
         );
@@ -372,6 +355,33 @@ impl Lab<'_> {
 
     pub(super) fn sqlite_populate(&mut self) -> io::Result<()> {
         let database = self.mount_path().join("work/database.db");
+        let before = self.record_setup_phase()?;
+        let case = self.sqlite_state()?.case;
+        let profile = self.sqlite_state()?.profile;
+        let before_workload = if case.is_speedtest() {
+            self.sqlite_state_mut()?.phases.insert(
+                "initialization".into(),
+                json!({"available": false, "reason": "speedtest1 includes initialization in its measured process"}),
+            );
+            before
+        } else {
+            self.run_kv_initialization(&database, before, case, profile)?
+        };
+        let mut workload = workload_command(self.sqlite_state()?, &database);
+        self.prepare_sqlite_command("sqlite-workload", &mut workload, &database)?;
+        set_profile(&mut workload, profile);
+        self.configure_sqlite_observer(&mut workload)?;
+        let captured = self.run_captured_command("sqlite-workload", &mut workload)?;
+        if !captured.success() {
+            return command_failure("sqlite-workload", &captured);
+        }
+        let telemetry = telemetry::parse(&captured.stderr, profile, case, true)?;
+        let output = parse_workload_stdout(&captured.stdout, case, profile)?;
+        self.require_reference_tool_verification(output.verification.as_deref())?;
+        self.record_workload(before_workload, captured, telemetry, output.metrics)
+    }
+
+    fn record_setup_phase(&mut self) -> io::Result<IoPoint> {
         let setup_ns = duration_ns(self.sqlite_state()?.started.elapsed());
         let before = self.sqlite_io_point()?;
         let setup_start = self
@@ -384,26 +394,58 @@ impl Lab<'_> {
             "setup_before_initialization".into(),
             json!({"duration_ns": setup_ns, "io": setup_io}),
         );
+        Ok(before)
+    }
+
+    fn run_kv_initialization(
+        &mut self,
+        database: &Path,
+        before: IoPoint,
+        case: Case,
+        profile: Profile,
+    ) -> io::Result<IoPoint> {
         let start = Instant::now();
-        let mut init = kv_init_command(self.sqlite_state()?.tool("kvtest"), &database);
-        set_profile(&mut init, self.sqlite_state()?.profile);
-        let captured = self.run_captured_command("sqlite-kv-init", &mut init)?;
-        require_success(captured, "sqlite-kv-init")?;
+        let mut init = kv_init_command(self.sqlite_state()?.tool("kvtest"), database, case);
+        self.prepare_sqlite_command("sqlite-kv-init", &mut init, database)?;
+        set_profile(&mut init, profile);
+        require_success(
+            self.run_captured_command("sqlite-kv-init", &mut init)?,
+            "sqlite-kv-init",
+        )?;
         let after = self.sqlite_io_point()?;
         self.record_io_phase("initialization", start.elapsed(), &before, &after, None)?;
+        Ok(after)
+    }
 
-        let before = after;
-        let mut workload = kv_workload_command(self.sqlite_state()?.tool("kvtest"), &database);
-        set_profile(&mut workload, self.sqlite_state()?.profile);
-        self.configure_sqlite_observer(&mut workload)?;
-        let captured = self.run_captured_command("sqlite-workload", &mut workload)?;
-        if !captured.success() {
-            return command_failure("sqlite-workload", &captured);
+    fn require_reference_tool_verification(&self, actual: Option<&str>) -> io::Result<()> {
+        let expected = self.sqlite_state()?.reference_tool_verification.as_deref();
+        if actual != expected {
+            return Err(io::Error::other(
+                "upstream workload verification differs from the reference",
+            ));
         }
-        let telemetry = telemetry::parse(&captured.stderr, self.sqlite_state()?.profile, true)?;
-        let upstream = parse_workload_stdout(&captured.stdout)?;
+        Ok(())
+    }
+
+    fn record_workload(
+        &mut self,
+        before: IoPoint,
+        captured: CapturedCommand,
+        telemetry: telemetry::Parsed,
+        upstream: Value,
+    ) -> io::Result<()> {
         let after = self.sqlite_io_point()?;
         let timings = workload_timings(&telemetry, captured.elapsed)?;
+        let operations = self.sqlite_state()?.case.benchmark_operations();
+        let workload_ns = timings["workload_ns"]
+            .as_u64()
+            .ok_or_else(|| io::Error::other("workload timing is absent"))?;
+        let throughput =
+            operations.map(|count| count as f64 * 1_000_000_000.0 / workload_ns as f64);
+        let completed = operations.map_or_else(
+            || json!({"available": false, "reason": "speedtest1 reports individual mixed tests, not one operation total"}),
+            |count| json!(count),
+        );
         let io_segments = json!({
             "segments_are_non_overlapping": true,
             "before_tool_to_drain_start_workload": io_delta(&before, &telemetry.drain_start)?,
@@ -413,7 +455,11 @@ impl Lab<'_> {
         self.sqlite_state_mut()?.phases.insert(
             "workload_plus_drain".into(),
             json!({"timings": timings, "io_segments": io_segments,
-                   "completed_operations": OPERATIONS, "upstream": upstream}),
+                   "completed_operations": completed,
+                   "operations_per_second": throughput.map_or_else(
+                       || json!({"available": false, "reason": "no meaningful aggregate operation count"}),
+                       |value| json!(value)),
+                   "upstream": upstream}),
         );
         let state = self.sqlite_state_mut()?;
         state.last_io_point = Some(after);
@@ -465,6 +511,7 @@ impl Lab<'_> {
 
     fn run_sqlite_validation(&mut self, label: &str, database: &Path) -> io::Result<String> {
         let mut command = sqlite_validation_command(self.sqlite_state()?.tool("sqlite3"), database);
+        self.prepare_sqlite_command(label, &mut command, database)?;
         let captured = self.run_captured_command(label, &mut command)?;
         if !captured.success() {
             return command_failure(label, &captured);
@@ -606,12 +653,33 @@ impl Lab<'_> {
             .ok_or_else(|| io::Error::other("SQLite ledger path is absent"))?
             .to_path_buf();
         let device_id = self.validate_device()?.path.id().to_string();
+        let connection = self.sqlite_state()?.case.snapshot_connection().to_string();
         command
-            .env("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", "2")
+            .env("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", connection)
             .env("BLOCK_STORAGE_LAB_EXECUTABLE", executable)
             .env("BLOCK_STORAGE_IO_LEDGER", ledger)
             .env("BLOCK_STORAGE_IO_DEVICE_ID", device_id);
         Ok(())
+    }
+
+    fn prepare_sqlite_command(
+        &mut self,
+        label: &str,
+        command: &mut Command,
+        database: &Path,
+    ) -> io::Result<()> {
+        let parent = prepare_sqlite_command(command, database)?;
+        let location = if label.starts_with("reference-") || label == "sqlite-version" {
+            "owned_fixture_outside_tested_filesystem"
+        } else {
+            "database_parent_on_tested_ext4_filesystem"
+        };
+        self.evidence.line(&format!(
+            "sqlite-tool-environment: label={label} cwd={} SQLITE_TMPDIR={} database_parent={} database_parent_location={location}; cwd_and_SQLITE_TMPDIR_equal_database_parent=true",
+            parent.display(),
+            parent.display(),
+            parent.display()
+        ))
     }
 
     fn sqlite_io_point(&mut self) -> io::Result<IoPoint> {
@@ -659,108 +727,47 @@ impl Lab<'_> {
     }
 }
 
-pub(crate) fn run(repo: &Path, per_command: Duration, suite: Duration) -> io::Result<()> {
-    let started = Instant::now();
-    let (mut evidence, directory) = Evidence::create_sqlite(repo)?;
-    println!("evidence: {}", directory.display());
-    evidence
-        .line("sqlite probe: one ext4 WAL/FULL seeded-random kvtest case; not ADR acceptance")?;
-    let mut lab = match Lab::new(
-        Filesystem::Ext4,
-        WorkloadMode::Sqlite,
-        &mut evidence,
-        per_command,
-        started + suite,
-        started,
-    ) {
-        Ok(lab) => lab,
-        Err(error) => {
-            write_fallback_result(&directory, started.elapsed(), &error)?;
-            return Err(error);
-        }
-    };
-    let execution = lab.preflight(repo).and_then(|()| lab.lifecycle());
-    match execution {
-        Ok(()) => {
-            let cleanup_started = Instant::now();
-            match lab.finish() {
-                Ok(()) => {
-                    lab.sqlite_state_mut()?.phases.insert(
-                    "cleanup".into(),
-                    json!({"duration_ns": duration_ns(cleanup_started.elapsed()),
-                           "io": {"available": false, "reason": "device was cleanly stopped before exact fixture cleanup"}}),
-                );
-                    lab.sqlite_write_result("pass", None)?;
-                    lab.evidence.line("result: PASS; bounded probe only")
-                }
-                Err(error) => {
-                    if let Err(write_error) =
-                        lab.sqlite_write_result(status_for(&error), Some(&error))
-                    {
-                        return Err(io::Error::other(format!(
-                            "{error}; preserving failed result also failed: {write_error}"
-                        )));
-                    }
-                    Err(error)
-                }
-            }
-        }
-        Err(error) => {
-            let cleanup_started = Instant::now();
-            let cleanup = lab.recover_error();
-            lab.sqlite_state_mut()?.phases.insert(
-                "failure_cleanup".into(),
-                json!({"duration_ns": duration_ns(cleanup_started.elapsed()), "completed": cleanup.is_ok()}),
-            );
-            if let Err(cleanup_error) = &cleanup {
-                lab.sqlite_state_mut()?
-                    .errors
-                    .push(format!("cleanup: {cleanup_error}"));
-            }
-            if lab.sqlite_state()?.reader.is_some()
-                && lab.daemon.is_none()
-                && let Err(ledger_error) = lab.sqlite_finalize_ledger()
-            {
-                lab.sqlite_state_mut()?
-                    .errors
-                    .push(format!("ledger: {ledger_error}"));
-                lab.sqlite_state_mut()?.reader = None;
-            }
-            lab.sqlite_write_result(status_for(&error), Some(&error))?;
-            Err(error)
-        }
-    }
-}
-
-fn kv_init_command(tool: PathBuf, database: &Path) -> Command {
+fn kv_init_command(tool: PathBuf, database: &Path, case: Case) -> Command {
     let mut command = Command::new(tool);
-    command.arg("init").arg(database).args([
-        "--count",
-        "2",
-        "--size",
-        "8192",
-        "--pagesize",
-        "4096",
-    ]);
+    command
+        .arg("init")
+        .arg(database)
+        .arg("--count")
+        .arg(case.dataset_blobs().to_string())
+        .arg("--size")
+        .arg(case.blob_bytes().to_string())
+        .args(["--pagesize", "4096"]);
     command
 }
 
-fn kv_workload_command(tool: PathBuf, database: &Path) -> Command {
+fn workload_command(state: &State, database: &Path) -> Command {
+    if state.case.is_speedtest() {
+        let mut command = Command::new(state.tool("speedtest1"));
+        command
+            .arg(database)
+            .args(["--testset", "main", "--size", "1", "--verify", "--stats"]);
+        return command;
+    }
+    kv_workload_command(state.tool("kvtest"), database, state.case)
+}
+
+fn kv_workload_command(tool: PathBuf, database: &Path, case: Case) -> Command {
     let mut command = Command::new(tool);
-    command.arg("run").arg(database).args([
-        "--update",
-        "--count",
-        "4096",
-        "--max-id",
-        "2",
-        "--random",
-        "--multitrans",
-        "--cache-size",
-        "256",
-        "--mmap",
-        "0",
-        "--stats",
-    ]);
+    command
+        .arg("run")
+        .arg(database)
+        .arg("--count")
+        .arg(case.operations().to_string())
+        .arg("--max-id")
+        .arg(case.dataset_blobs().to_string())
+        .arg(if case.random() { "--random" } else { "--asc" });
+    if case.updates() {
+        command.arg("--update");
+    }
+    if case.multitrans() {
+        command.arg("--multitrans");
+    }
+    command.args(["--cache-size", "256", "--mmap", "0", "--stats"]);
     command
 }
 
@@ -775,6 +782,17 @@ fn sqlite_validation_command(tool: PathBuf, database: &Path) -> Command {
             ".sha3sum --schema",
         ]);
     command
+}
+
+fn prepare_sqlite_command<'a>(command: &mut Command, database: &'a Path) -> io::Result<&'a Path> {
+    let parent = database
+        .parent()
+        .ok_or_else(|| io::Error::other("SQLite database has no parent directory"))?;
+    if !parent.is_dir() {
+        return Err(io::Error::other("SQLite database parent is absent"));
+    }
+    command.current_dir(parent).env("SQLITE_TMPDIR", parent);
+    Ok(parent)
 }
 
 fn set_profile(command: &mut Command, profile: Profile) {
@@ -810,110 +828,6 @@ fn command_failure<T>(label: &str, captured: &CapturedCommand) -> io::Result<T> 
         )),
         Outcome::Exit(status) => Err(io::Error::other(format!("{label} failed: {status}"))),
     }
-}
-
-fn parse_workload_stdout(bytes: &[u8]) -> io::Result<Value> {
-    let text = std::str::from_utf8(bytes).map_err(io::Error::other)?;
-    for required in [
-        "--count 4096 --max-id 2 --random",
-        "--cache-size 256 --jmode wal",
-        "--mmap 0",
-        "Database page size: 4096",
-    ] {
-        if !text.lines().any(|line| line == required) {
-            return Err(io::Error::other(
-                "kvtest output does not confirm requested parameters",
-            ));
-        }
-    }
-    if text.contains("--blob-api") || text.contains("ERROR:") {
-        return Err(io::Error::other("kvtest reported an error or blob API use"));
-    }
-    let elapsed = prefixed_f64(text, "Total elapsed time: ")?;
-    let micros = prefixed_f64(text, "Microseconds per BLOB write: ")?;
-    let rate = suffixed_f64(text, "Content write rate: ", " MB/s")?;
-    Ok(json!({
-        "elapsed_seconds_wall_clock": elapsed,
-        "microseconds_per_blob_write": micros,
-        "content_write_rate_mb_s": rate,
-        "statistics_raw_in_commands_log": true,
-    }))
-}
-
-fn prefixed_f64(text: &str, prefix: &str) -> io::Result<f64> {
-    let raw = text
-        .lines()
-        .find_map(|line| line.strip_prefix(prefix))
-        .ok_or_else(|| io::Error::other("required finite upstream statistic is absent"))?;
-    finite_f64(raw)
-}
-
-fn suffixed_f64(text: &str, prefix: &str, suffix: &str) -> io::Result<f64> {
-    let raw = text
-        .lines()
-        .find_map(|line| line.strip_prefix(prefix))
-        .and_then(|value| value.strip_suffix(suffix))
-        .ok_or_else(|| io::Error::other("required finite upstream statistic is absent"))?;
-    finite_f64(raw)
-}
-
-fn finite_f64(raw: &str) -> io::Result<f64> {
-    let value = raw.parse::<f64>().map_err(io::Error::other)?;
-    if !value.is_finite() || value < 0.0 {
-        return Err(io::Error::other(
-            "upstream statistic is not finite and non-negative",
-        ));
-    }
-    Ok(value)
-}
-
-fn parse_validation(bytes: &[u8]) -> io::Result<String> {
-    let text = std::str::from_utf8(bytes).map_err(io::Error::other)?;
-    let lines: Vec<_> = text.lines().collect();
-    if lines.len() != 2 || lines[0] != "ok" {
-        return Err(io::Error::other(
-            "read-only SQLite validation output is not exact",
-        ));
-    }
-    let digest = lines[1];
-    if digest.len() != 56
-        || !digest
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    {
-        return Err(io::Error::other(
-            "SQLite .sha3sum --schema digest is invalid",
-        ));
-    }
-    Ok(digest.to_owned())
-}
-
-fn filter_evidence_directory(text: &str, repo: &Path, directory: &Path) -> io::Result<String> {
-    let relative = directory
-        .strip_prefix(repo)
-        .map_err(|_| io::Error::other("SQLite evidence is outside repository"))?;
-    let own_line = format!("?? {}/", relative.display());
-    Ok(text
-        .lines()
-        .filter(|line| *line != own_line)
-        .collect::<Vec<_>>()
-        .join("\n"))
-}
-
-fn parse_sha256sum(text: &str, expected_path: &Path) -> io::Result<String> {
-    let (digest, path) = text
-        .trim_end()
-        .split_once("  ")
-        .ok_or_else(|| io::Error::other("invalid sha256sum output"))?;
-    if Path::new(path) != expected_path
-        || digest.len() != 64
-        || !digest
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    {
-        return Err(io::Error::other("invalid SHA256 digest or path"));
-    }
-    Ok(digest.to_owned())
 }
 
 fn io_delta(before: &IoPoint, after: &IoPoint) -> io::Result<Value> {
@@ -1000,20 +914,6 @@ fn invalid_telemetry() -> io::Error {
     io::Error::other("SQLite telemetry has errors, missing records, or incomplete checkpoints")
 }
 
-fn write_fallback_result(directory: &Path, elapsed: Duration, error: &io::Error) -> io::Result<()> {
-    let path = directory.join("result.jsonl");
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    let value = json!({
-        "schema": "block-storage-sqlite-probe", "schema_version": 2,
-        "status": status_for(error), "acceptance_claim": false,
-        "case": {"name": Case::KvSeededRandomUpdate.name(), "profile": Profile::WalFull.name(), "filesystem": "ext4", "repetition": 1},
-        "full_case_elapsed_ns": duration_ns(elapsed), "errors": [error.to_string()],
-        "partial": true,
-    });
-    serde_json::to_writer(&mut file, &value).map_err(io::Error::other)?;
-    file.write_all(b"\n")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1025,7 +925,7 @@ mod tests {
     #[test]
     fn commands_and_typed_profiles_are_exact() {
         let database = Path::new("/mounted/work/database.db");
-        let init = kv_init_command("kvtest".into(), database);
+        let init = kv_init_command("kvtest".into(), database, Case::ProbeSeededRandomUpdate);
         assert_eq!(
             args(&init),
             [
@@ -1039,7 +939,8 @@ mod tests {
                 "4096"
             ]
         );
-        let workload = kv_workload_command("kvtest".into(), database);
+        let workload =
+            kv_workload_command("kvtest".into(), database, Case::ProbeSeededRandomUpdate);
         let arguments = args(&workload);
         assert!(arguments.contains(&OsStr::new("--multitrans")));
         assert!(!arguments.contains(&OsStr::new("--blob-api")));
@@ -1047,6 +948,123 @@ mod tests {
         assert_eq!(Profile::WalFull.synchronous(), 2);
         assert_eq!(Profile::DeleteExtra.synchronous(), 3);
         assert_eq!(Profile::WalNormal.synchronous(), 1);
+    }
+
+    #[test]
+    fn matrix_commands_cover_tools_access_sizes_and_transactions() {
+        let database = Path::new("database.db");
+        let speedtest = {
+            let state = test_state(Case::SpeedtestMain);
+            workload_command(&state, database)
+        };
+        assert_eq!(
+            args(&speedtest),
+            [
+                "database.db",
+                "--testset",
+                "main",
+                "--size",
+                "1",
+                "--verify",
+                "--stats"
+            ]
+        );
+        assert_eq!(speedtest.get_program(), OsStr::new("build/speedtest1"));
+
+        let read = kv_workload_command("kvtest".into(), database, Case::KvSequentialReadSmall);
+        assert!(args(&read).contains(&OsStr::new("--asc")));
+        assert!(!args(&read).contains(&OsStr::new("--update")));
+        assert_eq!(Case::KvSequentialReadSmall.operations(), 4096);
+        assert_eq!(Case::KvSequentialReadSmall.dataset_blobs(), 32);
+        assert_eq!(Case::KvSequentialReadSmall.blob_bytes(), 128);
+        assert_eq!(Case::KvRandomReadLarge.blob_bytes(), 8192);
+        assert_eq!(
+            Case::KvSequentialUpdateSmallSingleTransaction.operations(),
+            256
+        );
+        assert!(!Case::KvSequentialUpdateSmallSingleTransaction.multitrans());
+        assert!(Case::KvSequentialUpdateSmallPerOpCommit.multitrans());
+        assert_eq!(Case::KvRandomUpdateLargeSingleTransaction.operations(), 256);
+        assert!(!Case::KvRandomUpdateLargeSingleTransaction.multitrans());
+        assert!(Case::KvRandomUpdateLargePerOpCommit.multitrans());
+        let stress =
+            kv_workload_command("kvtest".into(), database, Case::KvLongWalCheckpointStress);
+        assert!(args(&stress).contains(&OsStr::new("--random")));
+        assert!(args(&stress).contains(&OsStr::new("--update")));
+        assert!(args(&stress).contains(&OsStr::new("--multitrans")));
+        assert_eq!(
+            (
+                Case::KvLongWalCheckpointStress.dataset_blobs(),
+                Case::KvLongWalCheckpointStress.blob_bytes(),
+                Case::KvLongWalCheckpointStress.operations()
+            ),
+            (2, 8192, 4096)
+        );
+    }
+
+    fn test_state(case: Case) -> State {
+        State {
+            profile: Profile::WalFull,
+            case,
+            repetition: 1,
+            repetitions: matrix::REPETITIONS,
+            matrix_run: true,
+            ledger_path: PathBuf::new(),
+            reader: None,
+            tool_root: PathBuf::new(),
+            result_path: PathBuf::new(),
+            reference_path: PathBuf::new(),
+            reference_digest: None,
+            reference_tool_verification: None,
+            validation_count: 0,
+            daemon_stops: 0,
+            restart_started: None,
+            setup_io_start: None,
+            last_io_point: None,
+            restart_origin: None,
+            restart_first_end: None,
+            final_shutdown_started: None,
+            final_pre_stop: None,
+            phases: BTreeMap::new(),
+            telemetry: None,
+            validations: Vec::new(),
+            mount_options: Vec::new(),
+            metadata: Map::new(),
+            errors: Vec::new(),
+            started: Instant::now(),
+            result_written: false,
+        }
+    }
+
+    #[test]
+    fn matrix_result_uses_generic_schema_and_explicit_scope() {
+        let selection = matrix::selected(Case::SpeedtestMain, Profile::WalFull, 2).unwrap();
+        let mut focused = test_state(Case::SpeedtestMain);
+        focused.select(selection);
+        let result = focused.result("pass");
+        assert_eq!(result["schema"], "block-storage-sqlite");
+        assert_eq!(result["schema_version"], 2);
+        assert_eq!(result["scope"], "ext4_matrix");
+        assert_eq!(result["labels"]["fs"], "Ext4");
+        assert_eq!(result["labels"]["repetition"], 2);
+        assert_eq!(result["labels"]["expected"], 3);
+        assert_eq!(result["parameters"]["tool"], "speedtest1");
+    }
+
+    #[test]
+    fn sqlite_database_commands_pin_tmpdir_and_database_parent() {
+        let root = std::env::temp_dir().join(format!("sqlite-command-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let database = root.join("database.db");
+        let mut command = sqlite_validation_command("sqlite3".into(), &database);
+        prepare_sqlite_command(&mut command, &database).unwrap();
+        assert_eq!(command.get_current_dir(), Some(root.as_path()));
+        assert!(
+            command.get_envs().any(|(name, value)| {
+                name == "SQLITE_TMPDIR" && value == Some(root.as_os_str())
+            })
+        );
+        fs::remove_dir(root).unwrap();
     }
 
     #[test]
@@ -1146,26 +1164,6 @@ mod tests {
             ..parsed
         };
         assert!(workload_timings(&invalid, Duration::from_nanos(1_111)).is_err());
-    }
-
-    #[test]
-    fn failed_and_timeout_json_preserve_status() {
-        let failed = io::Error::other("boom");
-        let timeout = io::Error::new(io::ErrorKind::TimedOut, "late");
-        for (label, error, expected) in [
-            ("failed", failed, "failed"),
-            ("timeout", timeout, "timeout"),
-        ] {
-            let directory =
-                std::env::temp_dir().join(format!("sqlite-result-{label}-{}", std::process::id()));
-            fs::create_dir(&directory).unwrap();
-            write_fallback_result(&directory, Duration::from_nanos(7), &error).unwrap();
-            let line = fs::read_to_string(directory.join("result.jsonl")).unwrap();
-            let value: Value = serde_json::from_str(line.trim()).unwrap();
-            assert_eq!(value["status"], expected);
-            assert_eq!(value["errors"][0], error.to_string());
-            fs::remove_dir_all(directory).unwrap();
-        }
     }
 
     #[test]

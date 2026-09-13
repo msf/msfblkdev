@@ -1,7 +1,5 @@
 use super::*;
 
-const WORKLOAD_CONNECTION: u64 = 2;
-
 pub(super) struct Parsed {
     pub(super) value: Value,
     pub(super) process_duration_ns: u64,
@@ -41,6 +39,7 @@ struct Summary {
 pub(super) fn parse(
     bytes: &[u8],
     profile: Profile,
+    case: Case,
     snapshots_required: bool,
 ) -> io::Result<Parsed> {
     let text = std::str::from_utf8(bytes).map_err(io::Error::other)?;
@@ -50,25 +49,35 @@ pub(super) fn parse(
             continue;
         };
         let record: Value = serde_json::from_str(payload).map_err(io::Error::other)?;
-        parse_record(&record, profile, &mut records)?;
+        parse_record(
+            &record,
+            profile,
+            u64::from(case.snapshot_connection()),
+            &mut records,
+        )?;
     }
-    finish(records, profile, snapshots_required)
+    finish(records, profile, case, snapshots_required)
 }
 
-fn parse_record(record: &Value, profile: Profile, records: &mut Records) -> io::Result<()> {
+fn parse_record(
+    record: &Value,
+    profile: Profile,
+    workload_connection: u64,
+    records: &mut Records,
+) -> io::Result<()> {
     let kind = required_str(record, "record")?;
-    if kind.contains("error") {
+    if record_failed(record, kind) {
         return Err(invalid_telemetry());
     }
     let connection = record["connection"].as_u64();
     match kind {
-        "generator" if connection == Some(WORKLOAD_CONNECTION) => {
+        "generator" if connection == Some(workload_connection) => {
             if record["seed"] != SEED || record["identity"] != "splitmix64-byte-v1" {
                 return Err(invalid_telemetry());
             }
             records.generators += 1;
         }
-        "settings" if connection == Some(WORKLOAD_CONNECTION) => {
+        "settings" if connection == Some(workload_connection) => {
             validate_settings(record, profile)?;
             match record["phase"].as_str() {
                 Some("open") => records.settings_open += 1,
@@ -76,15 +85,17 @@ fn parse_record(record: &Value, profile: Profile, records: &mut Records) -> io::
                 _ => return Err(invalid_telemetry()),
             }
         }
-        "auto_checkpoint" => parse_auto_checkpoint(record, records)?,
-        "checkpoint" if connection == Some(WORKLOAD_CONNECTION) => {
-            if record["mode"] != "truncate" || record["rc"] != 0 || record["status"] != "completed"
-            {
-                return Err(invalid_telemetry());
+        "auto_checkpoint" => {
+            parse_auto_checkpoint(record)?;
+            if connection.is_none() || connection == Some(workload_connection) {
+                records.automatic += 1;
             }
+        }
+        "checkpoint" if connection == Some(workload_connection) => {
+            validate_final_checkpoint(record, profile)?;
             records.final_checkpoints += 1;
         }
-        "device_snapshot" if connection == Some(WORKLOAD_CONNECTION) => {
+        "device_snapshot" if connection == Some(workload_connection) => {
             let point = parse_snapshot(record)?;
             let slot = match record["phase"].as_str() {
                 Some("drain_start") => &mut records.drain_start,
@@ -95,7 +106,7 @@ fn parse_record(record: &Value, profile: Profile, records: &mut Records) -> io::
                 return Err(invalid_telemetry());
             }
         }
-        "drain_close" if connection == Some(WORKLOAD_CONNECTION) => {
+        "drain_close" if connection == Some(workload_connection) => {
             if record["checkpoint_rc"] != 0
                 || record["close_rc"] != 0
                 || record["status"] != "completed"
@@ -122,7 +133,38 @@ fn parse_record(record: &Value, profile: Profile, records: &mut Records) -> io::
     Ok(())
 }
 
-fn parse_auto_checkpoint(record: &Value, records: &mut Records) -> io::Result<()> {
+fn record_failed(record: &Value, kind: &str) -> bool {
+    let failed_return_code = ["rc", "checkpoint_rc", "close_rc"]
+        .into_iter()
+        .filter_map(|field| record[field].as_i64())
+        .any(|code| code != 0);
+    kind.contains("error")
+        || kind.contains("failure")
+        || matches!(
+            record["status"].as_str(),
+            Some("error" | "failed" | "failure")
+        )
+        || failed_return_code
+}
+
+fn validate_final_checkpoint(record: &Value, profile: Profile) -> io::Result<()> {
+    let valid = match profile {
+        Profile::DeleteExtra => {
+            record["mode"] == "truncate"
+                && record["status"] == "not_applicable"
+                && record["rc"].is_null()
+        }
+        Profile::WalFull | Profile::WalNormal => {
+            record["mode"] == "truncate" && record["rc"] == 0 && record["status"] == "completed"
+        }
+    };
+    if !valid {
+        return Err(invalid_telemetry());
+    }
+    Ok(())
+}
+
+fn parse_auto_checkpoint(record: &Value) -> io::Result<()> {
     if record["database"] != "main"
         || record["policy"] != "passive"
         || record["rc"] != 0
@@ -135,7 +177,6 @@ fn parse_auto_checkpoint(record: &Value, records: &mut Records) -> io::Result<()
     {
         return Err(invalid_telemetry());
     }
-    records.automatic += 1;
     Ok(())
 }
 
@@ -174,14 +215,25 @@ fn parse_snapshot(record: &Value) -> io::Result<SnapshotPoint> {
     })
 }
 
-fn finish(records: Records, profile: Profile, snapshots_required: bool) -> io::Result<Parsed> {
+fn finish(
+    records: Records,
+    profile: Profile,
+    case: Case,
+    snapshots_required: bool,
+) -> io::Result<Parsed> {
+    let expected_generators = u64::from(!case.is_speedtest());
+    let minimum_automatic = if case == Case::KvLongWalCheckpointStress && profile.is_wal() {
+        2
+    } else {
+        0
+    };
     if (
         records.settings_open,
         records.settings_close,
         records.generators,
         records.final_checkpoints,
-    ) != (1, 1, 1, 1)
-        || records.automatic < 2
+    ) != (1, 1, expected_generators, 1)
+        || records.automatic < minimum_automatic
     {
         return Err(invalid_telemetry());
     }
@@ -204,7 +256,14 @@ fn finish(records: Records, profile: Profile, snapshots_required: bool) -> io::R
         observer_overhead_ns,
         automatic_checkpoints: automatic,
     };
-    let value = telemetry_json(profile, &drain_start, &drain_end, &summary);
+    let value = telemetry_json(
+        profile,
+        u64::from(case.snapshot_connection()),
+        minimum_automatic,
+        &drain_start,
+        &drain_end,
+        &summary,
+    );
     Ok(Parsed {
         value,
         process_duration_ns,
@@ -240,6 +299,8 @@ fn empty_snapshot() -> SnapshotPoint {
 
 fn telemetry_json(
     profile: Profile,
+    workload_connection: u64,
+    minimum_automatic: u64,
     start: &SnapshotPoint,
     end: &SnapshotPoint,
     summary: &Summary,
@@ -249,7 +310,7 @@ fn telemetry_json(
     } else {
         json!({
             "enabled": true,
-            "connection": WORKLOAD_CONNECTION,
+            "connection": workload_connection,
             "drain_start": {"monotonic_ns": start.monotonic_ns, "block": block_json(&start.io.block), "ledger": start.ledger_json},
             "drain_end": {"monotonic_ns": end.monotonic_ns, "block": block_json(&end.io.block), "ledger": end.ledger_json},
             "counters_observed_around_drain": true,
@@ -257,11 +318,14 @@ fn telemetry_json(
         })
     };
     json!({
-        "profile": profile.name(), "workload_connection": WORKLOAD_CONNECTION,
+        "profile": profile.name(), "workload_connection": workload_connection,
         "preparatory_connection_drains_ignored": true,
         "automatic_passive_checkpoints_completed": summary.automatic_checkpoints,
-        "automatic_checkpoint_minimum": 2,
-        "final_truncate_checkpoint": "completed",
+        "automatic_checkpoint_minimum": minimum_automatic,
+        "final_checkpoint": match profile {
+            Profile::DeleteExtra => json!({"mode": "truncate", "status": "not_applicable", "rc": null}),
+            Profile::WalFull | Profile::WalNormal => json!({"mode": "truncate", "status": "completed", "rc": 0}),
+        },
         "process": {"duration_ns": summary.process_duration_ns, "total_snapshot_overhead_ns": summary.snapshot_overhead_ns, "status": "completed"},
         "selected_drain_close": {"duration_ns": summary.drain_close_ns, "observer_overhead_ns": summary.observer_overhead_ns, "status": "completed"},
         "device_snapshots": snapshots,
@@ -327,7 +391,13 @@ mod tests {
 
     #[test]
     fn paired_snapshots_and_process_are_exact() {
-        let parsed = parse(complete().as_bytes(), Profile::WalFull, true).unwrap();
+        let parsed = parse(
+            complete().as_bytes(),
+            Profile::WalFull,
+            Case::ProbeSeededRandomUpdate,
+            true,
+        )
+        .unwrap();
         assert_eq!(parsed.process_duration_ns, 1000);
         assert_eq!(parsed.snapshot_overhead_ns, 20);
         assert_eq!(parsed.drain_close_ns, 100);
@@ -338,6 +408,89 @@ mod tests {
         assert_eq!(
             parsed.value["device_snapshots"]["counters_observed_around_drain"],
             true
+        );
+    }
+
+    #[test]
+    fn speedtest_delete_profile_needs_no_generator_or_automatic_checkpoint() {
+        let text = format!(
+            "sqlite-lab {{\"record\":\"settings\",\"phase\":\"open\",\"connection\":1,\"profile\":\"delete-extra\",\"page_size\":4096,\"cache_pages\":256,\"mmap_bytes\":0,\"journal_mode\":\"delete\",\"synchronous\":3,\"wal_autocheckpoint\":1000,\"rc\":0}}\n\
+             sqlite-lab {{\"record\":\"settings\",\"phase\":\"close\",\"connection\":1,\"profile\":\"delete-extra\",\"page_size\":4096,\"cache_pages\":256,\"mmap_bytes\":0,\"journal_mode\":\"delete\",\"synchronous\":3,\"wal_autocheckpoint\":1000,\"rc\":0}}\n\
+             {}{}sqlite-lab {{\"record\":\"checkpoint\",\"connection\":1,\"mode\":\"truncate\",\"rc\":null,\"status\":\"not_applicable\"}}\n\
+             sqlite-lab {{\"record\":\"drain_close\",\"connection\":1,\"duration_ns\":100,\"observer_overhead_ns\":20,\"checkpoint_rc\":0,\"close_rc\":0,\"status\":\"completed\"}}\n\
+             sqlite-lab {{\"record\":\"process\",\"duration_ns\":1000,\"total_snapshot_overhead_ns\":20,\"status\":\"completed\"}}\n",
+            snapshot("drain_start", 10, 10).replace("\"connection\":2", "\"connection\":1"),
+            snapshot("drain_end", 20, 15).replace("\"connection\":2", "\"connection\":1")
+        );
+        let parsed = parse(
+            text.as_bytes(),
+            Profile::DeleteExtra,
+            Case::SpeedtestMain,
+            true,
+        )
+        .unwrap();
+        assert_eq!(parsed.value["automatic_checkpoint_minimum"], 0);
+        assert_eq!(parsed.value["workload_connection"], 1);
+        assert_eq!(parsed.value["final_checkpoint"]["mode"], "truncate");
+        assert_eq!(parsed.value["final_checkpoint"]["status"], "not_applicable");
+        assert!(parsed.value["final_checkpoint"]["rc"].is_null());
+    }
+
+    #[test]
+    fn only_long_wal_case_requires_selected_connection_auto_checkpoints() {
+        let without_automatic = complete()
+            .lines()
+            .filter(|line| !line.contains("auto_checkpoint"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            parse(
+                without_automatic.as_bytes(),
+                Profile::WalFull,
+                Case::KvRandomUpdateLargePerOpCommit,
+                true,
+            )
+            .is_ok()
+        );
+
+        let preparatory = complete().replace(
+            "\"record\":\"auto_checkpoint\",",
+            "\"record\":\"auto_checkpoint\",\"connection\":1,",
+        );
+        assert!(
+            parse(
+                preparatory.as_bytes(),
+                Profile::WalFull,
+                Case::KvLongWalCheckpointStress,
+                true,
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                complete().as_bytes(),
+                Profile::WalFull,
+                Case::KvLongWalCheckpointStress,
+                true,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn explicit_failure_from_any_connection_fails() {
+        let text = format!(
+            "{}sqlite-lab {{\"record\":\"observer_failure\",\"connection\":1,\"status\":\"failed\"}}\n",
+            complete()
+        );
+        assert!(
+            parse(
+                text.as_bytes(),
+                Profile::WalFull,
+                Case::KvRandomUpdateLargePerOpCommit,
+                true,
+            )
+            .is_err()
         );
     }
 
@@ -354,14 +507,38 @@ mod tests {
                 "\"total_snapshot_overhead_ns\":20",
                 "\"total_snapshot_overhead_ns\":0",
             );
-        assert!(parse(without.as_bytes(), Profile::WalFull, false).is_ok());
-        assert!(parse(complete().as_bytes(), Profile::WalFull, false).is_err());
+        assert!(
+            parse(
+                without.as_bytes(),
+                Profile::WalFull,
+                Case::ProbeSeededRandomUpdate,
+                false,
+            )
+            .is_ok()
+        );
+        assert!(
+            parse(
+                complete().as_bytes(),
+                Profile::WalFull,
+                Case::ProbeSeededRandomUpdate,
+                false,
+            )
+            .is_err()
+        );
         let no_process = without
             .lines()
             .filter(|line| !line.contains("\"process\""))
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(parse(no_process.as_bytes(), Profile::WalFull, false).is_err());
+        assert!(
+            parse(
+                no_process.as_bytes(),
+                Profile::WalFull,
+                Case::ProbeSeededRandomUpdate,
+                false,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -372,18 +549,58 @@ mod tests {
             .filter(|line| !line.contains("drain_end"))
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(parse(missing.as_bytes(), Profile::WalFull, true).is_err());
+        assert!(
+            parse(
+                missing.as_bytes(),
+                Profile::WalFull,
+                Case::ProbeSeededRandomUpdate,
+                true,
+            )
+            .is_err()
+        );
         let duplicate = format!("{complete}{}", snapshot("drain_start", 11, 11));
-        assert!(parse(duplicate.as_bytes(), Profile::WalFull, true).is_err());
+        assert!(
+            parse(
+                duplicate.as_bytes(),
+                Profile::WalFull,
+                Case::ProbeSeededRandomUpdate,
+                true,
+            )
+            .is_err()
+        );
         let decreasing =
             complete.replace(&snapshot("drain_end", 20, 15), &snapshot("drain_end", 9, 9));
-        assert!(parse(decreasing.as_bytes(), Profile::WalFull, true).is_err());
+        assert!(
+            parse(
+                decreasing.as_bytes(),
+                Profile::WalFull,
+                Case::ProbeSeededRandomUpdate,
+                true,
+            )
+            .is_err()
+        );
         let error = complete.replace("\"errors\":0", "\"errors\":1");
-        assert!(parse(error.as_bytes(), Profile::WalFull, true).is_err());
+        assert!(
+            parse(
+                error.as_bytes(),
+                Profile::WalFull,
+                Case::ProbeSeededRandomUpdate,
+                true,
+            )
+            .is_err()
+        );
         let incomplete = complete.replace(
             "\"completed_totals_incomplete\":false",
             "\"completed_totals_incomplete\":true",
         );
-        assert!(parse(incomplete.as_bytes(), Profile::WalFull, true).is_err());
+        assert!(
+            parse(
+                incomplete.as_bytes(),
+                Profile::WalFull,
+                Case::ProbeSeededRandomUpdate,
+                true,
+            )
+            .is_err()
+        );
     }
 }

@@ -39,14 +39,21 @@ impl Evidence {
             .duration_since(UNIX_EPOCH)
             .map_err(io::Error::other)?
             .as_nanos();
-        let directory = repo.join("evidence").join(format!("sqlite-{timestamp}"));
-        fs::create_dir_all(&directory)?;
+        let root = repo.join("evidence");
+        fs::create_dir_all(&root)?;
+        let directory = root.join(format!("sqlite-{timestamp}"));
+        let evidence = Self::create_in_directory(&directory)?;
+        Ok((evidence, directory))
+    }
+
+    pub fn create_in_directory(directory: &Path) -> io::Result<Self> {
+        fs::create_dir(directory)?;
         let path = directory.join("commands.log");
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&path)?;
-        Ok((Self { file, path }, directory))
+        Ok(Self { file, path })
     }
 
     fn create_named(repo: &Path, name: &str, fio_version: Option<&str>) -> io::Result<Self> {

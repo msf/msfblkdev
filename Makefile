@@ -4,7 +4,7 @@ ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
-.PHONY: setup setup-sqlite build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs check-sqlite test-sqlite test-zig test-rust run
+.PHONY: setup setup-sqlite build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs check-sqlite check-sqlite-ext4 test-sqlite test-sqlite-ext4 test-sqlite-ext4-one test-zig test-rust run
 
 build: build-rust
 
@@ -72,6 +72,20 @@ check-sqlite: build-ext4
 # Explicit operator opt-in; runs one fresh ext4 WAL/FULL probe, not acceptance.
 test-sqlite: check-sqlite
 	@rust/target/debug/block-storage-lab sqlite-probe
+
+# Checks tools and ext4 prerequisites without creating a device or mount.
+check-sqlite-ext4: check-sqlite check-ext4
+
+# Explicit operator opt-in; fail-fast 29-profile/case x 3-repetition ext4 matrix (87 fresh images).
+test-sqlite-ext4: check-sqlite-ext4
+	@rust/target/debug/block-storage-lab sqlite-ext4
+
+# Focused operator run. The lab accepts only a whitelisted matrix member and repetition 1..3.
+test-sqlite-ext4-one: check-sqlite-ext4
+	@test -n "$(SQLITE_CASE)" -a -n "$(SQLITE_PROFILE)" -a -n "$(SQLITE_REPETITION)" || \
+		{ echo "set SQLITE_CASE, SQLITE_PROFILE, and SQLITE_REPETITION"; exit 2; }
+	@rust/target/debug/block-storage-lab sqlite-ext4 \
+		"$(SQLITE_CASE)" "$(SQLITE_PROFILE)" "$(SQLITE_REPETITION)"
 
 # Checks XFS prerequisites and capacity without creating a backing image, device, or mount.
 check-xfs: build-ext4

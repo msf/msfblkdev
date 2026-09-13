@@ -26,6 +26,95 @@ pub struct DatabaseSnapshotRequest {
     pub connection: u8,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SqliteProfile {
+    DeleteExtra,
+    WalFull,
+    WalNormal,
+}
+
+impl SqliteProfile {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::DeleteExtra => "delete-extra",
+            Self::WalFull => "wal-full",
+            Self::WalNormal => "wal-normal",
+        }
+    }
+
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "delete-extra" => Some(Self::DeleteExtra),
+            "wal-full" => Some(Self::WalFull),
+            "wal-normal" => Some(Self::WalNormal),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SqliteCase {
+    ProbeSeededRandomUpdate,
+    SpeedtestMain,
+    KvSequentialReadSmall,
+    KvRandomReadSmall,
+    KvSequentialReadLarge,
+    KvRandomReadLarge,
+    KvSequentialUpdateSmallSingleTransaction,
+    KvSequentialUpdateSmallPerOpCommit,
+    KvRandomUpdateLargeSingleTransaction,
+    KvRandomUpdateLargePerOpCommit,
+    KvLongWalCheckpointStress,
+}
+
+impl SqliteCase {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::ProbeSeededRandomUpdate => "kv-seeded-random-update",
+            Self::SpeedtestMain => "speedtest-main",
+            Self::KvSequentialReadSmall => "kv-sequential-read-small",
+            Self::KvRandomReadSmall => "kv-random-read-small",
+            Self::KvSequentialReadLarge => "kv-sequential-read-large",
+            Self::KvRandomReadLarge => "kv-random-read-large",
+            Self::KvSequentialUpdateSmallSingleTransaction => {
+                "kv-sequential-update-small-single-transaction"
+            }
+            Self::KvSequentialUpdateSmallPerOpCommit => "kv-sequential-update-small-per-op-commit",
+            Self::KvRandomUpdateLargeSingleTransaction => {
+                "kv-random-update-large-single-transaction"
+            }
+            Self::KvRandomUpdateLargePerOpCommit => "kv-random-update-large-per-op-commit",
+            Self::KvLongWalCheckpointStress => "kv-long-wal-checkpoint-stress",
+        }
+    }
+
+    fn parse(name: &str) -> Option<Self> {
+        SQLITE_MATRIX_CASES
+            .into_iter()
+            .find(|case| case.name() == name)
+    }
+}
+
+pub const SQLITE_MATRIX_CASES: [SqliteCase; 10] = [
+    SqliteCase::SpeedtestMain,
+    SqliteCase::KvSequentialReadSmall,
+    SqliteCase::KvRandomReadSmall,
+    SqliteCase::KvSequentialReadLarge,
+    SqliteCase::KvRandomReadLarge,
+    SqliteCase::KvSequentialUpdateSmallSingleTransaction,
+    SqliteCase::KvSequentialUpdateSmallPerOpCommit,
+    SqliteCase::KvRandomUpdateLargeSingleTransaction,
+    SqliteCase::KvRandomUpdateLargePerOpCommit,
+    SqliteCase::KvLongWalCheckpointStress,
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SqliteSelector {
+    pub case: SqliteCase,
+    pub profile: SqliteProfile,
+    pub repetition: u8,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Mode {
     Test,
@@ -40,6 +129,7 @@ pub enum Mode {
     XfsPopulate,
     XfsVerify,
     SqliteProbe,
+    SqliteExt4(Option<SqliteSelector>),
     DatabaseSnapshot(DatabaseSnapshotRequest),
 }
 
@@ -63,6 +153,9 @@ where
     if subcommand.as_deref() == Some(OsStr::new("database-snapshot")) {
         return parse_database_snapshot(&program, &mut args);
     }
+    if subcommand.as_deref() == Some(OsStr::new("sqlite-ext4")) {
+        return parse_sqlite_ext4(&program, &mut args);
+    }
     if args.next().is_some() {
         return Err(usage(&program));
     }
@@ -81,6 +174,41 @@ where
         Some("sqlite-probe") => Ok(Mode::SqliteProbe),
         _ => Err(usage(&program)),
     }
+}
+
+fn parse_sqlite_ext4<I>(program: &OsString, args: &mut I) -> Result<Mode, String>
+where
+    I: Iterator<Item = OsString>,
+{
+    let Some(case) = args.next() else {
+        return Ok(Mode::SqliteExt4(None));
+    };
+    let profile = args.next().ok_or_else(|| usage(program))?;
+    let repetition = args.next().ok_or_else(|| usage(program))?;
+    if args.next().is_some() {
+        return Err(usage(program));
+    }
+    let case = case
+        .to_str()
+        .and_then(SqliteCase::parse)
+        .ok_or_else(|| usage(program))?;
+    let profile = profile
+        .to_str()
+        .and_then(SqliteProfile::parse)
+        .ok_or_else(|| usage(program))?;
+    let repetition = repetition
+        .to_str()
+        .and_then(|value| value.parse::<u8>().ok())
+        .filter(|value| (1..=3).contains(value))
+        .ok_or_else(|| usage(program))?;
+    if case == SqliteCase::KvLongWalCheckpointStress && profile == SqliteProfile::DeleteExtra {
+        return Err(usage(program));
+    }
+    Ok(Mode::SqliteExt4(Some(SqliteSelector {
+        case,
+        profile,
+        repetition,
+    })))
 }
 
 fn parse_database_snapshot<I>(program: &OsString, args: &mut I) -> Result<Mode, String>
@@ -129,6 +257,7 @@ where
         | Mode::XfsPopulate
         | Mode::XfsVerify => (60, 600),
         Mode::SqliteProbe => (60, 600),
+        Mode::SqliteExt4(_) => (60, 600),
         Mode::DatabaseSnapshot(_) => (1, 1),
     };
     Ok(Config {
@@ -184,7 +313,7 @@ fn invalid_env(name: &str, value: &OsString, allow_zero: bool) -> String {
 
 fn usage(program: &OsString) -> String {
     format!(
-        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight | xfs | xfs-preflight | sqlite-probe | database-snapshot drain-start|drain-end <connection-id>",
+        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight | xfs | xfs-preflight | sqlite-probe | sqlite-ext4 [<case> <profile> <repetition 1..3>] | database-snapshot drain-start|drain-end <connection-id>",
         program.to_string_lossy()
     )
 }
@@ -254,6 +383,51 @@ mod tests {
     }
 
     #[test]
+    fn validates_sqlite_ext4_arguments_and_defaults() {
+        assert_eq!(
+            parse_args(["lab", "sqlite-probe"].map(OsString::from)),
+            Ok(Mode::SqliteProbe)
+        );
+        assert_eq!(
+            parse_args(["lab", "sqlite-ext4"].map(OsString::from)),
+            Ok(Mode::SqliteExt4(None))
+        );
+        assert_eq!(
+            parse_args(
+                ["lab", "sqlite-ext4", "speedtest-main", "wal-full", "2"].map(OsString::from)
+            ),
+            Ok(Mode::SqliteExt4(Some(SqliteSelector {
+                case: SqliteCase::SpeedtestMain,
+                profile: SqliteProfile::WalFull,
+                repetition: 2,
+            })))
+        );
+        for args in [
+            ["lab", "sqlite-ext4", "unknown", "wal-full", "1"],
+            ["lab", "sqlite-ext4", "speedtest-main", "bad", "1"],
+            [
+                "lab",
+                "sqlite-ext4",
+                "kv-long-wal-checkpoint-stress",
+                "delete-extra",
+                "1",
+            ],
+            ["lab", "sqlite-ext4", "speedtest-main", "wal-full", "0"],
+            ["lab", "sqlite-ext4", "speedtest-main", "wal-full", "4"],
+            ["lab", "sqlite-ext4", "speedtest-main", "wal-full", "x"],
+        ] {
+            assert!(parse_args(args.map(OsString::from)).is_err());
+        }
+        let probe = from_env(Mode::SqliteProbe, |_| None).unwrap();
+        assert_eq!((probe.per_test.as_secs(), probe.suite.as_secs()), (60, 600));
+        let matrix = from_env(Mode::SqliteExt4(None), |_| None).unwrap();
+        assert_eq!(
+            (matrix.per_test.as_secs(), matrix.suite.as_secs()),
+            (60, 600)
+        );
+    }
+
+    #[test]
     fn validates_environment_and_defaults() {
         let empty: HashMap<&str, OsString> = HashMap::new();
         let test = from_env(Mode::Test, |name| empty.get(name).cloned()).unwrap();
@@ -279,14 +453,6 @@ mod tests {
             assert_eq!(config.per_test, Duration::from_secs(60));
             assert_eq!(config.suite, Duration::from_secs(600));
         }
-
-        assert_eq!(
-            parse_args(["lab", "sqlite-probe"].map(OsString::from)),
-            Ok(Mode::SqliteProbe)
-        );
-        let sqlite = from_env(Mode::SqliteProbe, |_| None).unwrap();
-        assert_eq!(sqlite.per_test, Duration::from_secs(60));
-        assert_eq!(sqlite.suite, Duration::from_secs(600));
 
         let values = HashMap::from([
             (SLOW_ENV, OsString::from("0")),

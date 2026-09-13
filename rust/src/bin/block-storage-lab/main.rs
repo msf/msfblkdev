@@ -34,8 +34,8 @@ fn execute() -> io::Result<ExitCode> {
             return Ok(ExitCode::from(2));
         }
     };
-    if let Mode::DatabaseSnapshot(request) = mode {
-        database_snapshot::run(request)?;
+    if let Mode::DatabaseSnapshot(request) = &mode {
+        database_snapshot::run(*request)?;
         return Ok(ExitCode::SUCCESS);
     }
     let config = match config::from_env(mode, |name| std::env::var_os(name)) {
@@ -48,64 +48,46 @@ fn execute() -> io::Result<ExitCode> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("rust crate must have a repository parent");
+    execute_mode(config, repo)
+}
 
-    let filesystem_mode = match mode {
-        Mode::Ext4 | Mode::Ext4Preflight | Mode::Ext4Populate | Mode::Ext4Verify => {
-            Some(fs_support::Filesystem::Ext4)
+fn execute_mode(config: config::Config, repo: &Path) -> io::Result<ExitCode> {
+    use fs_support::Filesystem::{Ext4, Xfs};
+    match &config.mode {
+        Mode::Ext4Preflight => ext4::preflight(repo, Ext4, config.per_test, config.suite)?,
+        Mode::XfsPreflight => ext4::preflight(repo, Xfs, config.per_test, config.suite)?,
+        Mode::Ext4 => ext4::run(repo, Ext4, config.per_test, config.suite)?,
+        Mode::Xfs => ext4::run(repo, Xfs, config.per_test, config.suite)?,
+        Mode::Ext4Populate | Mode::Ext4Verify => {
+            ext4::workload::worker(Ext4, mode_populates(&config.mode))?;
         }
-        Mode::Xfs | Mode::XfsPreflight | Mode::XfsPopulate | Mode::XfsVerify => {
-            Some(fs_support::Filesystem::Xfs)
+        Mode::XfsPopulate | Mode::XfsVerify => {
+            ext4::workload::worker(Xfs, mode_populates(&config.mode))?;
         }
-        Mode::Test | Mode::EngineCrash | Mode::UblkFio | Mode::SqliteProbe => None,
+        Mode::UblkFio => ublk_fio::run(repo, config.per_test)?,
+        Mode::SqliteProbe => ext4::sqlite::run(repo, config.per_test, config.suite)?,
+        Mode::SqliteExt4(selector) => {
+            ext4::sqlite::run_ext4(repo, config.per_test, config.suite, *selector)?;
+        }
+        Mode::Test | Mode::EngineCrash => return run_suite(config, repo),
         Mode::DatabaseSnapshot(_) => unreachable!("snapshot mode returned before configuration"),
-    };
-    if matches!(mode, Mode::Ext4Preflight | Mode::XfsPreflight) {
-        ext4::preflight(
-            repo,
-            filesystem_mode.expect("filesystem preflight has a profile"),
-            config.per_test,
-            config.suite,
-        )?;
-        return Ok(ExitCode::SUCCESS);
     }
-    if matches!(mode, Mode::Ext4 | Mode::Xfs) {
-        ext4::run(
-            repo,
-            filesystem_mode.expect("filesystem lifecycle has a profile"),
-            config.per_test,
-            config.suite,
-        )?;
-        return Ok(ExitCode::SUCCESS);
-    }
-    if matches!(
-        mode,
-        Mode::Ext4Populate | Mode::Ext4Verify | Mode::XfsPopulate | Mode::XfsVerify
-    ) {
-        ext4::workload::worker(
-            filesystem_mode.expect("filesystem worker has a profile"),
-            matches!(mode, Mode::Ext4Populate | Mode::XfsPopulate),
-        )?;
-        return Ok(ExitCode::SUCCESS);
-    }
+    Ok(ExitCode::SUCCESS)
+}
 
-    if mode == Mode::UblkFio {
-        ublk_fio::run(repo, config.per_test)?;
-        return Ok(ExitCode::SUCCESS);
-    }
-    if mode == Mode::SqliteProbe {
-        ext4::sqlite::run(repo, config.per_test, config.suite)?;
-        return Ok(ExitCode::SUCCESS);
-    }
+fn mode_populates(mode: &Mode) -> bool {
+    matches!(mode, Mode::Ext4Populate | Mode::XfsPopulate)
+}
 
-    let mut evidence = if mode == Mode::EngineCrash {
+fn run_suite(config: config::Config, repo: &Path) -> io::Result<ExitCode> {
+    let mut evidence = if config.mode == Mode::EngineCrash {
         let log = evidence::Evidence::create(repo)?;
         println!("evidence: {}", log.path().display());
         Some(log)
     } else {
         None
     };
-    let result = suite::run(config, repo, evidence.as_mut());
-    match result {
+    match suite::run(config, repo, evidence.as_mut()) {
         Ok(passed) => {
             if let Some(log) = evidence.as_mut() {
                 log.line(if passed {
