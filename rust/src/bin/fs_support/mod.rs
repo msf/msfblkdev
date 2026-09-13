@@ -3,8 +3,47 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 pub const MOUNT_HELPER: &str = "/usr/local/libexec/block-storage-mount";
-pub const VOLUME_BYTES: u64 = 128 * 1024 * 1024;
-pub const BACKING_BYTES: u64 = 1024 * 1024 * 1024;
+pub const VOLUME_BYTES: u64 = Filesystem::Ext4.volume_bytes();
+pub const BACKING_BYTES: u64 = Filesystem::Ext4.backing_bytes();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Filesystem {
+    Ext4,
+    Xfs,
+}
+
+impl Filesystem {
+    pub fn parse(name: &str) -> io::Result<Self> {
+        match name {
+            "ext4" => Ok(Self::Ext4),
+            "xfs" => Ok(Self::Xfs),
+            _ => Err(io::Error::other("only ext4 and XFS fixtures are supported")),
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Ext4 => "ext4",
+            Self::Xfs => "xfs",
+        }
+    }
+
+    pub const fn volume_bytes(self) -> u64 {
+        match self {
+            Self::Ext4 => 128 * 1024 * 1024,
+            // mkfs.xfs 6.18.0 accepts this size with default filesystem features.
+            Self::Xfs => 512 * 1024 * 1024,
+        }
+    }
+
+    pub const fn backing_bytes(self) -> u64 {
+        // Fixed ceilings keep the privileged helper independent of caller-supplied sizes.
+        match self {
+            Self::Ext4 => 1024 * 1024 * 1024,
+            Self::Xfs => 4 * 1024 * 1024 * 1024,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Mount {
@@ -94,6 +133,15 @@ pub fn require_unmounted(table: &[Mount], device: (u32, u32), target: &Path) -> 
 }
 
 pub fn require_mounted(table: &[Mount], device: (u32, u32), target: &Path) -> io::Result<u64> {
+    require_mounted_for(table, device, target, Filesystem::Ext4)
+}
+
+pub fn require_mounted_for(
+    table: &[Mount],
+    device: (u32, u32),
+    target: &Path,
+    filesystem: Filesystem,
+) -> io::Result<u64> {
     let related: Vec<_> = table
         .iter()
         .filter(|mount| mount.device == device || mount.target.starts_with(target))
@@ -106,11 +154,12 @@ pub fn require_mounted(table: &[Mount], device: (u32, u32), target: &Path) -> io
     if mount.device != device
         || mount.target != target
         || mount.root != Path::new("/")
-        || mount.filesystem != "ext4"
+        || Filesystem::parse(&mount.filesystem)? != filesystem
     {
-        return Err(io::Error::other(
-            "mount source, root, target, or filesystem differs from recorded ext4 device",
-        ));
+        return Err(io::Error::other(format!(
+            "mount source, root, target, or filesystem differs from recorded {} device",
+            filesystem.name()
+        )));
     }
     Ok(mount.id)
 }
@@ -155,6 +204,22 @@ mod tests {
         ] {
             assert!(require_mounted(&parse_mounts(&changed).unwrap(), (259, 7), target).is_err());
         }
+    }
+
+    #[test]
+    fn filesystem_selection_preserves_ext4_rejection_of_xfs_mounts() {
+        let target = Path::new("/tmp/owned/mount");
+        let table = parse_mounts("42 1 259:7 / /tmp/owned/mount rw - xfs /dev/ublkb3 rw").unwrap();
+        assert!(require_mounted(&table, (259, 7), target).is_err());
+        assert_eq!(
+            require_mounted_for(&table, (259, 7), target, Filesystem::Xfs).unwrap(),
+            42
+        );
+        assert!(Filesystem::parse("btrfs").is_err());
+        assert_eq!(Filesystem::Ext4.volume_bytes(), VOLUME_BYTES);
+        assert_eq!(Filesystem::Ext4.backing_bytes(), BACKING_BYTES);
+        assert_eq!(Filesystem::Xfs.volume_bytes(), 536_870_912);
+        assert_eq!(Filesystem::Xfs.backing_bytes(), 4_294_967_296);
     }
 
     #[test]

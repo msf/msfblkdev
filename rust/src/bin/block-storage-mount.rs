@@ -1,7 +1,7 @@
 #[path = "fs_support/mod.rs"]
 mod fs_support;
 
-use fs_support::{BACKING_BYTES, MOUNT_HELPER, VOLUME_BYTES};
+use fs_support::{BACKING_BYTES, Filesystem, MOUNT_HELPER, VOLUME_BYTES};
 use libublk::ctrl::UblkCtrl;
 use std::ffi::CString;
 use std::fs::{self, File, OpenOptions};
@@ -14,8 +14,8 @@ use std::process::ExitCode;
 #[derive(Debug, PartialEq)]
 enum Action {
     Check,
-    Mount(u32, String),
-    Unmount(u32, String),
+    Mount(Filesystem, u32, String),
+    Unmount(Filesystem, u32, String),
 }
 
 fn parse_args(args: &[String]) -> io::Result<Action> {
@@ -33,8 +33,10 @@ fn parse_args(args: &[String]) -> io::Result<Action> {
         return Err(usage());
     }
     match action.as_str() {
-        "mount" => Ok(Action::Mount(id, name.clone())),
-        "unmount" => Ok(Action::Unmount(id, name.clone())),
+        "mount" => Ok(Action::Mount(Filesystem::Ext4, id, name.clone())),
+        "unmount" => Ok(Action::Unmount(Filesystem::Ext4, id, name.clone())),
+        "mount-xfs" => Ok(Action::Mount(Filesystem::Xfs, id, name.clone())),
+        "unmount-xfs" => Ok(Action::Unmount(Filesystem::Xfs, id, name.clone())),
         _ => Err(usage()),
     }
 }
@@ -43,7 +45,7 @@ fn usage() -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {MOUNT_HELPER} check | mount <ublk-id> <owned-directory-name> | unmount <ublk-id> <owned-directory-name>"
+            "usage: {MOUNT_HELPER} check | mount|unmount|mount-xfs|unmount-xfs <ublk-id> <owned-directory-name>"
         ),
     )
 }
@@ -82,6 +84,7 @@ fn fd_path(file: &File) -> PathBuf {
 }
 
 struct Fixture {
+    filesystem: Filesystem,
     parent: File,
     target: File,
     device: File,
@@ -90,7 +93,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn open(id: u32, name: &str, uid: u32) -> io::Result<Self> {
+    fn open(id: u32, name: &str, uid: u32, filesystem: Filesystem) -> io::Result<Self> {
         let path = Path::new("/tmp").join(name).join("mount");
         let parent = directory(path.parent().ok_or_else(usage)?)?;
         let metadata = parent.metadata()?;
@@ -104,16 +107,20 @@ impl Fixture {
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(fd_path(&parent).join("backing.img"))?;
         let metadata = backing.metadata()?;
-        if !metadata.is_file() || metadata.uid() != uid || metadata.len() != BACKING_BYTES {
+        if !metadata.is_file()
+            || metadata.uid() != uid
+            || metadata.len() != filesystem.backing_bytes()
+        {
             return Err(io::Error::other(
                 "fixture backing is not the caller-owned bounded regular file",
             ));
         }
-        let device = verified_device(id, uid)?;
+        let device = verified_device(id, uid, filesystem)?;
         let metadata = device.metadata()?;
         let number = (libc::major(metadata.rdev()), libc::minor(metadata.rdev()));
         let target = directory(&fd_path(&parent).join("mount"))?;
         Ok(Self {
+            filesystem,
             parent,
             target,
             device,
@@ -137,13 +144,17 @@ impl Fixture {
             .map_err(io::Error::other)?;
         let target = CString::new(fd_path(&self.target).as_os_str().as_encoded_bytes())
             .map_err(io::Error::other)?;
+        let filesystem = match self.filesystem {
+            Filesystem::Ext4 => c"ext4",
+            Filesystem::Xfs => c"xfs",
+        };
         // SAFETY: all strings are live NUL-terminated strings. Source and target are pinned descriptors.
-        // nosuid/nodev restrict the privilege grant; ext4 journaling and barrier defaults are unchanged.
+        // nosuid/nodev restrict the privilege grant; filesystem durability defaults are unchanged.
         let result = unsafe {
             libc::mount(
                 source.as_ptr(),
                 target.as_ptr(),
-                c"ext4".as_ptr(),
+                filesystem.as_ptr(),
                 libc::MS_NOSUID | libc::MS_NODEV,
                 std::ptr::null(),
             )
@@ -151,7 +162,8 @@ impl Fixture {
         if result != 0 {
             return Err(io::Error::last_os_error());
         }
-        let result = fs_support::require_mounted(&fs_support::mounts()?, self.number, &self.path)
+        let result = self
+            .mount_id()
             .and_then(|_| self.create_work_directory(uid, gid));
         if let Err(error) = result {
             // A moved or substituted mount is preserved, not forcibly detached.
@@ -164,8 +176,19 @@ impl Fixture {
         Ok(())
     }
 
+    fn mount_id(&self) -> io::Result<u64> {
+        let mounts = fs_support::mounts()?;
+        match self.filesystem {
+            Filesystem::Ext4 => fs_support::require_mounted(&mounts, self.number, &self.path),
+            Filesystem::Xfs => {
+                fs_support::require_mounted_for(&mounts, self.number, &self.path, Filesystem::Xfs)
+            }
+        }
+    }
+
     fn rollback_mount(&self) -> io::Result<()> {
         let mounted = Self {
+            filesystem: self.filesystem,
             parent: self.parent.try_clone()?,
             target: directory(&fd_path(&self.parent).join("mount"))?,
             device: self.device.try_clone()?,
@@ -224,7 +247,7 @@ impl Fixture {
     }
 
     fn unmount(self) -> io::Result<()> {
-        let id = fs_support::require_mounted(&fs_support::mounts()?, self.number, &self.path)?;
+        let id = self.mount_id()?;
         let fdinfo = fs::read_to_string(format!("/proc/self/fdinfo/{}", self.target.as_raw_fd()))?;
         if !fdinfo.lines().any(|line| {
             line.strip_prefix("mnt_id:")
@@ -278,13 +301,13 @@ fn helper_lock() -> io::Result<File> {
     Ok(file)
 }
 
-fn verified_device(id: u32, uid: u32) -> io::Result<File> {
+fn verified_device(id: u32, uid: u32, filesystem: Filesystem) -> io::Result<File> {
     let class_path = PathBuf::from(format!("/sys/class/ublk-char/ublkc{id}"));
     let class = directory(&class_path.canonicalize()?)?;
     let original = class.metadata()?;
     let control = UblkCtrl::new_simple(i32::try_from(id).map_err(io::Error::other)?)
         .map_err(io::Error::other)?;
-    require_owner(&control, uid)?;
+    require_owner(&control, uid, filesystem)?;
     let device = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
@@ -300,7 +323,7 @@ fn verified_device(id: u32, uid: u32) -> io::Result<File> {
         ));
     }
     control.read_dev_info().map_err(io::Error::other)?;
-    require_owner(&control, uid)?;
+    require_owner(&control, uid, filesystem)?;
     let current = fs::metadata(&class_path)?;
     if current.dev() != original.dev() || current.ino() != original.ino() {
         return Err(io::Error::other(
@@ -310,11 +333,11 @@ fn verified_device(id: u32, uid: u32) -> io::Result<File> {
     Ok(device)
 }
 
-fn require_owner(control: &UblkCtrl, uid: u32) -> io::Result<()> {
+fn require_owner(control: &UblkCtrl, uid: u32, filesystem: Filesystem) -> io::Result<()> {
     let info = control.dev_info();
     let mut params = libublk::sys::ublk_params::default();
     control.get_params(&mut params).map_err(io::Error::other)?;
-    validate_device_parameters(info.owner_uid, info.flags, &params, uid)
+    validate_device_parameters(info.owner_uid, info.flags, &params, uid, filesystem)
 }
 
 fn validate_device_parameters(
@@ -322,15 +345,18 @@ fn validate_device_parameters(
     flags: u64,
     params: &libublk::sys::ublk_params,
     uid: u32,
+    filesystem: Filesystem,
 ) -> io::Result<()> {
     if owner != uid || flags & u64::from(libublk::sys::UBLK_F_UNPRIVILEGED_DEV) == 0 {
         return Err(io::Error::other(
             "ublk device is not an unprivileged device owned by the sudo caller",
         ));
     }
-    if params.basic.logical_bs_shift != 12 || params.basic.dev_sectors != VOLUME_BYTES / 512 {
+    if params.basic.logical_bs_shift != 12
+        || params.basic.dev_sectors != filesystem.volume_bytes() / 512
+    {
         return Err(io::Error::other(
-            "ublk geometry differs from the ext4 fixture",
+            "ublk geometry differs from the selected filesystem fixture",
         ));
     }
     Ok(())
@@ -357,9 +383,17 @@ fn execute() -> io::Result<()> {
     }
     let _lock = helper_lock()?;
     match action {
-        Action::Check => println!("block-storage-mount protocol=1 uid={uid}"),
-        Action::Mount(id, name) => Fixture::open(id, &name, uid)?.mount(uid, gid)?,
-        Action::Unmount(id, name) => Fixture::open(id, &name, uid)?.unmount()?,
+        Action::Check => println!(
+            "block-storage-mount protocol=2 uid={uid} ext4={VOLUME_BYTES}/{BACKING_BYTES} xfs={}/{}",
+            Filesystem::Xfs.volume_bytes(),
+            Filesystem::Xfs.backing_bytes()
+        ),
+        Action::Mount(filesystem, id, name) => {
+            Fixture::open(id, &name, uid, filesystem)?.mount(uid, gid)?
+        }
+        Action::Unmount(filesystem, id, name) => {
+            Fixture::open(id, &name, uid, filesystem)?.unmount()?
+        }
     }
     Ok(())
 }
@@ -384,14 +418,18 @@ mod tests {
         let mut params = libublk::sys::ublk_params::default();
         params.basic.logical_bs_shift = 12;
         params.basic.dev_sectors = VOLUME_BYTES / 512;
-        validate_device_parameters(1000, flags, &params, 1000).unwrap();
-        assert!(validate_device_parameters(1001, flags, &params, 1000).is_err());
-        assert!(validate_device_parameters(1000, 0, &params, 1000).is_err());
+        validate_device_parameters(1000, flags, &params, 1000, Filesystem::Ext4).unwrap();
+        assert!(validate_device_parameters(1000, flags, &params, 1000, Filesystem::Xfs).is_err());
+        assert!(validate_device_parameters(1001, flags, &params, 1000, Filesystem::Ext4).is_err());
+        assert!(validate_device_parameters(1000, 0, &params, 1000, Filesystem::Ext4).is_err());
         params.basic.logical_bs_shift = 9;
-        assert!(validate_device_parameters(1000, flags, &params, 1000).is_err());
+        assert!(validate_device_parameters(1000, flags, &params, 1000, Filesystem::Ext4).is_err());
         params.basic.logical_bs_shift = 12;
         params.basic.dev_sectors += 8;
-        assert!(validate_device_parameters(1000, flags, &params, 1000).is_err());
+        assert!(validate_device_parameters(1000, flags, &params, 1000, Filesystem::Ext4).is_err());
+        params.basic.dev_sectors = Filesystem::Xfs.volume_bytes() / 512;
+        validate_device_parameters(1000, flags, &params, 1000, Filesystem::Xfs).unwrap();
+        assert!(validate_device_parameters(1000, flags, &params, 1000, Filesystem::Ext4).is_err());
     }
 
     #[test]
@@ -404,9 +442,29 @@ mod tests {
                 "my-block-storage-ublk.12.0".into()
             ])
             .unwrap(),
-            Action::Mount(7, "my-block-storage-ublk.12.0".into())
+            Action::Mount(Filesystem::Ext4, 7, "my-block-storage-ublk.12.0".into())
+        );
+        assert_eq!(
+            parse_args(&[
+                "mount-xfs".into(),
+                "7".into(),
+                "my-block-storage-ublk.12.0".into()
+            ])
+            .unwrap(),
+            Action::Mount(Filesystem::Xfs, 7, "my-block-storage-ublk.12.0".into())
+        );
+        assert_eq!(
+            parse_args(&[
+                "unmount-xfs".into(),
+                "7".into(),
+                "my-block-storage-ublk.12.0".into()
+            ])
+            .unwrap(),
+            Action::Unmount(Filesystem::Xfs, 7, "my-block-storage-ublk.12.0".into())
         );
         for args in [
+            vec!["mount-btrfs", "7", "my-block-storage-ublk.12.0"],
+            vec!["mount-xfs", "7", "/tmp/arbitrary"],
             vec!["mount", "/dev/sda", "my-block-storage-ublk.12.0"],
             vec!["mount", "7", "/tmp/anything"],
             vec!["unmount", "7", "../../etc"],

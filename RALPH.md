@@ -8,6 +8,7 @@ Active specifications:
 2. [ADR-02](ADR-02-GOAL-1-BASIC-READ-WRITE.md)
 3. [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), completed regression baseline
 4. [ADR-06 Delivery 1: V0.9 ext4 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md#delivery-1-v09-ext4-correctness), completed delivery
+5. [GOAL-XFS.md](GOAL-XFS.md), prepared V1.0 goal with its operator prerequisites and acceptance scope
 
 ## One-hour loop
 
@@ -20,16 +21,16 @@ If the criterion cannot be completed safely in the time box, make no commit. Rep
 
 ## Rules
 
-- ADR-02 and ADR-03 are closed. Work on the earliest worker-sized unchecked ADR-06 Delivery 1 item. SQLite, XFS, PostgreSQL, batching, format changes and crash testing are outside this loop.
+- ADR-02, ADR-03 and ADR-06 Delivery 1 are closed. Work only on the delivery selected by the active approved goal. GOAL-XFS.md selects ADR-06 Delivery 2; SQLite, RocksDB, PostgreSQL, batching, format changes and crash testing are outside that loop.
 - Evolve only the Rust implementation. Do not update Zig or restore image compatibility.
 - Do not redesign the persistent format from a worker loop.
 - ADR acceptance text is immutable to workers. A worker may only change `[ ]` to `[x]` for behavior proved by the same commit and add concise evidence.
 - Prefer a failing test followed by its fix in the same local iteration. The committed state must be green.
 - Stage explicit paths only. Never use `git add .` or `git add -A`.
 - Do not push, amend, rebase or reset existing commits.
-- Do not use `sudo`, load kernel modules, create or format LVM logical volumes, manipulate arbitrary block devices, mount filesystems, reboot the host or trigger a real out-of-memory condition.
+- Do not load kernel modules, create or format LVM logical volumes, manipulate arbitrary block devices, reboot the host or trigger a real out-of-memory condition. The only permitted `sudo` command is the installed `block-storage-mount` helper, and only when the active goal explicitly approves its scoped live mount operations.
 - `SIGKILL` tests must target only child processes created by the test.
-- Privileged ublk acceptance belongs to an explicitly approved operator run. Dedicated-LV validation is optional and never blocks Ralph.
+- Live acceptance requires explicit operator approval, which may be granted in the active goal for unattended runs through the installed helper. Workers must not install or modify privileged host configuration. Dedicated-LV validation is optional and never blocks Ralph.
 
 ## Required gate
 
@@ -39,7 +40,7 @@ Run from the repository root as the normal user:
 make lint test
 ```
 
-Use focused Cargo tests for the inner loop. `make check-ext4` checks operator prerequisites without creating a device or mount. `make test-ext4` is a separate, explicitly approved operator run; installation of the helper alone does not authorize a worker to run it.
+Use focused Cargo tests for the inner loop. `make check-ext4` checks operator prerequisites without creating a device or mount. Live filesystem targets are explicit acceptance gates; installation of the helper alone does not authorize a worker to run them.
 
 Run any delivery-specific repetition count required by its ADR before checking that acceptance item.
 
@@ -56,4 +57,4 @@ next: <earliest unchecked criterion>
 blocker: <none or exact blocker>
 ```
 
-If code gates pass but live acceptance remains unverified, stop and report `AWAITING OPERATOR VALIDATION`. Do not attempt privileged tests without approval. When every Delivery 1 criterion is verified, report completion and stop. Starting a later delivery requires a new approved goal.
+If code gates pass but live acceptance remains unverified, stop and report `AWAITING OPERATOR VALIDATION`. Do not attempt privileged tests without approval. When every criterion of the active delivery is verified, report completion and stop. Starting a later delivery requires a new approved goal.

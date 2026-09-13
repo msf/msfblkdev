@@ -118,7 +118,7 @@ sudo bash scripts/install-ext4-helper.sh
 
 The installer copies the already-built `block-storage-mount` binary into `/usr/local/libexec` and installs a sudo rule for the invoking user. It also creates `/run/ublksrvd` as a private directory for that user. A tmpfiles rule recreates it after reboot: libublk writes its device metadata there. This setup supports one developer and refuses to take over a runtime directory owned by someone else. It does not build code, load modules, create devices or mount filesystems. Reinstall after changing the helper; preflight refuses a stale installed binary. Never grant passwordless sudo to the lab binary in the writable build directory.
 
-The helper validates the kernel-recorded ublk owner, device geometry and the owned directory under `/tmp`. It pins device/directory descriptors and serializes helper calls with a root-owned lock. It mounts only ext4 with `nosuid,nodev`; filesystem journaling and barrier defaults remain unchanged. It creates a caller-owned `work` directory inside the filesystem. Unmount validates the exact mount and refuses aliases, nested mounts, force and lazy unmount.
+The helper validates the kernel-recorded ublk owner, device geometry and the owned directory under `/tmp`. It pins device/directory descriptors and serializes helper calls with a root-owned lock. Protocol 2 permits only ext4 and XFS with `nosuid,nodev`; filesystem journaling and barrier defaults remain unchanged. It creates a caller-owned `work` directory inside the filesystem. Unmount validates the exact mount and refuses aliases, nested mounts, force and lazy unmount.
 
 This is a privilege grant for a trusted local developer, not a sandbox for hostile filesystem images. The kernel still parses ext4 data supplied by that developer. Use a disposable VM for untrusted images.
 
@@ -135,6 +135,12 @@ Defaults are 60 seconds per child command and 600 seconds for the suite. `TEST_P
 Evidence is written to `evidence/ext4-*.log`, including versions, binary fingerprints, geometry, commands, timings and results. Failures retain the owned temporary directory, image and raw output. If mount or device identity is ambiguous, the lab preserves the daemon and reports its PID and paths for operator recovery. Do not delete those resources until their identities and mount state have been checked. On success, the lab removes its mount, device, children and temporary directory.
 
 To revoke the helper grant, remove `/etc/sudoers.d/block-storage-ext4-<user>` and `/usr/local/libexec/block-storage-mount` as an administrator after confirming no lab run is active. Remove `/etc/tmpfiles.d/block-storage-ublk.conf` if the private runtime directory is no longer needed.
+
+### Prepared XFS worker goal
+
+[GOAL-XFS.md](GOAL-XFS.md) defines the unattended V1.0 scope. XFS acceptance is not yet implemented or verified. The helper upgrade preserves the ext4 commands and adds `mount-xfs` / `unmount-xfs` with a fixed 512 MiB logical device and 4 GiB backing file. It does not accept arbitrary filesystems or geometry. `check` reports protocol 2 and both supported geometries.
+
+Before activating the XFS goal, build as the normal user, then have the operator rerun `sudo bash scripts/install-ext4-helper.sh`. Confirm `sudo -n /usr/local/libexec/block-storage-mount check` reports protocol 2. Keep the host awake and the Pi session running. Activation must explicitly approve live XFS and ext4 regression mounts through that helper. The overnight worker must not change or reinstall privileged helper code.
 
 ### Normal-user ublk setup
 

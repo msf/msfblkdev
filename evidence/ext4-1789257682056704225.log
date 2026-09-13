@@ -1,0 +1,79 @@
+fixture: /tmp/my-block-storage-ublk.122084.0 identity=52:21133
+command commit at_ms=0: "git" ["rev-parse", "HEAD"]
+--- stdout: /tmp/my-block-storage-ublk.122084.0/001-commit.stdout ---
+575c5c6cd968ba5646d5872d3f5d4b9a06fe72f8
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.122084.0/001-commit.stderr ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=10: "git" ["status", "--short"]
+--- stdout: /tmp/my-block-storage-ublk.122084.0/002-worktree.stdout ---
+ M RALPH.md
+ M README.md
+ M rust/src/bin/block-storage-mount.rs
+ M rust/src/bin/fs_support/mod.rs
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? GOAL-XFS.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789257682056704225.log
+?? manual-test-ext4.txt
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.122084.0/002-worktree.stderr ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=21: "uname" ["-srvm"]
+--- stdout: /tmp/my-block-storage-ublk.122084.0/003-kernel.stdout ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.122084.0/003-kernel.stderr ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=19822888 xxh3=38ba147b62482c72
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=20655960 xxh3=09e54a1dcb96cbb7
+command mkfs-version at_ms=323: "mkfs.ext4" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.122084.0/004-mkfs-version.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.122084.0/004-mkfs-version.stderr ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command e2fsck-version at_ms=334: "e2fsck" ["-V"]
+--- stdout: /tmp/my-block-storage-ublk.122084.0/005-e2fsck-version.stdout ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.122084.0/005-e2fsck-version.stderr ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command helper-preflight at_ms=356: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"]
+--- stdout: /tmp/my-block-storage-ublk.122084.0/006-helper-preflight.stdout ---
+block-storage-mount protocol=2 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.122084.0/006-helper-preflight.stderr ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+preflight: PASS; no device created or mounted
