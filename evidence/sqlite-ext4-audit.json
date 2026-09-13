@@ -1,0 +1,30 @@
+{
+  "status": "pass",
+  "run": "evidence/sqlite-1789293925836503146",
+  "tested_commit": "632ff0a",
+  "runs": 87,
+  "case_profile_pairs": 29,
+  "repetitions": 3,
+  "elapsed_seconds": 131.695970227,
+  "unmounted_filesystem_checks": 348,
+  "clean_daemon_stops": 174,
+  "logical_validations": 174,
+  "max_reserved_write_bytes": 218533888,
+  "write_limit_bytes_per_run": 536870912,
+  "automatic_passive_checkpoints_in_stress_runs": {
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-1": 12,
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-2": 12,
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-3": 12,
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-1": 12,
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-2": 12,
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-3": 12
+  },
+  "owned_fixture_directories_remaining": 0,
+  "recorded_daemon_pids_remaining": 0,
+  "live_ublk_devices_observed": 0,
+  "built_installed_helper_identical": true,
+  "raw_request_reports_complete": true,
+  "real_io_errors": 0,
+  "baseline": "sqlite-ext4-baseline.json",
+  "performance_claim": "initial baseline only; self-comparison is not an independent candidate"
+}

@@ -1,0 +1,19 @@
+{
+  "actual": {
+    "attempted": 1,
+    "completed": 1,
+    "failed": 0
+  },
+  "completed_selections": [
+    "speedtest-main--delete-extra--repetition-1"
+  ],
+  "fail_fast": true,
+  "failed_selections": [],
+  "planned_full": 87,
+  "planned_selections": [
+    "speedtest-main--delete-extra--repetition-1"
+  ],
+  "schema": "block-storage-sqlite-suite-index",
+  "schema_version": 1,
+  "selected": 1
+}

@@ -1,0 +1,54 @@
+{
+  "baseline": {
+    "percentage_changes": {
+      "available": false
+    },
+    "selected": false
+  },
+  "elapsed_ns": 1541588233,
+  "expected_selections": [
+    "speedtest-main--delete-extra--repetition-1"
+  ],
+  "fail_fast": true,
+  "manifest": "manifest.json",
+  "planned_full": 87,
+  "samples": [
+    {
+      "case": "speedtest-main",
+      "expected_repetitions_complete": false,
+      "operations_per_second": {
+        "available": false
+      },
+      "profile": "delete-extra",
+      "sample_count": 1,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 118475724,
+        "range": {
+          "maximum": 118475724,
+          "minimum": 118475724
+        },
+        "samples": [
+          118475724
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 118539993,
+        "range": {
+          "maximum": 118539993,
+          "minimum": 118539993
+        },
+        "samples": [
+          118539993
+        ]
+      }
+    }
+  ],
+  "schema": "block-storage-sqlite-summary",
+  "schema_version": 2,
+  "scope": "ext4_matrix",
+  "selected": 1,
+  "status": "pass"
+}

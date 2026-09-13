@@ -1,0 +1,593 @@
+sqlite probe: one ext4 WAL/FULL seeded-random kvtest case; not ADR acceptance
+fixture: /tmp/my-block-storage-ublk.308471.0 identity=52:36307
+command commit at_ms=0: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/001-commit.stdout bytes=41 ---
+755dfb26438317d972741e4031101a6a48132f62
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/001-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=11: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/002-worktree.stdout bytes=1905 ---
+ M Makefile
+M  papers/README.md
+ M rust/Cargo.lock
+ M rust/Cargo.toml
+ M rust/src/bin/block-storage-lab/config.rs
+ M rust/src/bin/block-storage-lab/evidence.rs
+ M rust/src/bin/block-storage-lab/ext4/commands.rs
+ M rust/src/bin/block-storage-lab/ext4/lifecycle.rs
+ M rust/src/bin/block-storage-lab/ext4/mod.rs
+ M rust/src/bin/block-storage-lab/ext4/request_evidence.rs
+ M rust/src/bin/block-storage-lab/main.rs
+ M rust/src/bin/block-storage-lab/suite.rs
+ M rust/src/bin/block-storage-ublk.rs
+ M rust/src/checkpoint.rs
+ M rust/src/lib.rs
+ M rust/src/tests/mod.rs
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/sqlite-1789280740404364834/
+?? evidence/sqlite-1789284926770666553/
+?? evidence/sqlite-1789285248231047425/
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? manual-test-ext4.txt
+?? rust/src/accounted_io.rs
+?? rust/src/bin/block-storage-lab/database_io.rs
+?? rust/src/bin/block-storage-lab/database_snapshot.rs
+?? rust/src/bin/block-storage-lab/ext4/sqlite.rs
+?? rust/src/bin/block-storage-lab/ext4/sqlite/
+?? rust/src/bin/ublk_support/io_ledger.rs
+?? rust/src/io_accounting.rs
+?? rust/src/io_accounting/
+?? rust/src/tests/accounting_integration.rs
+?? scripts/setup-sqlite.sh
+?? tools/
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/002-worktree.stderr bytes=0 ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command kernel at_ms=22: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/003-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/003-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=33: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.308471.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/004-backing-filesystem.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/004-backing-filesystem.stderr bytes=0 ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab bytes=22785640 xxh3=548f93af45ee94ae
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk bytes=21201888 xxh3=5a94290674271588
+command mkfs-version at_ms=360: "mkfs.ext4" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/005-mkfs-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/005-mkfs-version.stderr bytes=64 ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command e2fsck-version at_ms=371: "e2fsck" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/006-e2fsck-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/006-e2fsck-version.stderr bytes=76 ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+binary: /home/miguel/play/my-block-storage/rust/target/debug/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+binary: /usr/local/libexec/block-storage-mount bytes=17779488 xxh3=2574b7ea599ba3e7
+helper binary match: PASS
+command helper-preflight at_ms=631: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/007-helper-preflight.stdout bytes=91 ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/007-helper-preflight.stderr bytes=0 ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=21 cleanup=Ok(())
+command sqlite-canonical-commit at_ms=652: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/008-sqlite-canonical-commit.stdout bytes=41 ---
+755dfb26438317d972741e4031101a6a48132f62
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/008-sqlite-canonical-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command sqlite-canonical-commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command sqlite-dirty-state at_ms=663: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/009-sqlite-dirty-state.stdout bytes=1905 ---
+ M Makefile
+M  papers/README.md
+ M rust/Cargo.lock
+ M rust/Cargo.toml
+ M rust/src/bin/block-storage-lab/config.rs
+ M rust/src/bin/block-storage-lab/evidence.rs
+ M rust/src/bin/block-storage-lab/ext4/commands.rs
+ M rust/src/bin/block-storage-lab/ext4/lifecycle.rs
+ M rust/src/bin/block-storage-lab/ext4/mod.rs
+ M rust/src/bin/block-storage-lab/ext4/request_evidence.rs
+ M rust/src/bin/block-storage-lab/main.rs
+ M rust/src/bin/block-storage-lab/suite.rs
+ M rust/src/bin/block-storage-ublk.rs
+ M rust/src/checkpoint.rs
+ M rust/src/lib.rs
+ M rust/src/tests/mod.rs
+?? BUG-EXT4-MOUNT-EOPNOTSUPP.md
+?? GOAL-CORRECTNESS-AND-EXT4.md
+?? evidence/ext4-1789250994900243759.log
+?? evidence/ext4-1789252939246113971.log
+?? evidence/ext4-1789253205509165596.log
+?? evidence/ext4-1789253595970271076.log
+?? evidence/ext4-1789254986341777172.log
+?? evidence/ext4-1789254991194495615.log
+?? evidence/ext4-1789262621237999584.log
+?? evidence/ext4-1789262821395321629.log
+?? evidence/ext4-1789262881322022265.log
+?? evidence/sqlite-1789280740404364834/
+?? evidence/sqlite-1789284926770666553/
+?? evidence/sqlite-1789285248231047425/
+?? evidence/xfs-1789258048583619194.log
+?? evidence/xfs-1789258123964542231.log
+?? evidence/xfs-1789260300182213868.log
+?? evidence/xfs-1789260300829242698.log
+?? evidence/xfs-1789260904479143831.log
+?? evidence/xfs-1789262614024859433.log
+?? evidence/xfs-1789262614571011716.log
+?? evidence/xfs-1789262874063879147.log
+?? evidence/xfs-1789262874600988541.log
+?? manual-test-ext4.txt
+?? rust/src/accounted_io.rs
+?? rust/src/bin/block-storage-lab/database_io.rs
+?? rust/src/bin/block-storage-lab/database_snapshot.rs
+?? rust/src/bin/block-storage-lab/ext4/sqlite.rs
+?? rust/src/bin/block-storage-lab/ext4/sqlite/
+?? rust/src/bin/ublk_support/io_ledger.rs
+?? rust/src/io_accounting.rs
+?? rust/src/io_accounting/
+?? rust/src/tests/accounting_integration.rs
+?? scripts/setup-sqlite.sh
+?? tools/
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/009-sqlite-dirty-state.stderr bytes=0 ---
+
+--- end stderr ---
+command sqlite-dirty-state: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command sqlite-kernel at_ms=673: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/010-sqlite-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/010-sqlite-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command sqlite-kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command sqlite-backing-medium at_ms=684: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.308471.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/011-sqlite-backing-medium.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/011-sqlite-backing-medium.stderr bytes=0 ---
+
+--- end stderr ---
+command sqlite-backing-medium: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command sha256-kvtest at_ms=695: "sha256sum" ["/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/kvtest"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/012-sha256-kvtest.stdout bytes=135 ---
+6414cc34c3ae40afd1d18ac4aa6eb8ed8d474f23d1521600bebf6ef8df058b37  /home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/kvtest
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/012-sha256-kvtest.stderr bytes=0 ---
+
+--- end stderr ---
+command sha256-kvtest: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command sha256-sqlite3 at_ms=706: "sha256sum" ["/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/sqlite3"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/013-sha256-sqlite3.stdout bytes=136 ---
+689262c52400b8200ac682fec3e9cf35da4480d04483464094bcb4ddbd1955be  /home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/sqlite3
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/013-sha256-sqlite3.stderr bytes=0 ---
+
+--- end stderr ---
+command sha256-sqlite3: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command sqlite-version at_ms=717: "/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/sqlite3" ["--version"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/014-sqlite-version.stdout bytes=101 ---
+3.51.3 2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618 (64-bit)
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/014-sqlite-version.stderr bytes=0 ---
+
+--- end stderr ---
+command sqlite-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command reference-init at_ms=728: "/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/kvtest" ["init", "/tmp/my-block-storage-ublk.308471.0/reference.db", "--count", "2", "--size", "8192", "--pagesize", "4096"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", Some("wal-full")), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/015-reference-init.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/015-reference-init.stderr bytes=952 ---
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":77694,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":1172738,"total_snapshot_overhead_ns":0,"status":"completed"}
+
+--- end stderr ---
+command reference-init: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command reference-workload at_ms=739: "/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/kvtest" ["run", "/tmp/my-block-storage-ublk.308471.0/reference.db", "--update", "--count", "4096", "--max-id", "2", "--random", "--multitrans", "--cache-size", "256", "--mmap", "0", "--stats"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", Some("wal-full")), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/016-reference-workload.stdout bytes=998 ---
+
+Memory Used:                         150136 (max 166528) bytes
+Number of Outstanding Allocations:   62 (max 64)
+Number of Pcache Pages Used:         0 (max 0) pages
+Number of Pcache Overflow Bytes:     8200 (max 8200) bytes
+Largest Allocation:                  87360 bytes
+Largest Pcache Allocation:           4104 bytes
+Pager Heap Usage:                    31040 bytes
+Page cache hits:                     16380
+Page cache misses:                   7
+Page cache writes:                   12285
+Bytes received by read():            287128
+Bytes sent to write():               50863408
+Read() system calls:                 80
+Write() system calls:                24697
+Bytes read from storage:             0
+Bytes written to storage:            0
+Cancelled write bytes:               0
+SQLite version: 3.51.3
+--count 4096 --max-id 2 --random
+--cache-size 256 --jmode wal
+--mmap 0
+Database page size: 4096
+Total elapsed time: 0.057
+Microseconds per BLOB write: 13.916
+Content write rate: 588.7 MB/s
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/016-reference-workload.stderr bytes=3612 ---
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":60022,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":2,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"settings","phase":"close","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":2,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":2,"duration_ns":258811,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":58346630,"total_snapshot_overhead_ns":0,"status":"completed"}
+
+--- end stderr ---
+command reference-workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=61 cleanup=Ok(())
+command reference-validation at_ms=801: "/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/sqlite3" ["-batch", "-bail", "-init", "/dev/null", "-readonly", "/tmp/my-block-storage-ublk.308471.0/reference.db", "PRAGMA integrity_check;", "PRAGMA foreign_key_check;", ".sha3sum --schema"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/017-reference-validation.stdout bytes=60 ---
+ok
+6671359c243e5a3856205080fe37e66cb757e56fc412cff79559c6e1
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/017-reference-validation.stderr bytes=0 ---
+
+--- end stderr ---
+command reference-validation: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Format
+command format at_ms=811: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.308471.0/backing.img", "1073741824", "134217728"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", Some("/tmp/my-block-storage-ublk.308471.0/io-ledger")), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/018-format.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/018-format.stderr bytes=0 ---
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=822: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.308471.0/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", Some("/tmp/my-block-storage-ublk.308471.0/io-ledger"))]
+daemon pid=308504
+device: /dev/ublkb0 number=(259, 4) class=25:99189 node=7:2784
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Mkfs
+command Mkfs at_ms=895: "mkfs.ext4" ["/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/020-Mkfs.stdout bytes=310 ---
+Creating filesystem with 32768 4k blocks and 32768 inodes
+
+Allocating group tables: 0/1   done                            
+Writing inode tables: 0/1   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/1   done
+
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/020-Mkfs.stderr bytes=27 ---
+mke2fs 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=353 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=1249: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/021-Check(1).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 12/32768 files (8.3% non-contiguous), 6201/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/021-Check(1).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=1260: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.308471.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/022-mount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/022-mount.stderr bytes=0 ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.308471.0/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Populate
+command sqlite-kv-init at_ms=1282: "/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/kvtest" ["init", "/tmp/my-block-storage-ublk.308471.0/mount/work/database.db", "--count", "2", "--size", "8192", "--pagesize", "4096"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", Some("wal-full")), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/023-sqlite-kv-init.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/023-sqlite-kv-init.stderr bytes=954 ---
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":1494696,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":7962488,"total_snapshot_overhead_ns":0,"status":"completed"}
+
+--- end stderr ---
+command sqlite-kv-init: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command sqlite-workload at_ms=1293: "/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/kvtest" ["run", "/tmp/my-block-storage-ublk.308471.0/mount/work/database.db", "--update", "--count", "4096", "--max-id", "2", "--random", "--multitrans", "--cache-size", "256", "--mmap", "0", "--stats"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", Some("0")), ("BLOCK_STORAGE_IO_LEDGER", Some("/tmp/my-block-storage-ublk.308471.0/io-ledger")), ("BLOCK_STORAGE_LAB_EXECUTABLE", Some("/home/miguel/play/my-block-storage/rust/target/debug/block-storage-lab")), ("BLOCK_STORAGE_SQLITE_PROFILE", Some("wal-full")), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", Some("2")), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/024-sqlite-workload.stdout bytes=1009 ---
+
+Memory Used:                         150176 (max 166568) bytes
+Number of Outstanding Allocations:   62 (max 64)
+Number of Pcache Pages Used:         0 (max 0) pages
+Number of Pcache Overflow Bytes:     8200 (max 8200) bytes
+Largest Allocation:                  87360 bytes
+Largest Pcache Allocation:           4104 bytes
+Pager Heap Usage:                    31072 bytes
+Page cache hits:                     16380
+Page cache misses:                   7
+Page cache writes:                   12285
+Bytes received by read():            287128
+Bytes sent to write():               50863409
+Read() system calls:                 80
+Write() system calls:                24697
+Bytes read from storage:             0
+Bytes written to storage:            67657728
+Cancelled write bytes:               32768
+SQLite version: 3.51.3
+--count 4096 --max-id 2 --random
+--cache-size 256 --jmode wal
+--mmap 0
+Database page size: 4096
+Total elapsed time: 1.970
+Microseconds per BLOB write: 480.957
+Content write rate: 17.0 MB/s
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/024-sqlite-workload.stderr bytes=4616 ---
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":105245,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":2,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"settings","phase":"close","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"block":{"flushes":6181,"reads":903,"writes":27472},"connection":2,"ledger":{"budget_exhausted":false,"completed_totals_incomplete":false,"errors":0,"flush_completed_operations":6192,"pending_operations":0,"read_completed_bytes":2424832,"read_completed_operations":591,"write_completed_bytes":227639296,"write_completed_operations":28103,"write_limit_bytes":536870912,"write_reserved_bytes":227639296},"monotonic_ns":38098613966973,"phase":"drain_start","record":"device_snapshot"}
+sqlite-lab {"record":"checkpoint","connection":2,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"block":{"flushes":6184,"reads":903,"writes":27481},"connection":2,"ledger":{"budget_exhausted":false,"completed_totals_incomplete":false,"errors":0,"flush_completed_operations":6195,"pending_operations":0,"read_completed_bytes":2424832,"read_completed_operations":591,"write_completed_bytes":227713024,"write_completed_operations":28112,"write_limit_bytes":536870912,"write_reserved_bytes":227713024},"monotonic_ns":38098627085787,"phase":"drain_end","record":"device_snapshot"}
+sqlite-lab {"record":"drain_close","connection":2,"duration_ns":3064902,"observer_overhead_ns":22016330,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":1970361850,"total_snapshot_overhead_ns":22016330,"status":"completed"}
+
+--- end stderr ---
+command sqlite-workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=1973 cleanup=Ok(())
+step: Verify
+command validation at_ms=3268: "/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/sqlite3" ["-batch", "-bail", "-init", "/dev/null", "-readonly", "/tmp/my-block-storage-ublk.308471.0/mount/work/database.db", "PRAGMA integrity_check;", "PRAGMA foreign_key_check;", ".sha3sum --schema"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/025-validation.stdout bytes=60 ---
+ok
+6671359c243e5a3856205080fe37e66cb757e56fc412cff79559c6e1
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/025-validation.stderr bytes=0 ---
+
+--- end stderr ---
+command validation: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=3279: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.308471.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/026-unmount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/026-unmount.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=3312: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/027-Check(2).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 16/32768 files (6.3% non-contiguous), 6216/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/027-Check(2).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 1173        0     9384       46    29664        0   220112     2291        0     2018     2417        0        0        0        0     6201       79
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.308471.0/019-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.308471.0/019-daemon.stderr bytes=639 ---
+first negative completion: op_flags=0x700 errno=-108 cancelled=true
+first negative completion: op_flags=0x0 errno=-108 cancelled=true
+request-count op_flags=0x0 count=2 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x1 count=20709 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=6201 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=1140 before_ready=0 errors=0 cancelled=1
+request-count op_flags=0x800 count=33 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=6805 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=34890 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=3374: "/home/miguel/play/my-block-storage/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.308471.0/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", Some("/tmp/my-block-storage-ublk.308471.0/io-ledger"))]
+daemon pid=308565
+device: /dev/ublkb0 number=(259, 4) class=25:99412 node=7:2806
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 4
+step: Check(3)
+command Check(3) at_ms=3468: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/029-Check(3).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 16/32768 files (6.3% non-contiguous), 6216/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/029-Check(3).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=3479: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.308471.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/030-mount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/030-mount.stderr bytes=0 ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=598 target=/tmp/my-block-storage-ublk.308471.0/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Verify
+command reopen_revalidation at_ms=3502: "/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build/sqlite3" ["-batch", "-bail", "-init", "/dev/null", "-readonly", "/tmp/my-block-storage-ublk.308471.0/mount/work/database.db", "PRAGMA integrity_check;", "PRAGMA foreign_key_check;", ".sha3sum --schema"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/031-reopen_revalidation.stdout bytes=60 ---
+ok
+6671359c243e5a3856205080fe37e66cb757e56fc412cff79559c6e1
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/031-reopen_revalidation.stderr bytes=0 ---
+
+--- end stderr ---
+command reopen_revalidation: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=3513: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.308471.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/032-unmount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/032-unmount.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=3535: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.308471.0/033-Check(4).stdout bytes=267 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 16/32768 files (12.5% non-contiguous), 6216/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.308471.0/033-Check(4).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 873        0     6984       54       31        0      200        7        0       35       62        0        0        0        0       13        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.308471.0/028-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.308471.0/028-daemon.stderr bytes=494 ---
+request-count op_flags=0x0 count=2 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x1 count=9 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x2 count=13 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x700 count=837 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x800 count=34 before_ready=0 errors=0 cancelled=0
+request-count op_flags=0x801 count=16 before_ready=0 errors=0 cancelled=0
+request-count-end combinations=6 total=911 complete=true
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+result: PASS; bounded probe only

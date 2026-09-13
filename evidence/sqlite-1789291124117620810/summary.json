@@ -1,0 +1,61 @@
+{
+  "baseline": {
+    "percentage_changes": {
+      "available": false
+    },
+    "selected": false
+  },
+  "elapsed_ns": 1339281981,
+  "expected_selections": [
+    "kv-random-read-small--wal-normal--repetition-1"
+  ],
+  "fail_fast": true,
+  "manifest": "manifest.json",
+  "planned_full": 87,
+  "samples": [
+    {
+      "case": "kv-random-read-small",
+      "expected_repetitions_complete": false,
+      "operations_per_second": {
+        "median": 2059277.6339623951,
+        "range": {
+          "maximum": 2059277.6339623951,
+          "minimum": 2059277.6339623951
+        },
+        "samples": [
+          2059277.6339623951
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 1,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1989047,
+        "range": {
+          "maximum": 1989047,
+          "minimum": 1989047
+        },
+        "samples": [
+          1989047
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 2111845,
+        "range": {
+          "maximum": 2111845,
+          "minimum": 2111845
+        },
+        "samples": [
+          2111845
+        ]
+      }
+    }
+  ],
+  "schema": "block-storage-sqlite-summary",
+  "schema_version": 2,
+  "scope": "ext4_matrix",
+  "selected": 1,
+  "status": "pass"
+}

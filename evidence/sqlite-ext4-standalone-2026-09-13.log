@@ -1,0 +1,350 @@
+standalone functional probes; no benchmark performance claim
+case_root=/tmp/sqlite-standalone.RJOev9
+manifest=/home/miguel/play/my-block-storage/.tools/sqlite-3.51.3/build-manifest.json
+missing_profile=PASS
+invalid_profile=PASS
+blob_api_rejected=PASS
+open_failures_latched=PASS
+CASE snapshot-boundary BEGIN
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":70752,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":2,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"device_snapshot","phase":"drain_start","connection":2,"monotonic_ns":1,"block":{"reads":1,"writes":2,"flushes":3},"ledger":{"write_limit_bytes":4,"write_reserved_bytes":0,"write_completed_bytes":0,"read_completed_bytes":0,"read_completed_operations":0,"write_completed_operations":0,"flush_completed_operations":0,"pending_operations":0,"errors":0,"completed_totals_incomplete":false,"budget_exhausted":false}}
+sqlite-lab {"record":"checkpoint","connection":2,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"device_snapshot","phase":"drain_end","connection":2,"monotonic_ns":1,"block":{"reads":1,"writes":2,"flushes":3},"ledger":{"write_limit_bytes":4,"write_reserved_bytes":0,"write_completed_bytes":0,"read_completed_bytes":0,"read_completed_operations":0,"write_completed_operations":0,"flush_completed_operations":0,"pending_operations":0,"errors":0,"completed_totals_incomplete":false,"budget_exhausted":false}}
+sqlite-lab {"record":"drain_close","connection":2,"duration_ns":235537,"observer_overhead_ns":20818072,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":21877599,"total_snapshot_overhead_ns":20818072,"status":"completed"}
+SQLite version: 3.51.3
+--count 8 --max-id 4 --asc
+--cache-size 256 --jmode wal
+--mmap 0
+Database page size: 4096
+Total elapsed time: 0.021
+Microseconds per BLOB write: 2625.000
+Content write rate: 0.0 MB/s
+CASE snapshot-boundary END
+snapshot_adapter_validation=PASS
+CASE profile-delete-extra BEGIN
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"delete-extra","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"delete","synchronous":3,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"delete-extra","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"delete","synchronous":3,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":null,"wal_frames":null,"checkpointed_frames":null,"status":"not_applicable"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":15149,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":1201511,"total_snapshot_overhead_ns":0,"status":"completed"}
+CASE profile-delete-extra END
+CASE profile-wal-full BEGIN
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":63568,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":972686,"total_snapshot_overhead_ns":0,"status":"completed"}
+CASE profile-wal-full END
+CASE profile-wal-normal BEGIN
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-normal","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":1,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-normal","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":1,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":63207,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":960674,"total_snapshot_overhead_ns":0,"status":"completed"}
+CASE profile-wal-normal END
+CASE update-1 BEGIN
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":237932,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":1823005,"total_snapshot_overhead_ns":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":70761,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":2,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"settings","phase":"close","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":2,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":2,"duration_ns":751856,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":3,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":3,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":3,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":3,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":3,"duration_ns":61204,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":36189067,"total_snapshot_overhead_ns":0,"status":"completed"}
+SQLite version: 3.51.3
+integrity-check: ok
+--count 2048 --max-id 32 --random
+--cache-size 256 --jmode wal
+--mmap 0
+Database page size: 4096
+Total elapsed time: 0.035
+Microseconds per BLOB write: 17.090
+Content write rate: 479.3 MB/s
+CASE update-1 END
+CASE update-2 BEGIN
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":235617,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":1826192,"total_snapshot_overhead_ns":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":1,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":149598,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":2,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1002,"rc":0,"wal_frames":1002,"checkpointed_frames":1002,"policy":"passive"}
+sqlite-lab {"record":"settings","phase":"close","connection":2,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":2,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":2,"duration_ns":479951,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"generator","connection":3,"function":"randomblob","identity":"splitmix64-byte-v1","seed":"0x6a09e667f3bcc909","max_bytes":16777216}
+sqlite-lab {"record":"settings","phase":"open","connection":3,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"settings","phase":"close","connection":3,"profile":"wal-full","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"wal","synchronous":2,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":3,"mode":"truncate","rc":0,"wal_frames":0,"checkpointed_frames":0,"status":"completed"}
+sqlite-lab {"record":"drain_close","connection":3,"duration_ns":61264,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":38342407,"total_snapshot_overhead_ns":0,"status":"completed"}
+SQLite version: 3.51.3
+integrity-check: ok
+--count 2048 --max-id 32 --random
+--cache-size 256 --jmode wal
+--mmap 0
+Database page size: 4096
+Total elapsed time: 0.037
+Microseconds per BLOB write: 18.066
+Content write rate: 453.4 MB/s
+CASE update-2 END
+update_sha3=e1ccd79c3bb847243e439459f48d933991ebd777e3f92d9b827750c6
+seeded_random_update_repeatability=PASS
+CASE speedtest-1 BEGIN
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"delete-extra","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"delete","synchronous":3,"wal_autocheckpoint":1000,"rc":0}
+-- Speedtest1 for SQLite 3.51.3 2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18d
+       Begin testset "main"
+ 100 - 500 INSERTs into table with no index........................    0.001s
+ 110 - 500 ordered INSERTS with one index/PK.......................    0.000s
+ 120 - 500 unordered INSERTS with one index/PK.....................    0.001s
+ 130 - 25 SELECTS, numeric BETWEEN, unindexed......................    0.000s
+ 140 - 10 SELECTS, LIKE, unindexed.................................    0.001s
+ 142 - 10 SELECTS w/ORDER BY, unindexed............................    0.001s
+ 145 - 10 SELECTS w/ORDER BY and LIMIT, unindexed..................    0.001s
+ 150 - CREATE INDEX five times.....................................    0.001s
+ 160 - 100 SELECTS, numeric BETWEEN, indexed.......................    0.001s
+ 161 - 100 SELECTS, numeric BETWEEN, PK............................    0.000s
+ 170 - 100 SELECTS, text BETWEEN, indexed..........................    0.000s
+ 180 - 500 INSERTS with three indexes..............................    0.001s
+ 190 - DELETE and REFILL one table.................................    0.000s
+ 200 - VACUUM......................................................    0.001s
+ 210 - ALTER TABLE ADD COLUMN, and query...........................    0.000s
+ 230 - 100 UPDATES, numeric BETWEEN, indexed.......................    0.000s
+ 240 - 500 UPDATES of individual rows..............................    0.001s
+ 250 - One big UPDATE of the whole 500-row table...................    0.000s
+ 260 - Query added column after filling............................    0.000s
+ 270 - 100 DELETEs, numeric BETWEEN, indexed.......................    0.000s
+ 280 - 500 DELETEs of individual rows..............................    0.000s
+ 290 - Refill two 500-row tables using REPLACE.....................    0.001s
+ 300 - Refill a 500-row table using (b&1)==(a&1)...................    0.001s
+ 310 - 100 four-ways joins.........................................    0.001s
+ 320 - subquery in result set......................................    0.000s
+ 400 - 700 REPLACE ops on an IPK...................................    0.000s
+ 410 - 700 SELECTS on an IPK.......................................    0.003s
+ 500 - 700 REPLACE on TEXT PK......................................    0.000s
+ 510 - 700 SELECTS on a TEXT PK....................................    0.002s
+ 520 - 700 SELECT DISTINCT.........................................    0.000s
+ 980 - PRAGMA integrity_check......................................    0.001s
+ 990 - ANALYZE..................................................... sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"delete-extra","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"delete","synchronous":3,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":null,"wal_frames":null,"checkpointed_frames":null,"status":"not_applicable"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":25888,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":19652868,"total_snapshot_overhead_ns":0,"status":"completed"}
+   0.001s
+       TOTAL.......................................................    0.020s
+Verification Hash: 111130 1e792c9db61996c477b8ab5ce2d690052e8dae74824a430a
+-- Compile option: ATOMIC_INTRINSICS=1
+-- Compile option: COMPILER=gcc-15.2.0
+-- Compile option: DEFAULT_AUTOVACUUM
+-- Compile option: DEFAULT_CACHE_SIZE=-2000
+-- Compile option: DEFAULT_FILE_FORMAT=4
+-- Compile option: DEFAULT_JOURNAL_SIZE_LIMIT=-1
+-- Compile option: DEFAULT_MMAP_SIZE=0
+-- Compile option: DEFAULT_PAGE_SIZE=4096
+-- Compile option: DEFAULT_PCACHE_INITSZ=20
+-- Compile option: DEFAULT_RECURSIVE_TRIGGERS
+-- Compile option: DEFAULT_SECTOR_SIZE=4096
+-- Compile option: DEFAULT_SYNCHRONOUS=2
+-- Compile option: DEFAULT_WAL_AUTOCHECKPOINT=1000
+-- Compile option: DEFAULT_WAL_SYNCHRONOUS=2
+-- Compile option: DEFAULT_WORKER_THREADS=0
+-- Compile option: DIRECT_OVERFLOW_READ
+-- Compile option: MALLOC_SOFT_LIMIT=1024
+-- Compile option: MAX_ATTACHED=10
+-- Compile option: MAX_COLUMN=2000
+-- Compile option: MAX_COMPOUND_SELECT=500
+-- Compile option: MAX_DEFAULT_PAGE_SIZE=8192
+-- Compile option: MAX_EXPR_DEPTH=1000
+-- Compile option: MAX_FUNCTION_ARG=1000
+-- Compile option: MAX_LENGTH=1000000000
+-- Compile option: MAX_LIKE_PATTERN_LENGTH=50000
+-- Compile option: MAX_MMAP_SIZE=0
+-- Compile option: MAX_PAGE_COUNT=0xfffffffe
+-- Compile option: MAX_PAGE_SIZE=65536
+-- Compile option: MAX_SQL_LENGTH=1000000000
+-- Compile option: MAX_TRIGGER_DEPTH=1000
+-- Compile option: MAX_VARIABLE_NUMBER=32766
+-- Compile option: MAX_VDBE_OP=250000000
+-- Compile option: MAX_WORKER_THREADS=8
+-- Compile option: MUTEX_PTHREADS
+-- Compile option: OMIT_LOAD_EXTENSION
+-- Compile option: SYSTEM_MALLOC
+-- Compile option: TEMP_STORE=1
+-- Compile option: THREADSAFE=1
+-- Lookaside Slots Used:        1 (max 122)
+-- Successful lookasides:       25275
+-- Lookaside size faults:       17
+-- Lookaside OOM faults:        0
+-- Pager Heap Usage:            310008 bytes
+-- Page cache hits:             31819
+-- Page cache misses:           0
+-- Page cache writes:           263
+-- Schema Heap Usage:           5256 bytes
+-- Statement Heap Usage:        0 bytes
+-- Memory Used (bytes):         0 (max 674792)
+-- Outstanding Allocations:     0 (max 272)
+-- Pcache Overflow Bytes:       0 (max 361200)
+-- Largest Allocation:          87360 bytes
+-- Largest Pcache Allocation:   4368 bytes
+-- Bytes received by read():    27280
+-- Bytes sent to write():       1797979
+-- Read() system calls:         1469
+-- Write() system calls:        863
+-- Bytes rcvd from storage:     0
+-- Bytes sent to storage:       0
+-- Cancelled write bytes:       0
+CASE speedtest-1 END
+CASE speedtest-2 BEGIN
+sqlite-lab {"record":"settings","phase":"open","connection":1,"profile":"delete-extra","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"delete","synchronous":3,"wal_autocheckpoint":1000,"rc":0}
+-- Speedtest1 for SQLite 3.51.3 2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18d
+       Begin testset "main"
+ 100 - 500 INSERTs into table with no index........................    0.001s
+ 110 - 500 ordered INSERTS with one index/PK.......................    0.000s
+ 120 - 500 unordered INSERTS with one index/PK.....................    0.001s
+ 130 - 25 SELECTS, numeric BETWEEN, unindexed......................    0.000s
+ 140 - 10 SELECTS, LIKE, unindexed.................................    0.001s
+ 142 - 10 SELECTS w/ORDER BY, unindexed............................    0.001s
+ 145 - 10 SELECTS w/ORDER BY and LIMIT, unindexed..................    0.001s
+ 150 - CREATE INDEX five times.....................................    0.000s
+ 160 - 100 SELECTS, numeric BETWEEN, indexed.......................    0.001s
+ 161 - 100 SELECTS, numeric BETWEEN, PK............................    0.000s
+ 170 - 100 SELECTS, text BETWEEN, indexed..........................    0.001s
+ 180 - 500 INSERTS with three indexes..............................    0.000s
+ 190 - DELETE and REFILL one table.................................    0.001s
+ 200 - VACUUM......................................................    0.001s
+ 210 - ALTER TABLE ADD COLUMN, and query...........................    0.000s
+ 230 - 100 UPDATES, numeric BETWEEN, indexed.......................    0.000s
+ 240 - 500 UPDATES of individual rows..............................    0.001s
+ 250 - One big UPDATE of the whole 500-row table...................    0.000s
+ 260 - Query added column after filling............................    0.000s
+ 270 - 100 DELETEs, numeric BETWEEN, indexed.......................    0.001s
+ 280 - 500 DELETEs of individual rows..............................    0.000s
+ 290 - Refill two 500-row tables using REPLACE.....................    0.002s
+ 300 - Refill a 500-row table using (b&1)==(a&1)...................    0.001s
+ 310 - 100 four-ways joins.........................................    0.001s
+ 320 - subquery in result set......................................    0.000s
+ 400 - 700 REPLACE ops on an IPK...................................    0.000s
+ 410 - 700 SELECTS on an IPK.......................................    0.003s
+ 500 - 700 REPLACE on TEXT PK......................................    0.000s
+ 510 - 700 SELECTS on a TEXT PK....................................    0.002s
+ 520 - 700 SELECT DISTINCT.........................................    0.000s
+ 980 - PRAGMA integrity_check......................................    0.001s
+ 990 - ANALYZE..................................................... sqlite-lab {"record":"settings","phase":"close","connection":1,"profile":"delete-extra","page_size":4096,"cache_pages":256,"mmap_bytes":0,"journal_mode":"delete","synchronous":3,"wal_autocheckpoint":1000,"rc":0}
+sqlite-lab {"record":"checkpoint","connection":1,"mode":"truncate","rc":null,"wal_frames":null,"checkpointed_frames":null,"status":"not_applicable"}
+sqlite-lab {"record":"drain_close","connection":1,"duration_ns":49142,"observer_overhead_ns":0,"checkpoint_rc":0,"close_rc":0,"status":"completed"}
+sqlite-lab {"record":"process","duration_ns":21664173,"total_snapshot_overhead_ns":0,"status":"completed"}
+   0.000s
+       TOTAL.......................................................    0.021s
+Verification Hash: 111130 1e792c9db61996c477b8ab5ce2d690052e8dae74824a430a
+-- Compile option: ATOMIC_INTRINSICS=1
+-- Compile option: COMPILER=gcc-15.2.0
+-- Compile option: DEFAULT_AUTOVACUUM
+-- Compile option: DEFAULT_CACHE_SIZE=-2000
+-- Compile option: DEFAULT_FILE_FORMAT=4
+-- Compile option: DEFAULT_JOURNAL_SIZE_LIMIT=-1
+-- Compile option: DEFAULT_MMAP_SIZE=0
+-- Compile option: DEFAULT_PAGE_SIZE=4096
+-- Compile option: DEFAULT_PCACHE_INITSZ=20
+-- Compile option: DEFAULT_RECURSIVE_TRIGGERS
+-- Compile option: DEFAULT_SECTOR_SIZE=4096
+-- Compile option: DEFAULT_SYNCHRONOUS=2
+-- Compile option: DEFAULT_WAL_AUTOCHECKPOINT=1000
+-- Compile option: DEFAULT_WAL_SYNCHRONOUS=2
+-- Compile option: DEFAULT_WORKER_THREADS=0
+-- Compile option: DIRECT_OVERFLOW_READ
+-- Compile option: MALLOC_SOFT_LIMIT=1024
+-- Compile option: MAX_ATTACHED=10
+-- Compile option: MAX_COLUMN=2000
+-- Compile option: MAX_COMPOUND_SELECT=500
+-- Compile option: MAX_DEFAULT_PAGE_SIZE=8192
+-- Compile option: MAX_EXPR_DEPTH=1000
+-- Compile option: MAX_FUNCTION_ARG=1000
+-- Compile option: MAX_LENGTH=1000000000
+-- Compile option: MAX_LIKE_PATTERN_LENGTH=50000
+-- Compile option: MAX_MMAP_SIZE=0
+-- Compile option: MAX_PAGE_COUNT=0xfffffffe
+-- Compile option: MAX_PAGE_SIZE=65536
+-- Compile option: MAX_SQL_LENGTH=1000000000
+-- Compile option: MAX_TRIGGER_DEPTH=1000
+-- Compile option: MAX_VARIABLE_NUMBER=32766
+-- Compile option: MAX_VDBE_OP=250000000
+-- Compile option: MAX_WORKER_THREADS=8
+-- Compile option: MUTEX_PTHREADS
+-- Compile option: OMIT_LOAD_EXTENSION
+-- Compile option: SYSTEM_MALLOC
+-- Compile option: TEMP_STORE=1
+-- Compile option: THREADSAFE=1
+-- Lookaside Slots Used:        1 (max 122)
+-- Successful lookasides:       25275
+-- Lookaside size faults:       17
+-- Lookaside OOM faults:        0
+-- Pager Heap Usage:            310008 bytes
+-- Page cache hits:             31819
+-- Page cache misses:           0
+-- Page cache writes:           263
+-- Schema Heap Usage:           5256 bytes
+-- Statement Heap Usage:        0 bytes
+-- Memory Used (bytes):         0 (max 674792)
+-- Outstanding Allocations:     0 (max 272)
+-- Pcache Overflow Bytes:       0 (max 361200)
+-- Largest Allocation:          87360 bytes
+-- Largest Pcache Allocation:   4368 bytes
+-- Bytes received by read():    27280
+-- Bytes sent to write():       1797979
+-- Read() system calls:         1469
+-- Write() system calls:        863
+-- Bytes rcvd from storage:     0
+-- Bytes sent to storage:       0
+-- Cancelled write bytes:       0
+CASE speedtest-2 END
+speedtest_verifyhash=Verification Hash: 111130 1e792c9db61996c477b8ab5ce2d690052e8dae74824a430a
+speedtest_sha3=72b0680b9201f2dea5231bb15954f3cfb0a463324dcc11465c7df214
+speedtest_repeatability=PASS
+effective_profiles=delete-extra,wal-full,wal-normal
+workload_auto_checkpoints=6
+workload_final_drain=PASS
+snapshot_boundary_telemetry=PASS
+standalone_suite=PASS
+log=/tmp/sqlite-group-writable-observer-1789285245.log
