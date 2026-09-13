@@ -9,10 +9,12 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
+mod accounted_io;
 mod checkpoint;
 
 pub mod io_accounting;
 
+use accounted_io::{BackingIo, submit_exact};
 use checkpoint::{
     AlignedDescriptors, Checkpoint, CheckpointSlot, DEFAULT_CHECKPOINT_AFTER_BYTES,
     decode_checkpoint, encode_checkpoint_descriptor, load_checkpoint_body,
@@ -109,7 +111,7 @@ impl Default for VolumeOpenOptions {
 
 pub struct Volume {
     backing: File,
-    ring: Option<IoUring>,
+    backing_io: BackingIo,
     volume_id: u64,
     volume_blocks: u32,
     backing_blocks: u64,
@@ -137,7 +139,7 @@ impl Volume {
             return Err(io::Error::other("volume failed"));
         }
         let fsync = opcode::Fsync::new(types::Fd(self.backing.as_raw_fd())).build();
-        if let Err(error) = submit_exact(&mut self.ring, fsync, self.last_lsn, 0) {
+        if let Err(error) = submit_exact(&mut self.backing_io, fsync, self.last_lsn, 0) {
             self.failed = true;
             return Err(error);
         }
@@ -179,7 +181,12 @@ impl Volume {
         )
         .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
         .build();
-        if let Err(error) = submit_exact(&mut self.ring, read, u64::from(lba), BLOCK_SIZE as i32) {
+        if let Err(error) = submit_exact(
+            &mut self.backing_io,
+            read,
+            u64::from(lba),
+            BLOCK_SIZE as i32,
+        ) {
             self.failed = true;
             return Err(error);
         }
@@ -250,7 +257,7 @@ impl Volume {
         )
         .offset(u64::from(payload_block) * BLOCK_SIZE as u64)
         .build();
-        if let Err(error) = submit_exact(&mut self.ring, write, lsn, record.0.len() as i32) {
+        if let Err(error) = submit_exact(&mut self.backing_io, write, lsn, record.0.len() as i32) {
             self.failed = true;
             return Err(error);
         }
@@ -373,7 +380,7 @@ fn backing_blocks_for(layout: &Layout, backing_bytes: u64) -> io::Result<u64> {
 }
 
 fn read_block_exact(
-    ring: &mut Option<IoUring>,
+    backing_io: &mut BackingIo,
     backing: &File,
     physical_block: u32,
     block: &mut AlignedBlock,
@@ -385,7 +392,12 @@ fn read_block_exact(
     )
     .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
     .build();
-    submit_exact(ring, read, u64::from(physical_block), BLOCK_SIZE as i32)
+    submit_exact(
+        backing_io,
+        read,
+        u64::from(physical_block),
+        BLOCK_SIZE as i32,
+    )
 }
 
 fn decode_write_tail_footer(
@@ -452,7 +464,7 @@ fn decode_write_tail_footer(
 }
 
 fn clear_stale_tail(
-    ring: &mut Option<IoUring>,
+    backing_io: &mut BackingIo,
     backing: &File,
     append_block: u64,
     backing_blocks: u64,
@@ -467,7 +479,12 @@ fn clear_stale_tail(
         )
         .offset((append_block + block_index) * BLOCK_SIZE as u64)
         .build();
-        submit_exact(ring, write, append_block + block_index, BLOCK_SIZE as i32)?;
+        submit_exact(
+            backing_io,
+            write,
+            append_block + block_index,
+            BLOCK_SIZE as i32,
+        )?;
         #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(&format!(
             "{STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT}-{block_index}"
@@ -475,14 +492,14 @@ fn clear_stale_tail(
     }
 
     let fsync = opcode::Fsync::new(types::Fd(backing.as_raw_fd())).build();
-    submit_exact(ring, fsync, append_block, 0)?;
+    submit_exact(backing_io, fsync, append_block, 0)?;
     #[cfg(any(test, feature = "test-failpoints"))]
     pause_at_test_failpoint(STALE_TAIL_FSYNC_COMPLETE_FAILPOINT)?;
     Ok(())
 }
 
 fn read_one_tail_record(
-    ring: &mut Option<IoUring>,
+    backing_io: &mut BackingIo,
     backing: &File,
     checkpoint: Checkpoint,
 ) -> io::Result<Option<RecoveredRecord>> {
@@ -495,7 +512,7 @@ fn read_one_tail_record(
 
     let mut footer = AlignedBlock([0; BLOCK_SIZE]);
     for footer_block in first_footer_block..=footer_limit {
-        read_block_exact(ring, backing, footer_block as u32, &mut footer)?;
+        read_block_exact(backing_io, backing, footer_block as u32, &mut footer)?;
         if let Some(entries) =
             decode_write_tail_footer(&mut footer.0, checkpoint, footer_block as u32)
         {
@@ -509,7 +526,7 @@ fn read_one_tail_record(
     Ok(None)
 }
 
-fn submit_exact(
+fn submit_exact_raw(
     ring: &mut Option<IoUring>,
     entry: squeue::Entry,
     user_data: u64,
@@ -598,6 +615,26 @@ pub fn open_with_options(
     backing_path: impl AsRef<Path>,
     options: VolumeOpenOptions,
 ) -> io::Result<Volume> {
+    open_internal(backing_path.as_ref(), options, None)
+}
+
+/// Opens a formatted volume and accounts its engine-submitted backing I/O.
+///
+/// Host-filesystem metadata operations used to open and inspect the backing file
+/// are outside this accounting scope.
+pub fn open_with_accounting(
+    backing_path: impl AsRef<Path>,
+    options: VolumeOpenOptions,
+    accounting: io_accounting::Writer,
+) -> io::Result<Volume> {
+    open_internal(backing_path.as_ref(), options, Some(accounting))
+}
+
+fn open_internal(
+    backing_path: &Path,
+    options: VolumeOpenOptions,
+    accounting: Option<io_accounting::Writer>,
+) -> io::Result<Volume> {
     if !options
         .checkpoint_after_bytes
         .is_multiple_of(BLOCK_SIZE as u64)
@@ -612,7 +649,7 @@ pub fn open_with_options(
         .custom_flags(libc::O_DIRECT | libc::O_CLOEXEC)
         .open(backing_path)?;
     let backing_bytes = backing.seek(SeekFrom::End(0))?;
-    let mut ring = Some(IoUring::new(2)?);
+    let mut backing_io = BackingIo::new(accounting)?;
     let mut descriptors = AlignedDescriptors([0; 2 * BLOCK_SIZE]);
     let read = opcode::Read::new(
         types::Fd(backing.as_raw_fd()),
@@ -621,7 +658,7 @@ pub fn open_with_options(
     )
     .offset(0)
     .build();
-    submit_exact(&mut ring, read, 3, descriptors.0.len() as i32)?;
+    submit_exact(&mut backing_io, read, 3, descriptors.0.len() as i32)?;
 
     let (green_bytes, blue_bytes) = descriptors.0.split_at_mut(BLOCK_SIZE);
     let green = decode_checkpoint(green_bytes, CheckpointSlot::Green, backing_bytes);
@@ -646,7 +683,7 @@ pub fn open_with_options(
     let mut recovered = None;
     for checkpoint in candidates {
         if let Some((physical_blocks, checksums)) =
-            load_checkpoint_body(&mut ring, &backing, checkpoint)?
+            load_checkpoint_body(&mut backing_io, &backing, checkpoint)?
         {
             recovered = Some((checkpoint, physical_blocks, checksums));
             break;
@@ -656,7 +693,7 @@ pub fn open_with_options(
         recovered.ok_or_else(|| invalid_data("no valid checkpoint body"))?;
     let mut replay_cursor = checkpoint;
     let mut log_bytes_since_checkpoint = 0_u64;
-    while let Some(record) = read_one_tail_record(&mut ring, &backing, replay_cursor)? {
+    while let Some(record) = read_one_tail_record(&mut backing_io, &backing, replay_cursor)? {
         for write in record.writes {
             physical_blocks[write.lba as usize] = write.payload_block;
             checksums[write.lba as usize] = write.checksum;
@@ -671,7 +708,7 @@ pub fn open_with_options(
     let last_lsn = replay_cursor.checkpoint_lsn;
     let last_footer_block = replay_cursor.last_footer_block;
     clear_stale_tail(
-        &mut ring,
+        &mut backing_io,
         &backing,
         u64::from(last_footer_block) + 1,
         checkpoint.backing_blocks,
@@ -679,7 +716,7 @@ pub fn open_with_options(
 
     Ok(Volume {
         backing,
-        ring,
+        backing_io,
         volume_id: checkpoint.volume_id,
         volume_blocks: checkpoint.volume_blocks,
         backing_blocks: checkpoint.backing_blocks,
@@ -701,6 +738,25 @@ pub fn open_with_options(
 
 /// Writes the two checksummed empty checkpoint roots to a pre-sized backing file.
 pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<()> {
+    format_internal(backing_path.as_ref(), volume_bytes, None)
+}
+
+/// Formats a volume and accounts its engine-submitted backing I/O.
+///
+/// Host-filesystem metadata and allocation operations are outside this accounting scope.
+pub fn format_with_accounting(
+    backing_path: impl AsRef<Path>,
+    volume_bytes: u64,
+    accounting: io_accounting::Writer,
+) -> io::Result<()> {
+    format_internal(backing_path.as_ref(), volume_bytes, Some(accounting))
+}
+
+fn format_internal(
+    backing_path: &Path,
+    volume_bytes: u64,
+    accounting: Option<io_accounting::Writer>,
+) -> io::Result<()> {
     let (volume_blocks, layout) = layout_for(volume_bytes)?;
     let mut file = OpenOptions::new()
         .read(true)
@@ -726,7 +782,7 @@ pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<(
     checkpoint.slot = CheckpointSlot::Blue;
     encode_checkpoint_descriptor(&mut descriptors.0[BLOCK_SIZE..], &checkpoint);
 
-    let mut ring = Some(IoUring::new(2)?);
+    let mut backing_io = BackingIo::new(accounting)?;
     let write = opcode::Write::new(
         types::Fd(file.as_raw_fd()),
         descriptors.0.as_ptr(),
@@ -734,9 +790,9 @@ pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<(
     )
     .offset(0)
     .build();
-    submit_exact(&mut ring, write, 1, descriptors.0.len() as i32)?;
+    submit_exact(&mut backing_io, write, 1, descriptors.0.len() as i32)?;
     let fsync = opcode::Fsync::new(types::Fd(file.as_raw_fd())).build();
-    submit_exact(&mut ring, fsync, 2, 0)
+    submit_exact(&mut backing_io, fsync, 2, 0)
 }
 
 #[cfg(test)]

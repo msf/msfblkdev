@@ -214,12 +214,12 @@ fn write_exact(ring: &mut Option<IoUring>, file: &File, block: &AlignedBlock) ->
     )
     .offset(0)
     .build();
-    submit_exact(ring, entry, 1, BLOCK_SIZE as i32)
+    submit_exact_raw(ring, entry, 1, BLOCK_SIZE as i32)
 }
 
 fn fsync(ring: &mut Option<IoUring>, file: &File) -> io::Result<()> {
     let entry = opcode::Fsync::new(types::Fd(file.as_raw_fd())).build();
-    submit_exact(ring, entry, 2, 0)
+    submit_exact_raw(ring, entry, 2, 0)
 }
 
 fn read_exact(ring: &mut Option<IoUring>, file: &File, block: &mut AlignedBlock) -> io::Result<()> {
@@ -230,7 +230,7 @@ fn read_exact(ring: &mut Option<IoUring>, file: &File, block: &mut AlignedBlock)
     )
     .offset(0)
     .build();
-    submit_exact(ring, entry, 3, BLOCK_SIZE as i32)
+    submit_exact_raw(ring, entry, 3, BLOCK_SIZE as i32)
 }
 
 fn write_raw_record_payloads(
@@ -512,6 +512,7 @@ fn verify_invalid_gap_recovery(fixture: &InvalidGapFixture) -> io::Result<()> {
     verify_cleared_window(fixture)
 }
 
+mod accounting_integration;
 mod checkpoint_replay;
 mod format_geometry;
 mod io_uring;

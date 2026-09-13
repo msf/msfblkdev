@@ -1,6 +1,8 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("block-storage-ublk requires Linux");
 
+#[path = "ublk_support/io_ledger.rs"]
+mod io_ledger;
 #[path = "ublk_support/request_counts.rs"]
 mod request_counts;
 
@@ -656,13 +658,21 @@ fn wait_for_device_removal(device_id: u32) -> io::Result<()> {
     Ok(())
 }
 
-fn serve(backing_path: &Path, device_id: i32) -> io::Result<()> {
+fn serve(backing_path: &Path, device_id: i32, ledger_path: Option<&OsStr>) -> io::Result<()> {
+    let accounting = io_ledger::open_optional(ledger_path)?;
     let _backing_lock = BackingLock::acquire(backing_path)?;
     let signal_guard = SignalGuard::install()?;
     let drain = Arc::new(DrainState::new());
     let readiness_error = Arc::new(Mutex::new(None));
     let state = Arc::new(Mutex::new(QueueState {
-        volume: Some(block_storage::open(backing_path)?),
+        volume: Some(match accounting {
+            Some(writer) => block_storage::open_with_accounting(
+                backing_path,
+                block_storage::VolumeOpenOptions::default(),
+                writer,
+            )?,
+            None => block_storage::open(backing_path)?,
+        }),
         result: None,
     }));
     let target = {
@@ -766,7 +776,13 @@ fn delete(device_id: i32) -> io::Result<()> {
         .map_err(ublk_error)
 }
 
-fn format_new(backing_path: &Path, backing_bytes: u64, volume_bytes: u64) -> io::Result<()> {
+fn format_new(
+    backing_path: &Path,
+    backing_bytes: u64,
+    volume_bytes: u64,
+    ledger_path: Option<&OsStr>,
+) -> io::Result<()> {
+    let accounting = io_ledger::open_optional(ledger_path)?;
     let backing = OpenOptions::new()
         .read(true)
         .write(true)
@@ -774,8 +790,12 @@ fn format_new(backing_path: &Path, backing_bytes: u64, volume_bytes: u64) -> io:
         .open(backing_path)?;
     let format_error = match backing
         .set_len(backing_bytes)
-        .and_then(|()| block_storage::format(backing_path, volume_bytes))
-    {
+        .and_then(|()| match accounting {
+            Some(writer) => {
+                block_storage::format_with_accounting(backing_path, volume_bytes, writer)
+            }
+            None => block_storage::format(backing_path, volume_bytes),
+        }) {
         Ok(()) => return Ok(()),
         Err(error) => error,
     };
@@ -790,17 +810,23 @@ fn format_new(backing_path: &Path, backing_bytes: u64, volume_bytes: u64) -> io:
 }
 
 fn run() -> io::Result<()> {
+    let ledger_path = std::env::var_os(io_ledger::ENVIRONMENT_VARIABLE);
     match parse_args(std::env::args_os())? {
         CliCommand::Serve {
             backing_path,
             device_id,
-        } => serve(&backing_path, device_id),
+        } => serve(&backing_path, device_id, ledger_path.as_deref()),
         CliCommand::Delete { device_id } => delete(device_id),
         CliCommand::Format {
             backing_path,
             backing_bytes,
             volume_bytes,
-        } => format_new(&backing_path, backing_bytes, volume_bytes),
+        } => format_new(
+            &backing_path,
+            backing_bytes,
+            volume_bytes,
+            ledger_path.as_deref(),
+        ),
     }
 }
 
@@ -1081,7 +1107,12 @@ mod tests {
     #[test]
     fn format_new_sizes_formats_and_opens_exact_image() -> io::Result<()> {
         let backing = TemporaryPath::new()?;
-        format_new(&backing.0, 1024 * 1024, 4 * u64::from(IO_BUFFER_BYTES))?;
+        format_new(
+            &backing.0,
+            1024 * 1024,
+            4 * u64::from(IO_BUFFER_BYTES),
+            None,
+        )?;
 
         assert_eq!(std::fs::metadata(&backing.0)?.len(), 1024 * 1024);
         let volume = block_storage::open(&backing.0)?;
@@ -1094,7 +1125,7 @@ mod tests {
         let backing = TemporaryBacking::new()?;
         std::fs::write(&backing.0, b"preserve me")?;
 
-        let error = format_new(&backing.0, 1024 * 1024, 4096).unwrap_err();
+        let error = format_new(&backing.0, 1024 * 1024, 4096, None).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&backing.0)?, b"preserve me");
         Ok(())
@@ -1104,10 +1135,27 @@ mod tests {
     fn format_new_removes_created_file_after_engine_validation_failure() -> io::Result<()> {
         for (backing_bytes, volume_bytes) in [(1024 * 1024 + 1, 4096), (1024 * 1024, 4097)] {
             let backing = TemporaryPath::new()?;
-            let error = format_new(&backing.0, backing_bytes, volume_bytes).unwrap_err();
+            let error = format_new(&backing.0, backing_bytes, volume_bytes, None).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
             assert!(!backing.0.exists());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_optional_ledger_fails_before_backing_creation() -> io::Result<()> {
+        let backing = TemporaryPath::new()?;
+        let missing_ledger = backing.0.with_extension("missing-ledger");
+        let error = format_new(
+            &backing.0,
+            1024 * 1024,
+            4096,
+            Some(missing_ledger.as_os_str()),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(!backing.0.exists());
+        assert!(io_ledger::open_optional(None)?.is_none());
         Ok(())
     }
 

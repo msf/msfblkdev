@@ -1,10 +1,10 @@
 #[cfg(any(test, feature = "test-failpoints"))]
 use super::pause_at_test_failpoint;
 use super::{
-    AlignedBlock, BLOCK_SIZE, FORMAT_VERSION, Layout, Volume, backing_blocks_for, layout_for,
-    read_block_exact, read_u32, read_u64, submit_exact,
+    AlignedBlock, BLOCK_SIZE, FORMAT_VERSION, Layout, Volume, accounted_io::BackingIo,
+    backing_blocks_for, layout_for, read_block_exact, read_u32, read_u64, submit_exact,
 };
-use io_uring::{IoUring, opcode, types};
+use io_uring::{opcode, types};
 use std::fs::File;
 use std::io;
 use std::mem::size_of;
@@ -69,7 +69,12 @@ impl Volume {
         )
         .offset(self.next_checkpoint_slot as u64 * BLOCK_SIZE as u64)
         .build();
-        if let Err(error) = submit_exact(&mut self.ring, write, self.last_lsn, BLOCK_SIZE as i32) {
+        if let Err(error) = submit_exact(
+            &mut self.backing_io,
+            write,
+            self.last_lsn,
+            BLOCK_SIZE as i32,
+        ) {
             self.failed = true;
             return Err(error);
         }
@@ -149,7 +154,12 @@ impl Volume {
         )
         .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
         .build();
-        if let Err(error) = submit_exact(&mut self.ring, write, self.last_lsn, BLOCK_SIZE as i32) {
+        if let Err(error) = submit_exact(
+            &mut self.backing_io,
+            write,
+            self.last_lsn,
+            BLOCK_SIZE as i32,
+        ) {
             self.failed = true;
             return Err(error);
         }
@@ -230,7 +240,7 @@ pub(super) fn decode_checkpoint(
 }
 
 pub(super) fn load_checkpoint_body(
-    ring: &mut Option<IoUring>,
+    backing_io: &mut BackingIo,
     backing: &File,
     checkpoint: Checkpoint,
 ) -> io::Result<Option<(Vec<u32>, Vec<u64>)>> {
@@ -256,7 +266,7 @@ pub(super) fn load_checkpoint_body(
     let mut hasher = Xxh3::new();
     let mut block = AlignedBlock([0; BLOCK_SIZE]);
     for block_index in 0..checkpoint.layout.physical_map_blocks {
-        read_block_exact(ring, backing, body_start + block_index, &mut block)?;
+        read_block_exact(backing_io, backing, body_start + block_index, &mut block)?;
         hasher.update(&block.0);
         let first = block_index as usize * (BLOCK_SIZE / size_of::<u32>());
         for (value, bytes) in physical_blocks[first..]
@@ -268,7 +278,7 @@ pub(super) fn load_checkpoint_body(
     }
     for block_index in 0..checkpoint.layout.checksum_map_blocks {
         read_block_exact(
-            ring,
+            backing_io,
             backing,
             body_start + checkpoint.layout.physical_map_blocks + block_index,
             &mut block,
