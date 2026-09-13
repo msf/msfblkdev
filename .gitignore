@@ -1,4 +1,5 @@
 /.tools/
+/tools/sqlite/__pycache__/
 /ublksrv/
 /.zig-cache/
 /zig-cache/

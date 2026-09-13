@@ -3,7 +3,7 @@
 Date: 2026-08-30
 Author: Miguel Filipe
 Status: proposed
-Goal status: V0.9 and V1.0 complete; V1.1 and V1.2 not started
+Goal status: V0.9 and V1.0 complete; V1.1 partially complete (SQLite/ext4); V1.2 not started
 On-disk format: 1 (unchanged)
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
 Updates: the ADR-01 delivery order when accepted
@@ -150,6 +150,8 @@ Only correctness-passing runs qualify for a performance baseline. Keep an explic
 ## Delivery 3: V1.1 SQLite and RocksDB correctness
 
 V1.1 starts after V1.0 and validates SQLite and RocksDB on both accepted filesystems before PostgreSQL integration. SQLite runs first, followed by RocksDB. It reuses upstream workload tools and the existing clean filesystem lifecycle.
+
+SQLite/ext4 status (2026-09-13): the [87-run matrix](SQLITE-EXT4.md) passed all three profiles and repetitions, 348 unmounted filesystem checks and 174 logical validations. Each of the six WAL stress runs completed 12 automatic PASSIVE checkpoints. The largest cumulative backing-write reservation was 218,533,888 bytes against a 536,870,912-byte limit. All owned resources were removed. [The audit](evidence/sqlite-ext4-audit.json) and [explicit initial baseline](evidence/sqlite-ext4-baseline.json) retain the evidence. This is partial Delivery 3 acceptance only: SQLite/XFS and RocksDB remain open and were outside this implementation's scope.
 
 The workload plans are recorded in [tests-with-sqlite.txt](tests-with-sqlite.txt) and [tests-with-rocksdb.txt](tests-with-rocksdb.txt). This ADR owns the acceptance requirements; those files describe workloads and measurement details.
 

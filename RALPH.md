@@ -9,7 +9,7 @@ Active specifications:
 3. [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), completed regression baseline
 4. [ADR-06 Delivery 1: V0.9 ext4 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md#delivery-1-v09-ext4-correctness), completed delivery
 5. [GOAL-XFS.md](GOAL-XFS.md), completed V1.0 delivery
-6. [ADR-06 Delivery 3: V1.1 SQLite and RocksDB correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md#delivery-3-v11-sqlite-and-rocksdb-correctness), approved after the XFS closure commits
+6. [ADR-06 Delivery 3: V1.1 SQLite and RocksDB correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md#delivery-3-v11-sqlite-and-rocksdb-correctness), partially complete: [SQLite on ext4](SQLITE-EXT4.md) is verified; SQLite/XFS and RocksDB remain open
 
 ## One-hour loop
 
@@ -22,7 +22,7 @@ If the criterion cannot be completed safely in the time box, make no commit. Rep
 
 ## Rules
 
-- ADR-02, ADR-03 and ADR-06 Deliveries 1 and 2 are closed. Work only on the delivery selected by the active approved goal. Delivery 3 runs SQLite first, then RocksDB, on both accepted filesystems. PostgreSQL, engine batching, format changes and crash testing remain outside this loop.
+- ADR-02, ADR-03 and ADR-06 Deliveries 1 and 2 are closed. Work only within the latest approved scope. The SQLite/ext4 slice of Delivery 3 is complete; stop at that boundary. SQLite/XFS and RocksDB require fresh user direction. PostgreSQL, engine batching, format changes and crash testing remain outside this loop.
 - Evolve only the Rust implementation. Do not update Zig or restore image compatibility.
 - Do not redesign the persistent format from a worker loop.
 - ADR acceptance text is immutable to workers. A worker may only change `[ ]` to `[x]` for behavior proved by the same commit and add concise evidence.
