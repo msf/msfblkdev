@@ -1,8 +1,33 @@
 use super::*;
 
+const CONTROLLED_ENV: [&str; 6] = [
+    "BLOCK_STORAGE_IO_LEDGER",
+    "BLOCK_STORAGE_IO_DEVICE_ID",
+    "BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION",
+    "BLOCK_STORAGE_LAB_EXECUTABLE",
+    "BLOCK_STORAGE_SQLITE_PROFILE",
+    "LC_ALL",
+];
+
+pub(super) struct CapturedCommand {
+    pub(super) stdout: Vec<u8>,
+    pub(super) stderr: Vec<u8>,
+    pub(super) outcome: Outcome,
+    pub(super) elapsed: Duration,
+    pub(super) completed_before_deadline: bool,
+}
+
+impl CapturedCommand {
+    pub(super) fn success(&self) -> bool {
+        matches!(self.outcome, Outcome::Exit(ref status) if status.success())
+            && self.completed_before_deadline
+    }
+}
+
 impl<'a> Lab<'a> {
     pub(super) fn new(
         filesystem: Filesystem,
+        workload_mode: WorkloadMode,
         evidence: &'a mut Evidence,
         per_command: Duration,
         suite_deadline: Instant,
@@ -14,6 +39,16 @@ impl<'a> Lab<'a> {
             .ok_or_else(|| io::Error::other("lab executable has no parent"))?
             .join("block-storage-ublk");
         let owned = OwnedTempDir::create(Path::new("/tmp"))?;
+        let workload = match workload_mode {
+            WorkloadMode::RealFiles => Workload::RealFiles,
+            WorkloadMode::Sqlite => Workload::Sqlite(Box::new(sqlite::State::new(
+                owned.path(),
+                evidence
+                    .path()
+                    .parent()
+                    .ok_or_else(|| io::Error::other("SQLite evidence has no parent"))?,
+            )?)),
+        };
         evidence.line(&format!(
             "fixture: {} identity={}",
             owned.path().display(),
@@ -21,6 +56,7 @@ impl<'a> Lab<'a> {
         ))?;
         Ok(Self {
             filesystem,
+            workload,
             owned,
             mount_identity: None,
             backing_identity: None,
@@ -65,15 +101,19 @@ impl<'a> Lab<'a> {
     }
 
     pub(super) fn log_command(&mut self, label: &str, command: &Command) -> io::Result<()> {
+        let environment: Vec<_> = command
+            .get_envs()
+            .filter(|(name, _)| CONTROLLED_ENV.iter().any(|allowed| name == allowed))
+            .collect();
         self.evidence.line(&format!(
-            "command {label} at_ms={}: {:?} {:?}",
+            "command {label} at_ms={}: {:?} {:?} env={environment:?}",
             self.started.elapsed().as_millis(),
             command.get_program(),
             command.get_args().collect::<Vec<_>>()
         ))
     }
 
-    pub(super) fn capture(&mut self, label: &str, path: &Path) -> io::Result<String> {
+    fn capture_bytes(&mut self, label: &str, path: &Path) -> io::Result<Vec<u8>> {
         let mut bytes = Vec::new();
         File::open(path)?
             .take(MAX_CAPTURE_BYTES + 1)
@@ -83,15 +123,19 @@ impl<'a> Lab<'a> {
                 "command output exceeds capture limit; full file preserved",
             ));
         }
-        let text = String::from_utf8_lossy(&bytes).into_owned();
-        self.evidence.line(&format!(
-            "--- {label}: {} ---\n{text}\n--- end {label} ---",
-            path.display()
-        ))?;
-        Ok(text)
+        self.evidence.raw_frame(label, path, &bytes)?;
+        Ok(bytes)
     }
 
-    pub(super) fn run_command(&mut self, label: &str, command: &mut Command) -> io::Result<String> {
+    pub(super) fn capture(&mut self, label: &str, path: &Path) -> io::Result<String> {
+        String::from_utf8(self.capture_bytes(label, path)?).map_err(io::Error::other)
+    }
+
+    pub(super) fn run_captured_command(
+        &mut self,
+        label: &str,
+        command: &mut Command,
+    ) -> io::Result<CapturedCommand> {
         if self.command.is_some() {
             return Err(io::Error::other(
                 "previous command group has not been reaped",
@@ -100,33 +144,51 @@ impl<'a> Lab<'a> {
         let deadline = self.deadline()?;
         let started = Instant::now();
         let (stdout, stderr) = self.outputs(label);
+        isolate_command_environment(command);
         self.log_command(label, command)?;
+        command.stdin(Stdio::null());
         command
-            .stdin(Stdio::null())
-            .env("LC_ALL", "C")
-            .env_remove("BLOCK_STORAGE_TEST_FAILPOINT")
             .stdout(Stdio::from(new_output(&stdout)?))
             .stderr(Stdio::from(new_output(&stderr)?));
         self.command = Some(ManagedChild::spawn(command)?);
         let child = self.command.as_mut().expect("just spawned command");
         let outcome = child.wait_bounded(deadline);
+        let elapsed = started.elapsed();
+        let completed_before_deadline = Instant::now() <= deadline;
         let cleanup = child.cleanup();
         if cleanup.is_ok() {
             self.command = None;
         }
-        let output = self.capture("stdout", &stdout)?;
-        self.capture("stderr", &stderr)?;
+        let stdout_bytes = self.capture_bytes("stdout", &stdout)?;
+        let stderr_bytes = self.capture_bytes("stderr", &stderr)?;
         self.evidence.line(&format!(
             "command {label}: outcome={outcome:?} elapsed_ms={} cleanup={cleanup:?}",
-            started.elapsed().as_millis()
+            elapsed.as_millis()
         ))?;
         cleanup?;
-        match outcome? {
-            Outcome::Exit(status) if status.success() && Instant::now() <= deadline => Ok(output),
-            Outcome::Exit(status) if !status.success() => {
-                Err(io::Error::other(format!("{label} failed: {status}")))
-            }
-            _ => Err(io::Error::new(
+        Ok(CapturedCommand {
+            stdout: stdout_bytes,
+            stderr: stderr_bytes,
+            outcome: outcome?,
+            elapsed,
+            completed_before_deadline,
+        })
+    }
+
+    pub(super) fn run_command(&mut self, label: &str, command: &mut Command) -> io::Result<String> {
+        let captured = self.run_captured_command(label, command)?;
+        if captured.success() {
+            return String::from_utf8(captured.stdout).map_err(io::Error::other);
+        }
+        if !captured.completed_before_deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("{label} exceeded command or suite deadline"),
+            ));
+        }
+        match captured.outcome {
+            Outcome::Exit(status) => Err(io::Error::other(format!("{label} failed: {status}"))),
+            Outcome::Timeout => Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!("{label} exceeded command or suite deadline"),
             )),
@@ -249,8 +311,20 @@ impl<'a> Lab<'a> {
                 "installed helper reported an unexpected protocol or geometry",
             ));
         }
-        self.evidence
-            .line(&format!("expected manifest:\n{}", workload::manifest()))
+        if matches!(self.workload, Workload::RealFiles) {
+            self.evidence
+                .line(&format!("expected manifest:\n{}", workload::manifest()))?;
+        } else {
+            self.sqlite_preflight(repo)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn sqlite_ledger_path(&self) -> Option<&Path> {
+        match &self.workload {
+            Workload::RealFiles => None,
+            Workload::Sqlite(state) => Some(state.ledger_path()),
+        }
     }
 
     pub(super) fn backing_path(&self) -> PathBuf {
@@ -322,6 +396,17 @@ impl<'a> Lab<'a> {
     }
 }
 
+fn isolate_command_environment(command: &mut Command) {
+    command
+        .env("LC_ALL", "C")
+        .env_remove("BLOCK_STORAGE_TEST_FAILPOINT");
+    for name in &CONTROLLED_ENV[..CONTROLLED_ENV.len() - 1] {
+        if !command.get_envs().any(|(key, _)| key == *name) {
+            command.env_remove(name);
+        }
+    }
+}
+
 fn validate_runtime_directory(path: &Path, uid: u32) -> io::Result<()> {
     let metadata = fs::symlink_metadata(path).map_err(|error| io::Error::new(error.kind(), format!("AWAITING OPERATOR VALIDATION: libublk runtime directory {} is missing; rerun sudo bash scripts/install-ext4-helper.sh", path.display())))?;
     if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o777 != 0o700 {
@@ -347,6 +432,7 @@ mod tests {
             let now = Instant::now();
             let mut lab = Lab::new(
                 Filesystem::Ext4,
+                WorkloadMode::RealFiles,
                 &mut evidence,
                 Duration::from_secs(2),
                 now + Duration::from_secs(10),
@@ -409,6 +495,42 @@ mod tests {
             assert_eq!(lab.sequence, 0);
             assert!(lab.command.is_none());
         });
+    }
+
+    #[test]
+    fn isolation_preserves_explicit_observer_values_and_removes_inherited_defaults() {
+        let mut explicit = Command::new("true");
+        explicit
+            .env("BLOCK_STORAGE_IO_LEDGER", "/private/ledger")
+            .env("BLOCK_STORAGE_IO_DEVICE_ID", "7")
+            .env("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", "2")
+            .env("BLOCK_STORAGE_LAB_EXECUTABLE", "/private/lab")
+            .env("BLOCK_STORAGE_SQLITE_PROFILE", "wal-full")
+            .env("SECRET_TOKEN", "must-not-be-logged");
+        isolate_command_environment(&mut explicit);
+        for name in &CONTROLLED_ENV[..CONTROLLED_ENV.len() - 1] {
+            assert!(
+                explicit
+                    .get_envs()
+                    .any(|(key, value)| key == *name && value.is_some())
+            );
+        }
+        let visible: Vec<_> = explicit
+            .get_envs()
+            .filter(|(name, _)| CONTROLLED_ENV.iter().any(|allowed| name == allowed))
+            .collect();
+        assert_eq!(visible.len(), CONTROLLED_ENV.len());
+        assert!(!format!("{visible:?}").contains("SECRET_TOKEN"));
+
+        let mut ordinary = Command::new("true");
+        isolate_command_environment(&mut ordinary);
+        for name in &CONTROLLED_ENV[..CONTROLLED_ENV.len() - 1] {
+            assert!(
+                ordinary
+                    .get_envs()
+                    .any(|(key, value)| key == *name && value.is_none())
+            );
+        }
     }
 
     #[test]

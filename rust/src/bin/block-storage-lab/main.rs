@@ -1,4 +1,6 @@
 mod config;
+mod database_io;
+mod database_snapshot;
 mod evidence;
 mod ext4;
 mod filesystem;
@@ -32,6 +34,10 @@ fn execute() -> io::Result<ExitCode> {
             return Ok(ExitCode::from(2));
         }
     };
+    if let Mode::DatabaseSnapshot(request) = mode {
+        database_snapshot::run(request)?;
+        return Ok(ExitCode::SUCCESS);
+    }
     let config = match config::from_env(mode, |name| std::env::var_os(name)) {
         Ok(config) => config,
         Err(message) => {
@@ -50,7 +56,8 @@ fn execute() -> io::Result<ExitCode> {
         Mode::Xfs | Mode::XfsPreflight | Mode::XfsPopulate | Mode::XfsVerify => {
             Some(fs_support::Filesystem::Xfs)
         }
-        Mode::Test | Mode::EngineCrash | Mode::UblkFio => None,
+        Mode::Test | Mode::EngineCrash | Mode::UblkFio | Mode::SqliteProbe => None,
+        Mode::DatabaseSnapshot(_) => unreachable!("snapshot mode returned before configuration"),
     };
     if matches!(mode, Mode::Ext4Preflight | Mode::XfsPreflight) {
         ext4::preflight(
@@ -83,6 +90,10 @@ fn execute() -> io::Result<ExitCode> {
 
     if mode == Mode::UblkFio {
         ublk_fio::run(repo, config.per_test)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if mode == Mode::SqliteProbe {
+        ext4::sqlite::run(repo, config.per_test, config.suite)?;
         return Ok(ExitCode::SUCCESS);
     }
 

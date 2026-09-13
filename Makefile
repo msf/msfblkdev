@@ -4,15 +4,14 @@ ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
-.PHONY: setup build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs test-zig test-rust run
+.PHONY: setup setup-sqlite build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs check-sqlite test-sqlite test-zig test-rust run
 
 build: build-rust
 
 build-zig: setup
 	@$(ZIG) build
 
-build-rust:
-	@cd rust && cargo build
+build-rust: build-ext4
 
 setup:
 	@set -eu; \
@@ -36,22 +35,23 @@ lint-zig: setup
 	@$(ZIG) fmt --check build.zig src
 
 lint-rust:
-	@cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+	@cd rust && cargo fmt --check && cargo clippy --all-targets --features lab -- -D warnings
 
 test:
-	@cd rust && cargo run --quiet --bin block-storage-lab -- test
+	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- test
 
 test-acceptance:
-	@cd rust && cargo run --quiet --bin block-storage-lab -- engine-crash
+	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- engine-crash
 
 # Privileged and opt-in: preflight refuses to create resources without ublk access.
 test-ublk-fio:
-	@cd rust && cargo build --quiet --features test-failpoints --bin block-storage-ublk --bin block-storage-lab
-	@cd rust && cargo run --quiet --features test-failpoints --bin block-storage-lab -- ublk-fio
+	@cd rust && cargo build --quiet --features test-failpoints,lab --bin block-storage-ublk --bin block-storage-lab
+	@cd rust && cargo run --quiet --features test-failpoints,lab --bin block-storage-lab -- ublk-fio
 
 # Build as the normal user. The operator installs only the separate mount helper.
 build-ext4:
-	@cd rust && cargo build --quiet --bin block-storage-ublk --bin block-storage-lab --bin block-storage-mount
+	@cd rust && cargo build --quiet --bin block-storage-ublk --bin block-storage-mount
+	@cd rust && cargo build --quiet --features lab --bin block-storage-lab
 
 # Checks prerequisites without creating a backing image, device, or mount.
 check-ext4: build-ext4
@@ -60,6 +60,18 @@ check-ext4: build-ext4
 # Explicit operator opt-in; the lab itself stays unprivileged.
 test-ext4: build-ext4
 	@rust/target/debug/block-storage-lab ext4
+
+# Optional SQLite tooling is deliberately outside the normal setup/test path.
+setup-sqlite:
+	@timeout --kill-after=5s 300s bash scripts/setup-sqlite.sh
+
+check-sqlite: build-ext4
+	@timeout --kill-after=5s 30s uv run --quiet python tools/sqlite/check-build.py
+	@.tools/sqlite-3.51.3/build/sqlite3 --version
+
+# Explicit operator opt-in; runs one fresh ext4 WAL/FULL probe, not acceptance.
+test-sqlite: check-sqlite
+	@rust/target/debug/block-storage-lab sqlite-probe
 
 # Checks XFS prerequisites and capacity without creating a backing image, device, or mount.
 check-xfs: build-ext4
@@ -73,7 +85,7 @@ test-zig: setup
 	@$(ZIG) build test
 
 test-rust:
-	@cd rust && cargo run --quiet --bin block-storage-lab -- test
+	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- test
 
 run: setup
 	@$(ZIG) test src/root.zig --test-filter "V0.4 black-box acceptance"

@@ -34,6 +34,21 @@ impl Evidence {
         Self::create_named(repo, "ublk-fio", Some(fio_version))
     }
 
+    pub fn create_sqlite(repo: &Path) -> io::Result<(Self, PathBuf)> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(io::Error::other)?
+            .as_nanos();
+        let directory = repo.join("evidence").join(format!("sqlite-{timestamp}"));
+        fs::create_dir_all(&directory)?;
+        let path = directory.join("commands.log");
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+        Ok((Self { file, path }, directory))
+    }
+
     fn create_named(repo: &Path, name: &str, fio_version: Option<&str>) -> io::Result<Self> {
         let commit = command_text("git", &["rev-parse", "HEAD"], repo)?;
         let kernel = command_text("uname", &["-srvm"], repo)?;
@@ -64,6 +79,18 @@ impl Evidence {
 
     pub fn line(&mut self, line: &str) -> io::Result<()> {
         writeln!(self.file, "{line}")?;
+        self.file.flush()
+    }
+
+    pub fn raw_frame(&mut self, label: &str, source: &Path, bytes: &[u8]) -> io::Result<()> {
+        writeln!(
+            self.file,
+            "--- {label}: {} bytes={} ---",
+            source.display(),
+            bytes.len()
+        )?;
+        self.file.write_all(bytes)?;
+        writeln!(self.file, "\n--- end {label} ---")?;
         self.file.flush()
     }
 }

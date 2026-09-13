@@ -1,6 +1,7 @@
 mod commands;
 mod lifecycle;
 mod request_evidence;
+pub(super) mod sqlite;
 pub mod workload;
 
 use crate::evidence::Evidence;
@@ -116,8 +117,20 @@ impl Device {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkloadMode {
+    RealFiles,
+    Sqlite,
+}
+
+enum Workload {
+    RealFiles,
+    Sqlite(Box<sqlite::State>),
+}
+
 struct Lab<'a> {
     filesystem: Filesystem,
+    workload: Workload,
     owned: OwnedTempDir,
     mount_identity: Option<FileIdentity>,
     backing_identity: Option<FileIdentity>,
@@ -162,6 +175,7 @@ pub fn preflight(
     println!("evidence: {}", evidence.path().display());
     let mut lab = Lab::new(
         filesystem,
+        WorkloadMode::RealFiles,
         &mut evidence,
         per_command,
         started + suite,
@@ -195,6 +209,7 @@ pub fn run(
         evidence.line(&format!("repetition: {repetition}/{REPETITIONS}"))?;
         let mut lab = Lab::new(
             filesystem,
+            WorkloadMode::RealFiles,
             &mut evidence,
             per_command,
             suite_deadline,

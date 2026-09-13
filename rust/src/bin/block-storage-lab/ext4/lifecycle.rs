@@ -41,12 +41,14 @@ impl Lab<'_> {
         self.mount_identity = Some(FileIdentity::from_metadata(&fs::symlink_metadata(
             self.mount_path(),
         )?));
-        let mut command = Command::new(&self.daemon_executable);
-        command
-            .arg("format")
-            .arg(self.backing_path())
-            .arg(self.filesystem.backing_bytes().to_string())
-            .arg(self.filesystem.volume_bytes().to_string());
+        let ledger = self.sqlite_ledger_path().map(Path::to_path_buf);
+        let mut command = format_command(
+            &self.daemon_executable,
+            &self.backing_path(),
+            self.filesystem.backing_bytes(),
+            self.filesystem.volume_bytes(),
+            ledger.as_deref(),
+        );
         self.run_command("format", &mut command)?;
         self.backing_identity = Some(FileIdentity::from_metadata(&fs::symlink_metadata(
             self.backing_path(),
@@ -67,7 +69,9 @@ impl Lab<'_> {
             .arg(self.backing_path())
             .arg("-1")
             .stdin(Stdio::null())
-            .env_remove("BLOCK_STORAGE_TEST_FAILPOINT")
+            .env_remove("BLOCK_STORAGE_TEST_FAILPOINT");
+        sqlite::configure_ledger_env(&mut command, self.sqlite_ledger_path());
+        command
             .stdout(Stdio::from(new_output(&stdout)?))
             .stderr(Stdio::from(new_output(&stderr)?));
         self.log_command("serve", &command)?;
@@ -156,11 +160,19 @@ impl Lab<'_> {
         self.evidence.line(&format!(
             "mount id={mount_id} target={} {options}",
             self.mount_path().display()
-        ))
+        ))?;
+        self.sqlite_mounted(&options)
     }
 
     fn files(&mut self, populate: bool) -> io::Result<()> {
         self.require_mounted()?;
+        if matches!(self.workload, Workload::Sqlite(_)) {
+            return if populate {
+                self.sqlite_populate()
+            } else {
+                self.sqlite_verify()
+            };
+        }
         let mut command = Command::new(&self.executable);
         command
             .arg(filesystem::worker_command(self.filesystem, populate))
@@ -190,6 +202,7 @@ impl Lab<'_> {
 
     fn stop(&mut self) -> io::Result<()> {
         self.require_unmounted()?;
+        self.sqlite_stopping()?;
         let id = self
             .device
             .as_ref()
@@ -212,7 +225,6 @@ impl Lab<'_> {
             )));
         }
         child.cleanup()?;
-        self.daemon = None;
         self.evidence
             .line(&format!("daemon SIGTERM: {outcome:?}"))?;
         for path in [
@@ -235,8 +247,10 @@ impl Lab<'_> {
                 return Err(error);
             }
         }
+        self.daemon = None;
         self.device = None;
-        self.log_daemon()
+        self.log_daemon()?;
+        self.sqlite_stopped()
     }
 
     fn check_daemon_errors(&self) -> io::Result<()> {
@@ -256,7 +270,8 @@ impl Lab<'_> {
             self.capture("daemon stdout", &stdout)?;
             let requests = self.capture("daemon stderr", &stderr)?;
             self.check_daemon_errors()?;
-            request_evidence::validate(&requests)?;
+            let completed = request_evidence::validate(&requests)?;
+            self.sqlite_completed_requests(completed)?;
             self.evidence.line("daemon request/flag evidence: PASS")?;
         }
         self.daemon_outputs = None;
@@ -282,6 +297,7 @@ impl Lab<'_> {
         if Some(FileIdentity::from_metadata(&metadata)) != self.mount_identity {
             return Err(io::Error::other("mount directory changed before removal"));
         }
+        self.sqlite_finalize_ledger()?;
         // Validate the whole directory before cleanup can unlink the backing image.
         for entry in fs::read_dir(self.owned.path())? {
             let entry = entry?;
@@ -346,6 +362,23 @@ impl Lab<'_> {
     }
 }
 
+fn format_command(
+    executable: &Path,
+    backing: &Path,
+    backing_bytes: u64,
+    volume_bytes: u64,
+    ledger: Option<&Path>,
+) -> Command {
+    let mut command = Command::new(executable);
+    command
+        .arg("format")
+        .arg(backing)
+        .arg(backing_bytes.to_string())
+        .arg(volume_bytes.to_string());
+    sqlite::configure_ledger_env(&mut command, ledger);
+    command
+}
+
 fn readiness_path(text: &str) -> io::Result<DevicePath> {
     if !text.ends_with('\n') || text.lines().count() != 1 {
         return Err(io::Error::other(
@@ -360,6 +393,21 @@ fn readiness_path(text: &str) -> io::Result<DevicePath> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sqlite_format_attaches_the_ledger_explicitly() {
+        let command = format_command(
+            Path::new("/lab/ublk"),
+            Path::new("/fixture/backing"),
+            1024,
+            2048,
+            Some(Path::new("/fixture/io-ledger")),
+        );
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "BLOCK_STORAGE_IO_LEDGER"
+                && value == Some(std::ffi::OsStr::new("/fixture/io-ledger"))
+        }));
+    }
 
     #[test]
     fn readiness_never_accepts_arbitrary_devices_or_extra_output() {

@@ -190,6 +190,7 @@ dependencies = [
  "io-uring",
  "libc",
  "libublk",
+ "serde_json",
  "xxhash-rust",
 ]
 

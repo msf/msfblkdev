@@ -1,9 +1,30 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::time::{Duration, Instant};
 
 pub const SLOW_ENV: &str = "TEST_SLOW_SECONDS";
 pub const PER_TEST_ENV: &str = "TEST_PER_TEST_SECONDS";
 pub const SUITE_ENV: &str = "TEST_SUITE_SECONDS";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DatabaseSnapshotPhase {
+    DrainStart,
+    DrainEnd,
+}
+
+impl DatabaseSnapshotPhase {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DrainStart => "drain_start",
+            Self::DrainEnd => "drain_end",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DatabaseSnapshotRequest {
+    pub phase: DatabaseSnapshotPhase,
+    pub connection: u8,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Mode {
@@ -18,6 +39,8 @@ pub enum Mode {
     XfsPreflight,
     XfsPopulate,
     XfsVerify,
+    SqliteProbe,
+    DatabaseSnapshot(DatabaseSnapshotRequest),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,6 +60,9 @@ where
         .next()
         .unwrap_or_else(|| OsString::from("block-storage-lab"));
     let subcommand = args.next();
+    if subcommand.as_deref() == Some(OsStr::new("database-snapshot")) {
+        return parse_database_snapshot(&program, &mut args);
+    }
     if args.next().is_some() {
         return Err(usage(&program));
     }
@@ -52,8 +78,38 @@ where
         Some("xfs-preflight") => Ok(Mode::XfsPreflight),
         Some("xfs-populate") => Ok(Mode::XfsPopulate),
         Some("xfs-verify") => Ok(Mode::XfsVerify),
+        Some("sqlite-probe") => Ok(Mode::SqliteProbe),
         _ => Err(usage(&program)),
     }
+}
+
+fn parse_database_snapshot<I>(program: &OsString, args: &mut I) -> Result<Mode, String>
+where
+    I: Iterator<Item = OsString>,
+{
+    let phase = match args.next().as_deref().and_then(OsStr::to_str) {
+        Some("drain-start") => DatabaseSnapshotPhase::DrainStart,
+        Some("drain-end") => DatabaseSnapshotPhase::DrainEnd,
+        _ => return Err(usage(program)),
+    };
+    let Some(connection) = args.next() else {
+        return Err(usage(program));
+    };
+    if args.next().is_some() {
+        return Err(usage(program));
+    }
+    let text = connection.to_str().ok_or_else(|| usage(program))?;
+    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(usage(program));
+    }
+    let connection = text.parse::<u8>().map_err(|_| usage(program))?;
+    if !(1..=64).contains(&connection) {
+        return Err(usage(program));
+    }
+    Ok(Mode::DatabaseSnapshot(DatabaseSnapshotRequest {
+        phase,
+        connection,
+    }))
 }
 
 pub fn from_env<F>(mode: Mode, mut get: F) -> Result<Config, String>
@@ -72,6 +128,8 @@ where
         | Mode::XfsPreflight
         | Mode::XfsPopulate
         | Mode::XfsVerify => (60, 600),
+        Mode::SqliteProbe => (60, 600),
+        Mode::DatabaseSnapshot(_) => (1, 1),
     };
     Ok(Config {
         mode,
@@ -126,7 +184,7 @@ fn invalid_env(name: &str, value: &OsString, allow_zero: bool) -> String {
 
 fn usage(program: &OsString) -> String {
     format!(
-        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight | xfs | xfs-preflight",
+        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight | xfs | xfs-preflight | sqlite-probe | database-snapshot drain-start|drain-end <connection-id>",
         program.to_string_lossy()
     )
 }
@@ -158,6 +216,20 @@ mod tests {
             parse_args(["lab", "xfs-preflight"].map(OsString::from)),
             Ok(Mode::XfsPreflight)
         );
+        assert_eq!(
+            parse_args(["lab", "database-snapshot", "drain-start", "1"].map(OsString::from)),
+            Ok(Mode::DatabaseSnapshot(DatabaseSnapshotRequest {
+                phase: DatabaseSnapshotPhase::DrainStart,
+                connection: 1,
+            }))
+        );
+        assert_eq!(
+            parse_args(["lab", "database-snapshot", "drain-end", "64"].map(OsString::from)),
+            Ok(Mode::DatabaseSnapshot(DatabaseSnapshotRequest {
+                phase: DatabaseSnapshotPhase::DrainEnd,
+                connection: 64,
+            }))
+        );
         for args in [
             vec!["lab"],
             vec!["lab", "unknown"],
@@ -169,6 +241,13 @@ mod tests {
             vec!["lab", "xfs-preflight", "extra"],
             vec!["lab", "xfs-populate", "/tmp/mount"],
             vec!["lab", "xfs-verify", "/tmp/mount"],
+            vec!["lab", "sqlite-probe", "/tmp/backing"],
+            vec!["lab", "sqlite-probe", "/tmp/backing", "/tmp/mount"],
+            vec!["lab", "database-snapshot"],
+            vec!["lab", "database-snapshot", "bad", "1"],
+            vec!["lab", "database-snapshot", "drain-start", "0"],
+            vec!["lab", "database-snapshot", "drain-end", "65"],
+            vec!["lab", "database-snapshot", "drain-end", "1", "/tmp/path"],
         ] {
             assert!(parse_args(args.into_iter().map(OsString::from)).is_err());
         }
@@ -200,6 +279,14 @@ mod tests {
             assert_eq!(config.per_test, Duration::from_secs(60));
             assert_eq!(config.suite, Duration::from_secs(600));
         }
+
+        assert_eq!(
+            parse_args(["lab", "sqlite-probe"].map(OsString::from)),
+            Ok(Mode::SqliteProbe)
+        );
+        let sqlite = from_env(Mode::SqliteProbe, |_| None).unwrap();
+        assert_eq!(sqlite.per_test, Duration::from_secs(60));
+        assert_eq!(sqlite.suite, Duration::from_secs(600));
 
         let values = HashMap::from([
             (SLOW_ENV, OsString::from("0")),

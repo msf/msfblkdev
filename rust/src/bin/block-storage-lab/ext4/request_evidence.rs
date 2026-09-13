@@ -1,8 +1,34 @@
+use libublk::sys::{UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE};
 use std::collections::BTreeSet;
 use std::io;
 
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct CompletedRequests {
+    pub(super) reads: u64,
+    pub(super) writes: u64,
+    pub(super) flushes: u64,
+}
+
+impl CompletedRequests {
+    fn record(&mut self, flags: u32, count: u64) -> io::Result<()> {
+        if count == 0 {
+            return Ok(());
+        }
+        // Linux ublk stores the opcode in the low byte of op_flags.
+        let counter = match flags & 0xff {
+            UBLK_IO_OP_READ => &mut self.reads,
+            UBLK_IO_OP_WRITE => &mut self.writes,
+            UBLK_IO_OP_FLUSH => &mut self.flushes,
+            _ => return Err(invalid()),
+        };
+        *counter = counter.checked_add(count).ok_or_else(invalid)?;
+        Ok(())
+    }
+}
+
 // The caller captures at most MAX_CAPTURE_BYTES from the owned daemon's stderr.
-pub(super) fn validate(text: &str) -> io::Result<()> {
+pub(super) fn validate(text: &str) -> io::Result<CompletedRequests> {
+    let mut completed = CompletedRequests::default();
     let mut combinations = BTreeSet::new();
     let mut total = 0_u64;
     let mut ended = false;
@@ -32,20 +58,22 @@ pub(super) fn validate(text: &str) -> io::Result<()> {
             .map_err(|_| invalid())?;
         let count = number(second, "count=")?;
         let before_ready = number(third, "before_ready=")?;
+        let cancellations = number(cancelled, "cancelled=")?;
         if count == 0
             || before_ready > count
             || number(errors, "errors=")? != 0
-            || number(cancelled, "cancelled=")? > count
+            || cancellations > count
             || !combinations.insert(flags)
         {
             return Err(invalid());
         }
+        completed.record(flags, count - cancellations)?;
         total = total.checked_add(count).ok_or_else(invalid)?;
     }
     if !ended {
         return Err(invalid());
     }
-    Ok(())
+    Ok(completed)
 }
 
 fn number(field: &str, prefix: &str) -> io::Result<u64> {
@@ -63,6 +91,23 @@ fn invalid() -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn totals_include_hints_but_exclude_shutdown_cancellations() {
+        let report = "request-count op_flags=0x700 count=5 before_ready=1 errors=0 cancelled=2\n\
+                      request-count op_flags=0x801 count=7 before_ready=0 errors=0 cancelled=0\n\
+                      request-count op_flags=0x2 count=2 before_ready=0 errors=0 cancelled=0\n\
+                      request-count-end combinations=3 total=14 complete=true\n";
+        assert_eq!(
+            validate(report).unwrap(),
+            CompletedRequests {
+                reads: 3,
+                writes: 7,
+                flushes: 2
+            }
+        );
+        assert!(validate(&report.replace("0x801", "0x3")).is_err());
+    }
 
     #[test]
     fn requires_complete_consistent_request_and_discovery_counts() {

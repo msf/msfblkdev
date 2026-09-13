@@ -5,9 +5,16 @@ edition = "2024"
 
 [features]
 test-failpoints = []
+lab = ["dep:serde_json"]
+
+[[bin]]
+name = "block-storage-lab"
+path = "src/bin/block-storage-lab/main.rs"
+required-features = ["lab"]
 
 [dependencies]
 io-uring = "=0.7.14"
 libc = "=0.2.186"
 libublk = "=0.4.7"
+serde_json = { version = "=1.0.151", optional = true }
 xxhash-rust = { version = "=0.8.15", features = ["xxh3"] }

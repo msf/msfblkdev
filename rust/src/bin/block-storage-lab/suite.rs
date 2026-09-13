@@ -135,7 +135,12 @@ pub fn run(config: Config, repo: &Path, mut evidence: Option<&mut Evidence>) -> 
 
 fn cargo_command(mode: Mode, directory: &Path, args: &[&str]) -> Command {
     let mut command = Command::new("cargo");
-    command.args(args).current_dir(directory);
+    assert_eq!(args.first(), Some(&"test"), "suite runs Cargo tests only");
+    command.arg("test");
+    if args.contains(&"--bin=block-storage-lab") {
+        command.args(["--features", "lab"]);
+    }
+    command.args(&args[1..]).current_dir(directory);
     if mode == Mode::EngineCrash {
         command.env(CRASH_MODE_ENV, "acceptance");
     }
