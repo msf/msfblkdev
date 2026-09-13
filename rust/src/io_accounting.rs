@@ -493,3 +493,6 @@ fn invalid_input(message: &'static str) -> io::Error {
 fn invalid_data(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
+
+#[cfg(test)]
+mod tests;
