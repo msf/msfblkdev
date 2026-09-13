@@ -1,5 +1,5 @@
 use super::*;
-use commands::{filesystem_command, new_output};
+use commands::new_output;
 
 impl Lab<'_> {
     pub(super) fn lifecycle(&mut self) -> io::Result<()> {
@@ -11,14 +11,19 @@ impl Lab<'_> {
                 Step::Start => self.start()?,
                 Step::Mkfs | Step::Check(_) => {
                     self.require_unmounted()?;
-                    let path = self
-                        .device
-                        .as_ref()
-                        .expect("validated device")
-                        .path
-                        .as_path()
-                        .to_owned();
-                    self.run_command(&format!("{step:?}"), &mut filesystem_command(step, &path))?;
+                    let device = &self.device.as_ref().expect("validated device").path;
+                    let mut command = match step {
+                        Step::Mkfs => filesystem::mkfs_command(
+                            self.filesystem,
+                            device,
+                            self.owned.path().file_name().expect("owned directory name"),
+                        ),
+                        Step::Check(_) => {
+                            filesystem::check_command(self.filesystem, device.as_path())
+                        }
+                        _ => unreachable!("only filesystem steps reach this branch"),
+                    };
+                    self.run_command(&format!("{step:?}"), &mut command)?;
                 }
                 Step::Mount => self.mount()?,
                 Step::Populate | Step::Verify => self.files(step == Step::Populate)?,
@@ -40,8 +45,8 @@ impl Lab<'_> {
         command
             .arg("format")
             .arg(self.backing_path())
-            .arg(BACKING_BYTES.to_string())
-            .arg(VOLUME_BYTES.to_string());
+            .arg(self.filesystem.backing_bytes().to_string())
+            .arg(self.filesystem.volume_bytes().to_string());
         self.run_command("format", &mut command)?;
         self.backing_identity = Some(FileIdentity::from_metadata(&fs::symlink_metadata(
             self.backing_path(),
@@ -85,7 +90,7 @@ impl Lab<'_> {
             let text = fs::read_to_string(&stdout)?;
             if text.ends_with('\n') {
                 let path = readiness_path(&text)?;
-                match Device::read(path) {
+                match Device::read(path, self.filesystem) {
                     Ok(device) => {
                         self.device = Some(device);
                         break;
@@ -127,37 +132,29 @@ impl Lab<'_> {
     }
 
     fn helper(&mut self, action: &str) -> io::Result<()> {
-        let device = self.validate_device()?;
-        let id = device.path.id().to_string();
-        let name = self
-            .owned
-            .path()
-            .file_name()
-            .expect("owned directory name")
-            .to_owned();
-        self.run_command(
-            action,
-            Command::new("sudo")
-                .args(["-n", "--", MOUNT_HELPER, action, &id])
-                .arg(name),
-        )?;
+        let device = self.validate_device()?.path.clone();
+        let name = self.owned.path().file_name().expect("owned directory name");
+        let mut command = filesystem::helper_command(action, &device, name);
+        self.run_command(action, &mut command)?;
         Ok(())
     }
 
     fn mount(&mut self) -> io::Result<()> {
         self.require_unmounted()?;
         self.mount_attempted = true;
-        self.helper("mount")?;
+        self.helper(filesystem::helper_action(self.filesystem, true))?;
         self.require_mounted()?;
         let number = self.device.as_ref().expect("validated device").number;
-        self.mount_id = Some(fs_support::require_mounted(
+        let mount_id = require_mounted(
             &fs_support::mounts()?,
             number,
             &self.mount_path(),
-        )?);
+            self.filesystem,
+        )?;
+        self.mount_id = Some(mount_id);
+        let options = filesystem::effective_mount_options(mount_id)?;
         self.evidence.line(&format!(
-            "mount id={:?} target={} options=ext4-defaults,nosuid,nodev",
-            self.mount_id,
+            "mount id={mount_id} target={} {options}",
             self.mount_path().display()
         ))
     }
@@ -166,11 +163,7 @@ impl Lab<'_> {
         self.require_mounted()?;
         let mut command = Command::new(&self.executable);
         command
-            .arg(if populate {
-                "ext4-populate"
-            } else {
-                "ext4-verify"
-            })
+            .arg(filesystem::worker_command(self.filesystem, populate))
             .current_dir(self.mount_path().join("work"));
         let actual = self.run_command("workload", &mut command)?;
         if actual != workload::manifest() {
@@ -188,7 +181,7 @@ impl Lab<'_> {
             ));
         }
         self.require_mounted()?;
-        self.helper("unmount")?;
+        self.helper(filesystem::helper_action(self.filesystem, false))?;
         self.require_unmounted()?;
         self.mount_id = None;
         self.mount_attempted = false;
@@ -261,8 +254,10 @@ impl Lab<'_> {
     fn log_daemon(&mut self) -> io::Result<()> {
         if let Some((stdout, stderr)) = self.daemon_outputs.clone() {
             self.capture("daemon stdout", &stdout)?;
-            self.capture("daemon stderr", &stderr)?;
+            let requests = self.capture("daemon stderr", &stderr)?;
             self.check_daemon_errors()?;
+            request_evidence::validate(&requests)?;
+            self.evidence.line("daemon request/flag evidence: PASS")?;
         }
         self.daemon_outputs = None;
         Ok(())

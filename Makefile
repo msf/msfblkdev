@@ -4,7 +4,7 @@ ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
-.PHONY: setup build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-zig test-rust run
+.PHONY: setup build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs test-zig test-rust run
 
 build: build-rust
 
@@ -60,6 +60,14 @@ check-ext4: build-ext4
 # Explicit operator opt-in; the lab itself stays unprivileged.
 test-ext4: build-ext4
 	@rust/target/debug/block-storage-lab ext4
+
+# Checks XFS prerequisites and capacity without creating a backing image, device, or mount.
+check-xfs: build-ext4
+	@rust/target/debug/block-storage-lab xfs-preflight
+
+# Explicit operator opt-in; the lab itself stays unprivileged.
+test-xfs: build-ext4
+	@rust/target/debug/block-storage-lab xfs
 
 test-zig: setup
 	@$(ZIG) build test

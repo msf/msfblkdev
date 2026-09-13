@@ -14,15 +14,15 @@ impl Evidence {
         Self::create_named(repo, "engine-crash", None)
     }
 
-    pub fn create_ext4(repo: &Path) -> io::Result<Self> {
-        // The ext4 runner captures git/kernel metadata through its bounded command runner.
+    pub fn create_filesystem(repo: &Path, filesystem: &str) -> io::Result<Self> {
+        // The filesystem runner captures git/kernel metadata through its bounded command runner.
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(io::Error::other)?
             .as_nanos();
         let directory = repo.join("evidence");
         fs::create_dir_all(&directory)?;
-        let path = directory.join(format!("ext4-{timestamp}.log"));
+        let path = directory.join(format!("{filesystem}-{timestamp}.log"));
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)

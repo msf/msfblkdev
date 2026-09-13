@@ -14,6 +14,10 @@ pub enum Mode {
     Ext4Preflight,
     Ext4Populate,
     Ext4Verify,
+    Xfs,
+    XfsPreflight,
+    XfsPopulate,
+    XfsVerify,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,6 +48,10 @@ where
         Some("ext4-preflight") => Ok(Mode::Ext4Preflight),
         Some("ext4-populate") => Ok(Mode::Ext4Populate),
         Some("ext4-verify") => Ok(Mode::Ext4Verify),
+        Some("xfs") => Ok(Mode::Xfs),
+        Some("xfs-preflight") => Ok(Mode::XfsPreflight),
+        Some("xfs-populate") => Ok(Mode::XfsPopulate),
+        Some("xfs-verify") => Ok(Mode::XfsVerify),
         _ => Err(usage(&program)),
     }
 }
@@ -56,7 +64,14 @@ where
         Mode::Test => (15, 55),
         Mode::EngineCrash => (1800, 3600),
         Mode::UblkFio => (30, 180),
-        Mode::Ext4 | Mode::Ext4Preflight | Mode::Ext4Populate | Mode::Ext4Verify => (60, 600),
+        Mode::Ext4
+        | Mode::Ext4Preflight
+        | Mode::Ext4Populate
+        | Mode::Ext4Verify
+        | Mode::Xfs
+        | Mode::XfsPreflight
+        | Mode::XfsPopulate
+        | Mode::XfsVerify => (60, 600),
     };
     Ok(Config {
         mode,
@@ -111,7 +126,7 @@ fn invalid_env(name: &str, value: &OsString, allow_zero: bool) -> String {
 
 fn usage(program: &OsString) -> String {
     format!(
-        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight",
+        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight | xfs | xfs-preflight",
         program.to_string_lossy()
     )
 }
@@ -135,6 +150,14 @@ mod tests {
             parse_args(["lab", "ublk-fio"].map(OsString::from)),
             Ok(Mode::UblkFio)
         );
+        assert_eq!(
+            parse_args(["lab", "xfs"].map(OsString::from)),
+            Ok(Mode::Xfs)
+        );
+        assert_eq!(
+            parse_args(["lab", "xfs-preflight"].map(OsString::from)),
+            Ok(Mode::XfsPreflight)
+        );
         for args in [
             vec!["lab"],
             vec!["lab", "unknown"],
@@ -142,6 +165,10 @@ mod tests {
             vec!["lab", "ext4", "/dev/sda"],
             vec!["lab", "ext4", "/tmp/mount"],
             vec!["lab", "ext4-populate", "/tmp/mount"],
+            vec!["lab", "xfs", "/dev/sda"],
+            vec!["lab", "xfs-preflight", "extra"],
+            vec!["lab", "xfs-populate", "/tmp/mount"],
+            vec!["lab", "xfs-verify", "/tmp/mount"],
         ] {
             assert!(parse_args(args.into_iter().map(OsString::from)).is_err());
         }
@@ -161,6 +188,18 @@ mod tests {
             parse_args(["lab", "ext4"].map(OsString::from)),
             Ok(Mode::Ext4)
         );
+
+        for (command, mode) in [
+            ("xfs", Mode::Xfs),
+            ("xfs-preflight", Mode::XfsPreflight),
+            ("xfs-populate", Mode::XfsPopulate),
+            ("xfs-verify", Mode::XfsVerify),
+        ] {
+            assert_eq!(parse_args(["lab", command].map(OsString::from)), Ok(mode));
+            let config = from_env(mode, |_| None).unwrap();
+            assert_eq!(config.per_test, Duration::from_secs(60));
+            assert_eq!(config.suite, Duration::from_secs(600));
+        }
 
         let values = HashMap::from([
             (SLOW_ENV, OsString::from("0")),

@@ -2,6 +2,7 @@ use super::*;
 
 impl<'a> Lab<'a> {
     pub(super) fn new(
+        filesystem: Filesystem,
         evidence: &'a mut Evidence,
         per_command: Duration,
         suite_deadline: Instant,
@@ -19,6 +20,7 @@ impl<'a> Lab<'a> {
             owned.identity()
         ))?;
         Ok(Self {
+            filesystem,
             owned,
             mount_identity: None,
             backing_identity: None,
@@ -44,7 +46,7 @@ impl<'a> Lab<'a> {
         if now >= self.suite_deadline {
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "ext4 suite deadline exceeded",
+                format!("{} suite deadline exceeded", self.filesystem.name()),
             ));
         }
         Ok((now + self.per_command).min(self.suite_deadline))
@@ -135,7 +137,7 @@ impl<'a> Lab<'a> {
         // SAFETY: geteuid has no arguments or memory-safety preconditions.
         if unsafe { libc::geteuid() } == 0 {
             return Err(io::Error::other(
-                "run the ext4 lab as a normal user; only the installed mount helper uses sudo",
+                "run the filesystem lab as a normal user; only the installed helper uses sudo",
             ));
         }
         self.run_command(
@@ -151,6 +153,12 @@ impl<'a> Lab<'a> {
                 .current_dir(repo),
         )?;
         self.run_command("kernel", Command::new("uname").arg("-srvm"))?;
+        self.run_command(
+            "backing-filesystem",
+            Command::new("stat")
+                .args(["-f", "-c", "%T"])
+                .arg(self.owned.path()),
+        )?;
         for binary in [self.executable.clone(), self.daemon_executable.clone()] {
             let metadata = fs::symlink_metadata(&binary)?;
             if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
@@ -166,8 +174,21 @@ impl<'a> Lab<'a> {
                 xxhash_rust::xxh3::xxh3_64(&bytes)
             ))?;
         }
-        self.run_command("mkfs-version", Command::new("mkfs.ext4").arg("-V"))?;
-        self.run_command("e2fsck-version", Command::new("e2fsck").arg("-V"))?;
+        for (label, mut command) in filesystem::version_commands(self.filesystem) {
+            self.run_command(label, &mut command)?;
+        }
+        if self.filesystem == Filesystem::Xfs {
+            let (memory, space) = filesystem::check_xfs_resources(Path::new("/tmp"))?;
+            self.evidence.line(&format!(
+                "resources: available_memory_bytes={memory} available_tmp_bytes={space}"
+            ))?;
+            if !filesystem::xfs_kernel_supported()? {
+                return Err(io::Error::other(
+                    "AWAITING OPERATOR VALIDATION: XFS kernel support is unavailable",
+                ));
+            }
+            self.evidence.line("kernel filesystem support: xfs")?;
+        }
         validate_runtime_directory(
             Path::new(&libublk::ctrl::UblkCtrl::run_dir()),
             fs::metadata(self.owned.path())?.uid(),
@@ -192,15 +213,42 @@ impl<'a> Lab<'a> {
             .parent()
             .expect("lab executable parent")
             .join("block-storage-mount");
-        if fs::read(MOUNT_HELPER)? != fs::read(&built_helper)? {
+        let built_helper_bytes = fs::read(&built_helper)?;
+        let installed_helper_bytes = fs::read(MOUNT_HELPER)?;
+        if installed_helper_bytes != built_helper_bytes {
             return Err(io::Error::other(
                 "AWAITING OPERATOR VALIDATION: installed helper differs from the current build; operator must review and reinstall it",
             ));
         }
-        self.run_command(
+        for (path, bytes) in [
+            (built_helper.as_path(), built_helper_bytes.as_slice()),
+            (Path::new(MOUNT_HELPER), installed_helper_bytes.as_slice()),
+        ] {
+            self.evidence.line(&format!(
+                "binary: {} bytes={} xxh3={:016x}",
+                path.display(),
+                bytes.len(),
+                xxhash_rust::xxh3::xxh3_64(bytes)
+            ))?;
+        }
+        self.evidence.line("helper binary match: PASS")?;
+        let helper_output = self.run_command(
             "helper-preflight",
             Command::new("sudo").args(["-n", "--", MOUNT_HELPER, "check"]),
         )?;
+        let expected = format!(
+            "protocol=3 uid={} ext4={}/{} xfs={}/{}",
+            fs::metadata(self.owned.path())?.uid(),
+            fs_support::VOLUME_BYTES,
+            fs_support::BACKING_BYTES,
+            Filesystem::Xfs.volume_bytes(),
+            Filesystem::Xfs.backing_bytes()
+        );
+        if !helper_output.contains(&expected) {
+            return Err(io::Error::other(
+                "installed helper reported an unexpected protocol or geometry",
+            ));
+        }
         self.evidence
             .line(&format!("expected manifest:\n{}", workload::manifest()))
     }
@@ -216,7 +264,7 @@ impl<'a> Lab<'a> {
         self.owned.validate()?;
         let metadata = fs::symlink_metadata(self.backing_path())?;
         if !metadata.is_file()
-            || metadata.len() != BACKING_BYTES
+            || metadata.len() != self.filesystem.backing_bytes()
             || metadata.uid() != fs::metadata(self.owned.path())?.uid()
             || Some(FileIdentity::from_metadata(&metadata)) != self.backing_identity
         {
@@ -242,7 +290,7 @@ impl<'a> Lab<'a> {
             .device
             .as_ref()
             .ok_or_else(|| io::Error::other("device identity is missing"))?;
-        device.validate()?;
+        device.validate(self.filesystem)?;
         Ok(device)
     }
 
@@ -261,7 +309,12 @@ impl<'a> Lab<'a> {
 
     pub(super) fn require_mounted(&mut self) -> io::Result<()> {
         let number = self.validate_device()?.number;
-        let id = fs_support::require_mounted(&fs_support::mounts()?, number, &self.mount_path())?;
+        let id = require_mounted(
+            &fs_support::mounts()?,
+            number,
+            &self.mount_path(),
+            self.filesystem,
+        )?;
         if self.mount_id.is_some_and(|expected| expected != id) {
             return Err(io::Error::other("mount identity changed"));
         }
@@ -283,20 +336,6 @@ pub(super) fn new_output(path: &Path) -> io::Result<File> {
     OpenOptions::new().write(true).create_new(true).open(path)
 }
 
-pub(super) fn filesystem_command(step: Step, device: &Path) -> Command {
-    let mut command = match step {
-        Step::Mkfs => Command::new("mkfs.ext4"),
-        Step::Check(_) => {
-            let mut command = Command::new("e2fsck");
-            command.args(["-f", "-n"]);
-            command
-        }
-        _ => unreachable!("only filesystem commands use this constructor"),
-    };
-    command.arg(device);
-    command
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,9 +343,10 @@ mod tests {
     fn with_lab(test: impl FnOnce(&mut Lab<'_>)) {
         let mut repo = OwnedTempDir::create(Path::new("/tmp")).unwrap();
         {
-            let mut evidence = Evidence::create_ext4(repo.path()).unwrap();
+            let mut evidence = Evidence::create_filesystem(repo.path(), "ext4").unwrap();
             let now = Instant::now();
             let mut lab = Lab::new(
+                Filesystem::Ext4,
                 &mut evidence,
                 Duration::from_secs(2),
                 now + Duration::from_secs(10),
@@ -379,14 +419,14 @@ mod tests {
                 &fs::metadata(lab.mount_path()).unwrap(),
             ));
             let file = new_output(&lab.backing_path()).unwrap();
-            file.set_len(BACKING_BYTES).unwrap();
+            file.set_len(fs_support::BACKING_BYTES).unwrap();
             lab.backing_identity = Some(FileIdentity::from_metadata(&file.metadata().unwrap()));
             let replacement = lab.owned.path().join("unexpected");
             std::os::unix::fs::symlink("/nonexistent", &replacement).unwrap();
             assert!(lab.finish().is_err());
             assert_eq!(
                 fs::metadata(lab.backing_path()).unwrap().len(),
-                BACKING_BYTES
+                fs_support::BACKING_BYTES
             );
             fs::remove_file(replacement).unwrap();
             lab.finish().unwrap();
@@ -409,19 +449,5 @@ mod tests {
         assert!(validate_runtime_directory(owned.path(), uid).is_err());
         fs::set_permissions(owned.path(), fs::Permissions::from_mode(0o700)).unwrap();
         owned.cleanup().unwrap();
-    }
-
-    #[test]
-    fn filesystem_commands_use_defaults_and_read_only_checks() {
-        let path = Path::new("/dev/ublkb17");
-        let mkfs = filesystem_command(Step::Mkfs, path);
-        assert_eq!(mkfs.get_program(), "mkfs.ext4");
-        assert_eq!(mkfs.get_args().collect::<Vec<_>>(), [path.as_os_str()]);
-        let check = filesystem_command(Step::Check(1), path);
-        assert_eq!(check.get_program(), "e2fsck");
-        assert_eq!(
-            check.get_args().collect::<Vec<_>>(),
-            ["-f", "-n", "/dev/ublkb17"]
-        );
     }
 }

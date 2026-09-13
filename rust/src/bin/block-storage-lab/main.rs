@@ -1,6 +1,7 @@
 mod config;
 mod evidence;
 mod ext4;
+mod filesystem;
 #[path = "../fs_support/mod.rs"]
 mod fs_support;
 pub mod process;
@@ -42,16 +43,41 @@ fn execute() -> io::Result<ExitCode> {
         .parent()
         .expect("rust crate must have a repository parent");
 
-    if mode == Mode::Ext4Preflight {
-        ext4::preflight(repo, config.per_test, config.suite)?;
+    let filesystem_mode = match mode {
+        Mode::Ext4 | Mode::Ext4Preflight | Mode::Ext4Populate | Mode::Ext4Verify => {
+            Some(fs_support::Filesystem::Ext4)
+        }
+        Mode::Xfs | Mode::XfsPreflight | Mode::XfsPopulate | Mode::XfsVerify => {
+            Some(fs_support::Filesystem::Xfs)
+        }
+        Mode::Test | Mode::EngineCrash | Mode::UblkFio => None,
+    };
+    if matches!(mode, Mode::Ext4Preflight | Mode::XfsPreflight) {
+        ext4::preflight(
+            repo,
+            filesystem_mode.expect("filesystem preflight has a profile"),
+            config.per_test,
+            config.suite,
+        )?;
         return Ok(ExitCode::SUCCESS);
     }
-    if mode == Mode::Ext4 {
-        ext4::run(repo, config.per_test, config.suite)?;
+    if matches!(mode, Mode::Ext4 | Mode::Xfs) {
+        ext4::run(
+            repo,
+            filesystem_mode.expect("filesystem lifecycle has a profile"),
+            config.per_test,
+            config.suite,
+        )?;
         return Ok(ExitCode::SUCCESS);
     }
-    if matches!(mode, Mode::Ext4Populate | Mode::Ext4Verify) {
-        ext4::workload::worker(mode == Mode::Ext4Populate)?;
+    if matches!(
+        mode,
+        Mode::Ext4Populate | Mode::Ext4Verify | Mode::XfsPopulate | Mode::XfsVerify
+    ) {
+        ext4::workload::worker(
+            filesystem_mode.expect("filesystem worker has a profile"),
+            matches!(mode, Mode::Ext4Populate | Mode::XfsPopulate),
+        )?;
         return Ok(ExitCode::SUCCESS);
     }
 

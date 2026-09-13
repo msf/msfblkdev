@@ -1,9 +1,11 @@
 mod commands;
 mod lifecycle;
+mod request_evidence;
 pub mod workload;
 
 use crate::evidence::Evidence;
-use crate::fs_support::{self, BACKING_BYTES, MOUNT_HELPER, VOLUME_BYTES};
+use crate::filesystem;
+use crate::fs_support::{self, Filesystem, MOUNT_HELPER};
 use crate::process::{ManagedChild, Outcome};
 use crate::ublk::{self, DevicePath, FileIdentity, OwnedTempDir};
 use std::fs::{self, File, OpenOptions};
@@ -18,6 +20,18 @@ use std::time::{Duration, Instant};
 const REPETITIONS: usize = 3;
 const POLL: Duration = Duration::from_millis(10);
 const MAX_CAPTURE_BYTES: u64 = 16 * 1024 * 1024;
+
+fn require_mounted(
+    table: &[fs_support::Mount],
+    device: (u32, u32),
+    target: &Path,
+    filesystem: Filesystem,
+) -> io::Result<u64> {
+    match filesystem {
+        Filesystem::Ext4 => fs_support::require_mounted(table, device, target),
+        Filesystem::Xfs => fs_support::require_mounted_for(table, device, target, filesystem),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Step {
@@ -60,12 +74,12 @@ struct Device {
 }
 
 impl Device {
-    fn read(path: DevicePath) -> io::Result<Self> {
+    fn read(path: DevicePath, filesystem: Filesystem) -> io::Result<Self> {
         let class_identity = ublk::validate_device_identity_for(
             Path::new("/dev"),
             Path::new("/sys"),
             &path,
-            VOLUME_BYTES,
+            filesystem.volume_bytes(),
         )?;
         let metadata = fs::symlink_metadata(path.as_path())?;
         if !metadata.file_type().is_block_device() {
@@ -90,8 +104,8 @@ impl Device {
         })
     }
 
-    fn validate(&self) -> io::Result<()> {
-        let actual = Self::read(self.path.clone())?;
+    fn validate(&self, filesystem: Filesystem) -> io::Result<()> {
+        let actual = Self::read(self.path.clone(), filesystem)?;
         if actual.class_identity != self.class_identity
             || actual.node_identity != self.node_identity
             || actual.number != self.number
@@ -103,6 +117,7 @@ impl Device {
 }
 
 struct Lab<'a> {
+    filesystem: Filesystem,
     owned: OwnedTempDir,
     mount_identity: Option<FileIdentity>,
     backing_identity: Option<FileIdentity>,
@@ -136,11 +151,22 @@ impl Drop for Lab<'_> {
     }
 }
 
-pub fn preflight(repo: &Path, per_command: Duration, suite: Duration) -> io::Result<()> {
+pub fn preflight(
+    repo: &Path,
+    filesystem: Filesystem,
+    per_command: Duration,
+    suite: Duration,
+) -> io::Result<()> {
     let started = Instant::now();
-    let mut evidence = Evidence::create_ext4(repo)?;
+    let mut evidence = Evidence::create_filesystem(repo, filesystem.name())?;
     println!("evidence: {}", evidence.path().display());
-    let mut lab = Lab::new(&mut evidence, per_command, started + suite, started)?;
+    let mut lab = Lab::new(
+        filesystem,
+        &mut evidence,
+        per_command,
+        started + suite,
+        started,
+    )?;
     if let Err(error) = lab.preflight(repo) {
         lab.evidence.line(&format!(
             "preflight: FAIL {error}; no device created or mounted"
@@ -153,15 +179,27 @@ pub fn preflight(repo: &Path, per_command: Duration, suite: Duration) -> io::Res
         .line("preflight: PASS; no device created or mounted")
 }
 
-pub fn run(repo: &Path, per_command: Duration, suite: Duration) -> io::Result<()> {
+pub fn run(
+    repo: &Path,
+    filesystem: Filesystem,
+    per_command: Duration,
+    suite: Duration,
+) -> io::Result<()> {
     let started = Instant::now();
     let suite_deadline = started + suite;
-    let mut evidence = Evidence::create_ext4(repo)?;
+    let mut evidence = Evidence::create_filesystem(repo, filesystem.name())?;
     println!("evidence: {}", evidence.path().display());
-    evidence.line(&format!("limits: repetitions={REPETITIONS} per_command_s={} suite_s={} volume_bytes={VOLUME_BYTES} backing_bytes={BACKING_BYTES}", per_command.as_secs(), suite.as_secs()))?;
+    evidence.line(&format!("filesystem: {}", filesystem.name()))?;
+    evidence.line(&format!("limits: repetitions={REPETITIONS} per_command_s={} suite_s={} volume_bytes={} backing_bytes={}", per_command.as_secs(), suite.as_secs(), filesystem.volume_bytes(), filesystem.backing_bytes()))?;
     for repetition in 1..=REPETITIONS {
         evidence.line(&format!("repetition: {repetition}/{REPETITIONS}"))?;
-        let mut lab = Lab::new(&mut evidence, per_command, suite_deadline, started)?;
+        let mut lab = Lab::new(
+            filesystem,
+            &mut evidence,
+            per_command,
+            suite_deadline,
+            started,
+        )?;
         let result = lab
             .preflight(repo)
             .and_then(|()| lab.lifecycle())

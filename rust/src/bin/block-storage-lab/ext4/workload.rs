@@ -1,4 +1,4 @@
-use crate::fs_support;
+use crate::fs_support::{self, Filesystem};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -126,7 +126,7 @@ pub(super) fn verify(root: &Path) -> io::Result<()> {
     verify_file(&root.join("b/renamed"), &expected_renamed())
 }
 
-pub fn worker(populate_files: bool) -> io::Result<()> {
+pub fn worker(filesystem: Filesystem, populate_files: bool) -> io::Result<()> {
     let root = std::env::current_dir()?;
     let mount = root
         .parent()
@@ -142,13 +142,14 @@ pub fn worker(populate_files: bool) -> io::Result<()> {
             .and_then(|name| name.to_str())
             .is_some_and(fs_support::owned_name)
     {
-        return Err(io::Error::other(
-            "internal worker requires the lab-owned ext4 work directory",
-        ));
+        return Err(io::Error::other(format!(
+            "internal worker requires the lab-owned {} work directory",
+            filesystem.name()
+        )));
     }
     let metadata = fs::metadata(&root)?;
     let device = (libc::major(metadata.dev()), libc::minor(metadata.dev()));
-    fs_support::require_mounted(&fs_support::mounts()?, device, mount)?;
+    fs_support::require_mounted_for(&fs_support::mounts()?, device, mount, filesystem)?;
     let sys_device = fs::canonicalize(format!("/sys/dev/block/{}:{}", device.0, device.1))?;
     if !sys_device
         .file_name()
