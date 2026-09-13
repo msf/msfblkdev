@@ -11,6 +11,8 @@ use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
 mod checkpoint;
 
+pub mod io_accounting;
+
 use checkpoint::{
     AlignedDescriptors, Checkpoint, CheckpointSlot, DEFAULT_CHECKPOINT_AFTER_BYTES,
     decode_checkpoint, encode_checkpoint_descriptor, load_checkpoint_body,
