@@ -52,6 +52,30 @@ fn releases_at_record_boundaries_and_replays_multi_record_windows() -> io::Resul
 }
 
 #[test]
+fn release_stats_report_batch_occupancy_and_footer_ratio() -> io::Result<()> {
+    let payloads = 340_u32;
+    let (backing, options, _) = buffered_volume(payloads)?;
+    let mut volume = open_with_options(&backing.0, options)?;
+    for lba in 0..payloads {
+        volume.write_block(lba, &pattern(lba))?;
+    }
+    volume.flush()?;
+    let stats = volume.release_stats();
+    // 340 payloads split into 338 + 2 across two records; footer overhead is tiny.
+    assert_eq!(stats.payloads, u64::from(payloads));
+    assert_eq!(stats.records, 2);
+    assert_eq!(stats.payload_histogram[6], 1, "one 338-payload record");
+    assert_eq!(stats.payload_histogram[1], 1, "one 2-payload record");
+    let ratio = (stats.footer_bytes + stats.payload_bytes) as f64 / stats.payload_bytes as f64;
+    assert!(
+        ratio < 1.01,
+        "batched footer ratio {ratio} should be near 1.0"
+    );
+    assert!(stats.full_releases >= 1);
+    volume.close()
+}
+
+#[test]
 fn duplicate_lba_in_one_window_coalesces_to_the_latest_value() -> io::Result<()> {
     let (backing, options, _) = buffered_volume(8)?;
     let mut volume = open_with_options(&backing.0, options)?;

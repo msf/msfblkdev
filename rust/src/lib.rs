@@ -115,6 +115,80 @@ struct RecoveredRecord {
     footer_block: u32,
 }
 
+/// Reason a write-back release was triggered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReleaseTrigger {
+    /// The buffer reached capacity while accepting a write.
+    Full,
+    /// An explicit flush, FUA, close, or checkpoint drained the buffer.
+    Flush,
+}
+
+/// Opt-in, in-memory batching counters. The payloads-per-record distribution and the
+/// footer/payload byte ratio are the primary evidence that write-back batching works.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReleaseStats {
+    /// Records emitted, one footer each.
+    pub records: u64,
+    /// Payloads written across all records.
+    pub payloads: u64,
+    /// Footer bytes written (one 4 KiB footer per record).
+    pub footer_bytes: u64,
+    /// Payload bytes written.
+    pub payload_bytes: u64,
+    /// Releases triggered by a full buffer.
+    pub full_releases: u64,
+    /// Releases triggered by flush, FUA, close, or checkpoint.
+    pub flush_releases: u64,
+    /// Payloads-per-record histogram: [1], [2], [3-8], [9-32], [33-128], [129-337], [338].
+    pub payload_histogram: [u64; 7],
+}
+
+impl ReleaseStats {
+    fn record(&mut self, payloads: usize) {
+        self.records += 1;
+        self.payloads += payloads as u64;
+        self.footer_bytes += BLOCK_SIZE as u64;
+        self.payload_bytes += payloads as u64 * BLOCK_SIZE as u64;
+        let bucket = match payloads {
+            0 | 1 => 0,
+            2 => 1,
+            3..=8 => 2,
+            9..=32 => 3,
+            33..=128 => 4,
+            129..=337 => 5,
+            _ => 6,
+        };
+        self.payload_histogram[bucket] += 1;
+    }
+
+    /// A single-line summary suitable for emission outside timed work.
+    #[must_use]
+    pub fn summary(&self) -> String {
+        let ratio = if self.payload_bytes == 0 {
+            0.0
+        } else {
+            (self.footer_bytes + self.payload_bytes) as f64 / self.payload_bytes as f64
+        };
+        format!(
+            "release-stats records={} payloads={} payloads_per_record={:.3} backing_over_payload={:.3} footer_bytes={} payload_bytes={} full_releases={} flush_releases={} histogram={:?}",
+            self.records,
+            self.payloads,
+            if self.records == 0 {
+                0.0
+            } else {
+                self.payloads as f64 / self.records as f64
+            },
+            ratio,
+            self.footer_bytes,
+            self.payload_bytes,
+            self.full_releases,
+            self.flush_releases,
+            self.payload_histogram,
+        )
+    }
+}
+
 /// Configuration for opening a volume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VolumeOpenOptions {
@@ -217,6 +291,7 @@ pub struct Volume {
     read_scratch: AlignedBlock,
     release_checksums: Vec<u64>,
     release_iovecs: ReleaseIovecs,
+    release_stats: ReleaseStats,
     failed: bool,
 }
 
@@ -226,12 +301,18 @@ impl Volume {
         self.volume_blocks
     }
 
+    /// Returns a snapshot of the opt-in batching counters.
+    #[must_use]
+    pub fn release_stats(&self) -> ReleaseStats {
+        self.release_stats
+    }
+
     /// Releases the write-back buffer and makes all completed writes durable.
     pub fn flush(&mut self) -> io::Result<()> {
         if self.failed {
             return Err(io::Error::other("volume failed"));
         }
-        self.release_records()?;
+        self.release_records(ReleaseTrigger::Flush)?;
         self.fsync_log()
     }
 
@@ -253,7 +334,7 @@ impl Volume {
         if self.failed {
             return Err(io::Error::other("volume failed"));
         }
-        self.release_records()?;
+        self.release_records(ReleaseTrigger::Flush)?;
         if self.last_lsn == self.checkpoint_lsn {
             self.fsync_log()
         } else {
@@ -332,15 +413,21 @@ impl Volume {
         debug_assert!(is_new, "a miss in get must store a new slot");
         self.reservation_footer_block = next_reservation as u32;
         if self.write_buffer.len() == self.write_buffer.capacity() {
-            self.release_records()?;
+            self.release_records(ReleaseTrigger::Full)?;
         }
         Ok(())
     }
 
     /// Writes every buffered payload as one or more records (each `writev`), advancing the log and
     /// mapping. It does not fsync: durability is the caller's flush or a checkpoint.
-    fn release_records(&mut self) -> io::Result<()> {
+    fn release_records(&mut self, trigger: ReleaseTrigger) -> io::Result<()> {
         let total = self.write_buffer.len();
+        if total > 0 {
+            match trigger {
+                ReleaseTrigger::Full => self.release_stats.full_releases += 1,
+                ReleaseTrigger::Flush => self.release_stats.flush_releases += 1,
+            }
+        }
         let mut start = 0;
         while start < total {
             let count = (total - start).min(MAXIMUM_PAYLOAD_BLOCKS);
@@ -437,6 +524,7 @@ impl Volume {
         self.last_lsn = lsn;
         self.last_footer_block = footer_block;
         self.log_bytes_since_checkpoint += record_bytes as u64;
+        self.release_stats.record(count);
         #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(MAPPING_PUBLISHED_FAILPOINT)?;
         Ok(())
@@ -931,6 +1019,7 @@ fn open_internal(
         read_scratch: AlignedBlock([0; BLOCK_SIZE]),
         release_checksums,
         release_iovecs: ReleaseIovecs(release_iovecs),
+        release_stats: ReleaseStats::default(),
         failed: false,
     })
 }

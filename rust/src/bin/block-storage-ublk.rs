@@ -781,6 +781,7 @@ fn run_queue(
             "request evidence failed: {error}; queue error: {queue_error:?}"
         )));
     }
+    eprintln!("{}", volume.release_stats().summary());
     close_after_queue(&state, volume, queue_error.map_or(Ok(()), Err));
 }
 
