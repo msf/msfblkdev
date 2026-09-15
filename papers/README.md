@@ -2,111 +2,136 @@
 
 Reviewed: 2026-09-12. Status: research feedback, not an accepted design or implementation plan.
 
-The append-log plus logical-block-address (LBA) map has direct precedents. The current design's limits are dense metadata, full-map checkpoints, one-block records, and no space reuse. Those limits can make it substantially more expensive than an update-in-place block path. They do not establish that log structuring is unsuitable for state volumes.
+Other storage systems already use this engine's basic approach: append each write to a log, then update a map to its location. The current design keeps an entry for every logical block, rewrites the whole map at each checkpoint, and writes one data block per record. It cannot reuse space from old writes. These choices can cost much more than overwriting data at its existing location. They do not prove that a log is unsuitable for volumes that store changing data, such as databases.
 
-This review uses the documented [V0 engine (on-disk format version 1)](../ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md) and [proposed format version 2 (V2)](../ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md). Calculations below follow those formats; they are not benchmark results or a code audit. The learning goal is to derive costs, identify assumptions, and test alternatives before expanding the engine. The existing correctness gates remain prerequisites, not evidence of performance at scale.
+This review uses the documented [V0 engine (on-disk format version 1)](../ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md) and [proposed format version 2 (V2)](../ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md). The calculations follow those formats. They are not benchmark results or a code audit. The goal is to understand costs and test alternatives before adding more features. The existing correctness tests remain required, but they do not establish performance at larger sizes.
+
+## Terms used in this review
+
+| Term | Meaning here |
+|---|---|
+| Logical block address (LBA) | The block number that the filesystem reads or writes. The engine maps it to a physical location in the backing file or device. |
+| Payload | The data supplied by a write, excluding the engine's metadata. Each payload block here is 4 KiB. |
+| Record and footer | A record contains payload blocks and metadata that describes them. V0 puts that metadata in a footer after the payload. |
+| Checkpoint and replay | A checkpoint saves the mapping and recovery position. At startup, replay applies later log records to that saved state. The checkpoint *body* contains the saved map; its *descriptor* identifies and checks the checkpoint. |
+| Dense and sparse maps | A dense map has an entry for every addressable block. A sparse map stores entries only for blocks that have a mapping. Neither alone puts a fixed limit on RAM use. |
+| Extent | A run of consecutive logical blocks stored at consecutive physical locations. One map entry can describe the whole run. |
+| Segment and cleaning | A segment is a region of the log. Cleaning copies its still-needed data elsewhere so the engine can reuse the region. This is also called reclamation or garbage collection. |
+| Live data | Data that the current map still references. After an overwrite, the old copy is no longer current. Recovery rules can still require keeping that copy temporarily. |
+| Write amplification | Bytes written by a layer divided by payload bytes received by that layer. A ratio of 2× means it writes two bytes for every payload byte. Always name which layer and metadata the count includes. |
 
 ## Directly relevant reads
 
-Read the first four in order. Use the remaining papers for the named design question. These papers supply mechanisms or comparisons directly applicable to this engine; inclusion is not a recommendation to reproduce each system.
+Read the first four in order. Use the remaining papers for the named design question. Each paper supplies a relevant technique or comparison, not a recommendation to reproduce the whole system.
 
 | Paper | Version and source | What to read and borrow |
 |---|---|---|
-| [Bitcask: A Log-Structured Hash Table for Fast Key/Value Data](2010-bitcask.pdf) | Basho whitepaper, 2010; not a conference paper. [Source PDF](https://riak.com/assets/bitcask-intro.pdf). | All six pages. The closest small engine: append, update an in-memory key-to-location map, seal files, merge current values, and load hint files at startup. Its short recovery description is not a complete durability specification. |
-| [Logical Disk: A Simple New Approach to Improving File System Performance](1993-logical-disk-technical-report.pdf) | April 1993 technical report. Related conference publication: *The Logical Disk: A New Approach to Improving File Systems*, [SOSP ’93](https://doi.org/10.1145/168619.168621). | Section 2. An LBA map below the filesystem, segment summaries, and live-byte accounting for cleaning. Its filesystem-supplied block lists are not available through ordinary ublk requests. |
-| [The Design and Implementation of a Log-Structured File System](1992-tocs-log-structured-file-system.pdf) | Expanded TOCS ’92 version of the [SOSP ’91 paper](https://doi.org/10.1145/121132.121137). [Source PDF](https://web.stanford.edu/~ouster/cgi-bin/papers/lfs.pdf). | Sections 3.3–3.5 and 4. Identify live records, select victims, group similar lifetimes, and recover checkpoints. Borrow the cleaning model, not HDD throughput predictions. |
-| [Beating the I/O Bottleneck: A Case for Log-Structured Virtual Disks](2022-eurosys-log-structured-virtual-disks.pdf) | EuroSys ’22. [Source PDF](https://www.ugurkaynar.com/publications/lsvd-eurosys22.pdf), [publication](https://doi.org/10.1145/3492321.3524271). | Sections 3.1–3.5 and 3.7. Extent maps, self-describing records, checkpoint replay, and live-data collection. Its remote objects and local cache have different failure assumptions from this engine. |
-| [DFTL: A Flash Translation Layer Employing Demand-based Selective Caching of Page-level Address Mappings](2009-asplos-dftl.pdf) | ASPLOS ’09. [Publication](https://doi.org/10.1145/1508244.1508271). | Section 3. Persist the complete map and cache active mappings under a RAM budget. Mapping misses add I/O. NAND-specific erase and wear-leveling machinery is outside this project. |
-| [F2FS: A New File System for Flash Storage](2015-fast-f2fs.pdf) | FAST ’15. [Source PDF](https://www.usenix.org/system/files/conference/fast15/fast15-paper-lee.pdf), [publication](https://www.usenix.org/conference/fast15/technical-sessions/presentation/lee). | Sections 2.4–2.7. Hot/cold placement, live-block tracking, and the distinction between a cleaned segment and one safe to reuse after checkpointing. Do not copy filesystem-specific classification into an opaque block layer. |
-| [WiscKey: Separating Keys from Values in SSD-conscious Storage](2016-fast-wisckey.pdf) | FAST ’16. [Source PDF](https://www.usenix.org/system/files/conference/fast16/fast16-papers-lu.pdf), [publication](https://www.usenix.org/conference/fast16/technical-sessions/presentation/lu). | Section 3.3.2. Persist relocated values, persist new pointers and the reclaim boundary, then release old space. This ordering applies directly; the LSM-tree index is not required for our exact LBA lookups. |
-| [File System Logging Versus Clustering: A Performance Comparison](1995-usenix-file-system-logging-versus-clustering.pdf) | USENIX ’95. Saved PDF converted from the proceedings PostScript. [Proceedings source](https://www.usenix.org/legacy/publications/library/proceedings/neworl/seltzer.html). | Sections 4–5. Compare database overwrites with cleaning enabled, and compare against aged rather than only empty filesystems. The HDD experiment lost its LFS advantage once cleaning ran; it is not a modern NVMe result. |
-| [Don’t Stack Your Log on My Log](2014-inflow-dont-stack-your-log-on-my-log.pdf) | INFLOW ’14 workshop, not the OSDI main track. [Source PDF](https://www.usenix.org/system/files/conference/inflow14/inflow14-yang.pdf). | Sections 3–4. Multiple mapping/log layers add metadata, reserve space, and uncoordinated cleaning. Measure amplification at each boundary rather than assuming sequential appends benefit the complete stack. |
-| [Efficiently Reclaiming Space in a Log Structured Store](2020-preprint-log-structured-space-reclamation.pdf) | Saved April 2020 arXiv v1 preprint; related publication at [ICDE ’21](https://doi.org/10.1109/ICDE51399.2021.00074). [Preprint source](https://arxiv.org/abs/2005.00044). | Sections 2–3 and 6. Derive reclamation cost, compare uniform and skewed updates, then evaluate cleaners with traces. Its results are simulations, not measured latency on a live device. |
+| [Bitcask: A Log-Structured Hash Table for Fast Key/Value Data](2010-bitcask.pdf) | Basho whitepaper, 2010; not a conference paper. [Source PDF](https://riak.com/assets/bitcask-intro.pdf). | All six pages. The closest small engine: append writes, update a key-to-location map in RAM, stop writing to completed files, and merge their current values. Hint files summarize records to speed up startup. Its short recovery description does not fully specify which writes survive a crash. |
+| [Logical Disk: A Simple New Approach to Improving File System Performance](1993-logical-disk-technical-report.pdf) | April 1993 technical report. Related conference publication: *The Logical Disk: A New Approach to Improving File Systems*, [SOSP ’93](https://doi.org/10.1145/168619.168621). | Section 2. Put an LBA map below the filesystem, summarize segment contents, and count live bytes to guide cleaning. Its filesystem supplies block lists that ordinary ublk requests do not provide. |
+| [The Design and Implementation of a Log-Structured File System](1992-tocs-log-structured-file-system.pdf) | Expanded TOCS ’92 version of the [SOSP ’91 paper](https://doi.org/10.1145/121132.121137). [Source PDF](https://web.stanford.edu/~ouster/cgi-bin/papers/lfs.pdf). | Sections 3.3–3.5 and 4. Identify live records, choose segments to clean, group data with similar lifetimes, and recover from checkpoints. Borrow the cleaning model, not throughput predictions for rotating hard disks. |
+| [Beating the I/O Bottleneck: A Case for Log-Structured Virtual Disks](2022-eurosys-log-structured-virtual-disks.pdf) | EuroSys ’22. [Source PDF](https://www.ugurkaynar.com/publications/lsvd-eurosys22.pdf), [publication](https://doi.org/10.1145/3492321.3524271). | Sections 3.1–3.5 and 3.7. Extent maps, records that describe their own contents, replay after a checkpoint, and copying live data to free space. Its remote objects and local cache have different failure assumptions from this engine. |
+| [DFTL: A Flash Translation Layer Employing Demand-based Selective Caching of Page-level Address Mappings](2009-asplos-dftl.pdf) | ASPLOS ’09. [Publication](https://doi.org/10.1145/1508244.1508271). | Section 3. Keep the complete map on storage and cache frequently used mappings within a RAM budget. A lookup absent from the cache needs another read. Flash erasure and distributing writes to limit wear are outside this project. |
+| [F2FS: A New File System for Flash Storage](2015-fast-f2fs.pdf) | FAST ’15. [Source PDF](https://www.usenix.org/system/files/conference/fast15/fast15-paper-lee.pdf), [publication](https://www.usenix.org/conference/fast15/technical-sessions/presentation/lee). | Sections 2.4–2.7. Separate frequently overwritten data (hot) from rarely overwritten data (cold), and track live blocks. Distinguish a cleaned segment from one safe to reuse after checkpointing. Our block layer cannot directly use classifications that require knowledge of files. |
+| [WiscKey: Separating Keys from Values in SSD-conscious Storage](2016-fast-wisckey.pdf) | FAST ’16. [Source PDF](https://www.usenix.org/system/files/conference/fast16/fast16-papers-lu.pdf), [publication](https://www.usenix.org/conference/fast16/technical-sessions/presentation/lu). | Section 3.3.2. Persist copied values, persist their new locations and the marker for space safe to reclaim, then release old space. This ordering applies directly. Its log-structured merge-tree (LSM-tree) index, which stores sorted data in successively merged tables, is not required for our exact LBA lookups. |
+| [File System Logging Versus Clustering: A Performance Comparison](1995-usenix-file-system-logging-versus-clustering.pdf) | USENIX ’95. Saved PDF converted from the proceedings PostScript. [Proceedings source](https://www.usenix.org/legacy/publications/library/proceedings/neworl/seltzer.html). | Sections 4–5. Compare database overwrites with cleaning enabled. Test filesystems after repeated use, not only when empty. The hard-disk experiment lost its logging advantage once cleaning ran; it is not a result for modern NVMe solid-state drives (SSDs). |
+| [Don’t Stack Your Log on My Log](2014-inflow-dont-stack-your-log-on-my-log.pdf) | INFLOW ’14 workshop, not the OSDI main track. [Source PDF](https://www.usenix.org/system/files/conference/inflow14/inflow14-yang.pdf). | Sections 3–4. Multiple mapping and log layers each add metadata, reserve space, and clean independently. Count extra writes at each layer rather than assuming sequential appends help the complete system. |
+| [Efficiently Reclaiming Space in a Log Structured Store](2020-preprint-log-structured-space-reclamation.pdf) | Saved April 2020 arXiv v1 preprint; related publication at [ICDE ’21](https://doi.org/10.1109/ICDE51399.2021.00074). [Preprint source](https://arxiv.org/abs/2005.00044). | Sections 2–3 and 6. Calculate the cost of freeing space. Compare evenly distributed updates with updates concentrated in a few regions. Evaluate cleaning policies using recorded write sequences (traces). Its results are simulations, not measured request times on a live device. |
 
-The PDFs retain their original copyright and license terms. DumpKV was removed from this collection: learned LSM value-log policies are a second-order optimization here. Specialized SSD remapping protocols, parallel GC frameworks, and semantic inference systems are also outside this reading path.
+The PDFs retain their original copyright and license terms. DumpKV was removed from this collection: machine-learned policies for cleaning a value log are a later optimization. Specialized SSD remapping protocols, parallel cleaning, and systems that infer what block contents mean are also outside this reading path.
 
-The pre-existing [Protocol-Aware Recovery for Consensus-Based Storage](Protocol-Aware-Recovery-for-Consensus-Based-Storage.pdf) remains available for the repository's replication/fault-model discussion. It is not part of this local mapping-and-cleaning reading path.
+The pre-existing [Protocol-Aware Recovery for Consensus-Based Storage](Protocol-Aware-Recovery-for-Consensus-Based-Storage.pdf) remains available for the repository's discussion of replication and failures. It is not part of this local mapping and cleaning reading path.
 
 ## Design critique and possible improvements
 
-### RAM: sparse is not the same as bounded
+### How can we put a fixed limit on mapping RAM?
 
-Let `A` be addressable blocks, `P` currently mapped blocks, and `W` the mapping working set. All blocks below are 4 KiB.
+Let `A` be the number of addressable blocks and `P` the number of currently mapped blocks. Each block is 4 KiB. A mapping working set is the set of map entries a workload uses repeatedly.
 
-| Design | Space follows | Failure boundary |
+| Design | What determines its size? | Main limit |
 |---|---|---|
-| V0 dense arrays | `12 × A` bytes in RAM | Advertising mostly empty capacity still consumes memory. |
-| V2 packed sparse checkpoint body | `16 × P` bytes per body, rounded to 4 KiB | Not the RAM size of the proposed sparse map or the two-slot arena reservation. Hash/tree overhead and checkpoint sorting need measurement. |
-| Extent mapping | Number of contiguous logical-to-physical runs | Random overwrites split runs. An initially compact map can approach per-block mapping. |
-| Persistent mapping with a bounded cache | Explicit cache budget, plus resident directory metadata | Cache misses add mapping reads; dirty eviction adds metadata writes and recovery obligations. |
+| V0 dense arrays | `12 × A` bytes in RAM. | Advertising mostly empty capacity still consumes memory. |
+| V2 packed sparse checkpoint body | `16 × P` bytes per body, rounded to 4 KiB. | This is a disk size, not the RAM cost or the space reserved for two checkpoints. Hash maps, trees, and sorting can need additional RAM. |
+| Extent map | Number of consecutive logical-to-physical runs. | Random overwrites split runs. The map can end up needing nearly one entry per block. |
+| Map stored on disk with a fixed-size cache | Cache budget, plus any directory kept in RAM to locate mapping pages. | Missing cache entries require reads. Evicting a changed page requires safe persistence and recovery rules. |
 
-V0 needs 3 GiB per TiB of logical capacity in RAM and in each checkpoint body. V2 needs 4 GiB in one packed checkpoint body per TiB of mapped data. Its arena reserves two slots sized by `checkpoint_entry_capacity`, which can exceed the mapped population. At capacity for 1 TiB of mapped data, the two bodies reserve 8 GiB, plus arena metadata.
+V0 needs 3 GiB per TiB of logical capacity in RAM and in each checkpoint body. V2 needs 4 GiB in one packed checkpoint body per TiB of mapped data. Its checkpoint arena (the reserved storage region) holds two slots sized by `checkpoint_entry_capacity`. This capacity can exceed the current number of mapped blocks. At capacity for 1 TiB of mapped data, the two bodies reserve 8 GiB, plus arena metadata.
 
-The packed checkpoint-body sizes cross at 75% occupancy; the in-memory sparse representation may become larger earlier. Without discard, mapped population does not decrease when a filesystem or database frees data internally.
+The two formats have equal checkpoint-body sizes when 75% of logical blocks are mapped. Above that fraction, V2's body is larger. Its sparse RAM map may become larger than V0's arrays at a lower fraction.
 
-The checksum is 8 of V0's 12 bytes per block. Compressing physical addresses into extents does not compress those checksums automatically. Any RAM reduction must account for both address and validation metadata; removing integrity checking is not an equivalent optimization.
+A discard request tells the device that a logical range is no longer needed. Without discard, the mapped-block count does not decrease when a filesystem or database frees data internally.
 
-**Recommendation:** retain the dense representation as a simple comparison point. Measure a sparse representation before accepting it as the scalable replacement. If partial population is clustered, sparsely allocated fixed-size mapping pages are another candidate. If populated metadata still exceeds the budget, evaluate a persistent paged map with bounded caching, following DFTL. Use extent maps only if traces retain useful contiguous runs after overwrites.
+The checksum uses 8 of V0's 12 bytes per block. Representing addresses as extents does not automatically compress the checksums. A smaller map must still account for where validation metadata lives. Moving checksums out of RAM is different from removing integrity checks.
 
-Budget per-volume fixed overhead separately. A thousand mostly idle volumes can exhaust memory through queues, buffers, and runtime state even when their maps are small. The papers do not prove that thousands of ublk devices fit the host budget.
+**Recommendation:** keep the dense map as a simple baseline. Measure a sparse map before choosing it as the replacement. If writes use only a few logical regions, allocating fixed-size mapping pages only for those regions is another option. If the populated map still exceeds the RAM budget, evaluate storing it on disk with a fixed-size page cache, as DFTL does. Use extents only if write traces show that useful consecutive runs remain after overwrites.
 
-### Checkpoints and record framing: costs exist before GC
+Count fixed overhead per volume separately. A thousand mostly idle volumes can exhaust RAM through queues, buffers, and runtime state even when their maps are small. These papers do not establish that thousands of ublk devices fit within the host's RAM budget.
 
-V0 writes one 4 KiB footer per 4 KiB payload: 2× immediate log-write amplification. The format permits 338 payload blocks per footer, reducing this framing ratio to `339 / 338`, approximately 1.003×. Achieving that ratio requires real batching opportunities; frequent flushes can keep batches small.
+### Why are writes expensive even before cleaning?
 
-V0.6 also writes the complete mapping body after at most 64 MiB of physical log writes by default. With one-block records, that represents 32 MiB of block payloads between checkpoints.
+V0 writes one 4 KiB footer for each 4 KiB payload: 2× log-write amplification before checkpoints or cleaning. The format permits up to 338 payload blocks per footer. A full batch would reduce that ratio to `339 / 338`, approximately 1.003×. This requires enough writes to combine. Frequent flush requests can force smaller batches because earlier writes must become durable without waiting for later writes.
 
-| Per-volume logical capacity | Full checkpoint body | Log plus checkpoint-body bytes / payload bytes |
+By default, V0.6 also writes the complete map after at most 64 MiB of physical log writes. With one-block records, that is only 32 MiB of payload between checkpoints.
+
+| Logical capacity of one volume | Full checkpoint body | Log plus checkpoint-body bytes / payload bytes |
 |---:|---:|---:|
 | 1 GiB | 3 MiB | 2.094× |
 | 100 GiB | 300 MiB | 11.375× |
 | 1 TiB | 3 GiB | 98× |
 
-These are amortized format calculations at the documented interval. They exclude descriptor writes, extra checkpoints on close, underlying filesystem traffic, and SSD-internal amplification. They are not latency measurements. Many small independent volumes do not have the same checkpoint ratio as one large volume with the same aggregate capacity.
+These ratios are calculated over a full checkpoint interval. They exclude descriptor writes, extra checkpoints on close, writes by the underlying filesystem, and writes inside the SSD. They are not latency measurements. Many small volumes do not have the same checkpoint ratio as one large volume with the same total capacity.
 
-For payload bytes `D`, log bytes `L`, and one checkpoint body `M`, the interval cost is `(L + M) / D`. A larger batch reduces `L / D`, but does not eliminate `M`. Sparse snapshots remove empty entries, not the cost of rewriting all populated entries.
+For payload bytes `D`, log bytes `L`, and one checkpoint body `M`, the ratio is `(L + M) / D`. A larger batch reduces `L / D`, but does not remove `M`. A sparse checkpoint omits empty entries but still rewrites every populated entry.
 
-**Recommendation:** establish a checkpoint-write budget and a recovery-time target together. Increasing the interval trades write cost for replay; it is not a complete fix. If full snapshots cannot satisfy both targets, evaluate copy-on-write mapping pages or bounded checkpoint deltas with periodic full snapshots. Updating only dirty pages in the existing alternating bodies is not automatically safe: each body must still represent one complete checkpoint generation.
+**Recommendation:** set a checkpoint-write budget and a recovery-time target together. A longer interval reduces checkpoint writes but increases the log that recovery must replay. If full-map checkpoints cannot meet both targets, evaluate these alternatives:
 
-ADR-04's relocatable arenas solve growth and repeated append-space consumption by checkpoints. They do not solve checkpoint write volume, sorting cost, or pauses. Resolve those costs before treating arena relocation as the final metadata architecture. Recovery time also includes loading and validating the checkpoint, not just replaying its tail.
+- Copy-on-write mapping pages: write changed pages to new locations, then safely publish the map that references them.
+- Checkpoint deltas: save changes since an earlier checkpoint, with a limit on how many changes recovery must apply. Periodically write a full checkpoint.
 
-For batching, preserve ordering and flush semantics. Format version 1 forbids duplicate LBAs within one record, so collecting arbitrary queued writes requires an explicit rule for duplicates rather than blindly packing them together.
+Writing only changed pages into the existing alternating checkpoint bodies is not automatically safe. Each body must describe one complete checkpoint version. For example, the inactive body may lack changes saved only in the active body.
 
-### Reclamation: the current engine has no sustained-overwrite regime
+ADR-04 allows the engine to relocate checkpoint arenas as they grow and reuse their slots for later checkpoints. This avoids consuming new log space for every checkpoint. It does not reduce the bytes written per checkpoint, the cost of sorting entries, or write pauses. Resolve those costs before choosing this as the final mapping design. Recovery also has to load and validate the checkpoint, not just replay later records.
 
-Even repeatedly overwriting one LBA eventually exhausts V0's finite log. Unlike an update-in-place data path, each overwrite consumes new physical space. Sequential appends alone do not establish a long-term performance advantage.
+Batching must preserve write order and flush guarantees. Format version 1 forbids duplicate LBAs within one record. Combining queued writes therefore needs an explicit rule for repeated writes to the same LBA.
 
-ADR-04 proposes pausing writes and copying all mapped blocks to a replacement image. That is a simple offline compaction baseline, not an online cleaner. It requires spare capacity for the replacement and a write pause proportional to the live data copied. It is appropriate only if the volume lifecycle permits those costs; it does not meet uninterrupted database service by itself.
+### Why do repeated overwrites eventually fill the device?
 
-**Recommendation:** keep replacement-image copying as a correctness reference or offline operation. For sustained writes, first compare segmented cleaning policies in a small trace model. A minimal candidate uses sealed segments, per-segment live-byte counts, and the authoritative LBA map to identify current records. Start with FIFO and greedy selection; add hot/cold placement only if it reduces measured copying enough to justify another write stream.
+Every overwrite appends a new record. V0 never reuses the old record's space, even when no current mapping needs it. Repeatedly overwriting just one LBA therefore fills the finite log. Sequential writes to new locations do not, by themselves, establish a long-term performance advantage.
 
-An online implementation would need more than a victim-selection policy:
+ADR-04 proposes pausing writes and copying all mapped blocks to a replacement image. This is offline compaction: it removes obsolete copies while the volume is not accepting writes. It is a simple baseline, but it needs space for the replacement image. The pause grows with the amount of live data copied. It does not by itself support a database that must keep accepting writes.
 
-- Treat a record as current only if the authoritative map still points to that exact record. A concurrent overwrite must not be replaced by a cleaner's stale copy.
-- Persist relocated payloads and recoverable mapping state before reuse. A source remains protected while a checkpoint that recovery may select still references it; publishing only the newest root is insufficient under V2's fallback contract.
-- Reserve space for relocation and metadata before admitting foreground writes that could exhaust it. Specify backpressure and exhaustion behavior.
-- Give reused segments an identity that rejects stale records. Verify source checksums and recompute location-bound checksums when payloads move.
+**Recommendation:** keep replacement-image copying as an offline operation or a reference for correctness tests. To support continuous writes, first compare cleaning policies in a small simulation of write sequences. Divide the log into segments and stop appending to each segment when it is full (seal it). Track each segment's live-byte count. Use the current LBA map to determine which records are still needed.
 
-For a simplified steady-state cleaner, let `u` be the live fraction of the victim segments. Excluding headers and metadata:
+Start with two policies: clean the oldest sealed segment first (first in, first out, or FIFO), and clean the segment with the fewest live bytes first (greedy selection). Separating frequently overwritten data from rarely overwritten data requires separate write streams. Add that only if measurements show that it avoids enough copying to justify the complexity.
+
+Cleaning while application writes continue needs more than a rule for choosing segments:
+
+- Copy only records that the current LBA map still references. Before changing the map, confirm it still points to the source record. Otherwise, a cleaner could replace a concurrent write with an older value.
+- Persist the copied data and the mapping changes needed to recover it before reusing source space. Keep that space while any checkpoint that recovery may select still needs it. Updating only the newest checkpoint pointer is insufficient when V2 permits falling back to an older checkpoint.
+- Reserve space for copying live data and writing metadata. Delay or reject application writes before they consume this reserve. Otherwise, the engine can run out of the space it needs to free more space.
+- Assign a new identity to each reused segment so recovery can reject records left from its previous use. Verify source checksums before copying. Recompute checksums that include the physical location when the data moves.
+
+The copying cost rises sharply when selected segments contain mostly live data. Let `u` be the fraction of bytes still live in the segments selected for cleaning. For a simplified model where cleaning and writes continue at stable rates, excluding headers and metadata:
 
 ```text
-relocation writes / new payload writes = u / (1 - u)
-total data writes / new payload writes = 1 / (1 - u)
+bytes copied / new payload bytes = u / (1 - u)
+total data bytes written / new payload bytes = 1 / (1 - u)
 ```
 
-Victims that are 50%, 80%, and 95% live imply 2×, 5×, and 20× write-only amplification. This is not overall device utilization. Original LFS's `2 / (1 - u)` cost also counts reading whole victim segments; do not compare that number directly with write-only amplification.
+For example, cleaning a 100 MiB segment that is 80% live copies 80 MiB and frees a net 20 MiB. Accepting 20 MiB of new payload then writes 100 MiB in total: 5× write amplification.
 
-Discard is a separate state transition, not an optimization inferred from zero bytes. Filesystem deletion and database record deletion need not produce discard. A future discard implementation must define ordering, persistence, reads after discard, and prevention of old-data resurrection during replay or cleaning.
+Segments that are 50%, 80%, and 95% live imply 2×, 5×, and 20× amplification, respectively. These fractions describe the selected segments, not how full the whole device is. The original log-structured file system (LFS) paper's `2 / (1 - u)` cost also counts reading whole segments. It is not directly comparable to a count of writes alone.
 
-### Comparison: justify the extra mapping layer
+Discard must be an explicit operation, not something inferred from a block of zeros. Filesystem deletion and database record deletion do not necessarily issue discard requests. A future implementation must define ordering, persistence, and what reads return after discard. Replay and cleaning must not restore discarded data.
 
-FFS and ext4 normally overwrite already allocated file data without allocating another filesystem data block. Their metadata is persistent and cached, rather than requiring this engine's additional resident per-LBA map. They have different costs, including metadata updates, fragmentation, and, for ext4, journaling. The underlying SSD may still relocate every write internally.
+### What benefit justifies the extra mapping layer?
 
-The USENIX ’95 comparison found LFS about 50% faster than FFS without cleaning in its transaction workload. At 48% filesystem utilization, cleaning reduced LFS throughput by 34% relative to that no-cleaning result, eliminating the advantage. That is evidence against fresh-log-only benchmarks, not proof that modern log-structured systems lose. F2FS and LSVD provide counterexamples under their evaluated conditions.
+The Fast File System (FFS) and ext4 normally overwrite already allocated file data without allocating another filesystem data block. They store their metadata on disk and cache it in RAM. They do not require this engine's additional RAM entry for each LBA. They have other costs: metadata updates, fragmentation, and, for ext4, journaling (logging changes for recovery). The SSD underneath them may still relocate every write internally.
 
-**Recommendation:** require a concrete benefit from this layer: thin-volume isolation, useful placement, integrity checking, or a measured I/O improvement. Thin provisioning does not itself require log structuring. [Linux dm-thin](https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/thin-provisioning.html) is a relevant existing-functionality baseline, not another engine to implement.
+The USENIX ’95 comparison found LFS about 50% faster than FFS without cleaning in its transaction workload. At 48% filesystem utilization, cleaning reduced LFS throughput by 34% relative to that no-cleaning result, eliminating the advantage. This is evidence against benchmarking only an empty log, not proof that modern log-structured systems lose. F2FS and Log-Structured Virtual Disks (LSVD) provide counterexamples under the conditions they evaluated.
 
-Do not choose a shared cross-volume log solely from the volume count. It can improve batching and allocation but couples recovery, cleaning, and failure scope. Per-volume logs simplify whole-volume deletion and isolation. Measure those trade-offs before introducing a shared pool.
+**Recommendation:** identify a concrete benefit from this layer, such as isolating thin-provisioned volumes, controlling data placement, checking integrity, or reducing measured I/O. Thin provisioning means allocating physical storage as logical blocks are used. It does not require a log. [Linux dm-thin](https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/thin-provisioning.html) provides a useful comparison with an existing implementation, not another engine to reproduce.
+
+Do not choose a shared log solely because there are many volumes. A shared log can combine writes into larger batches and share free space. It also links the volumes' recovery, cleaning, and exposure to failures. Separate logs simplify isolation and deleting a whole volume. Measure these trade-offs before introducing a shared storage pool.
 
 ## Small experiments that can change the design
 
@@ -114,11 +139,173 @@ These are proposed investigations, not completed tests or new acceptance require
 
 | Question | Small experiment | Evidence to collect |
 |---|---|---|
-| What actually drives mapping memory? | Fix logical capacity; vary mapped occupancy and locality. Compare sequential population followed by uniform overwrites with clustered and moving-hotset writes. | Allocated bytes and peak RSS, bytes per mapped block, extent count, lookup cost, checkpoint sort memory, checkpoint load time. Separately measure idle per-device overhead. |
-| Can checkpointing meet both budgets? | Count payload, footer, and checkpoint bytes independently. Vary logical size, batch size, and checkpoint interval on disposable files. | Amplification by category, pause duration, flush latency, checkpoint-load time, tail-replay time. Compare counts with the formula before interpreting throughput. |
-| When does cleaning become expensive? | Use a metadata-only trace model with fixed physical capacity. Compare FIFO and greedy victims under uniform, hotset, and moving-hotset overwrites at several occupancy levels. Run beyond initial fill until metrics stabilize. | Copied-live bytes, victim live fractions, free-space reserve, and amplification over time. A placement model does not establish real I/O latency or crash safety. |
-| Does the full stack benefit? | After correctness gates, compare the same filesystem/database settings with and without the engine. Include overwrite-only and deletion/reuse workloads; separate initial fill from active reclamation. | Throughput, p99 latency, actual discard traffic, bytes written at each observable boundary, RAM, and recovery correctness. Report backend topology, cache state, fsync policy, and integrity differences. |
+| What determines mapping RAM? | Keep logical capacity fixed. Vary how many blocks are mapped and whether their addresses are consecutive or scattered. After an initial sequential fill, compare evenly distributed overwrites with writes concentrated in a small region. Also move that region over time. | Allocated bytes, peak resident RAM (RSS), bytes per mapped block, extent count, and lookup time. Measure sorting RAM and checkpoint-load time. Count idle per-device overhead separately. |
+| Can checkpoints meet the write and recovery budgets? | Count payload, footer, and checkpoint bytes separately. Vary logical size, batch size, and checkpoint interval on disposable files. | Bytes written per payload byte, by category; write pauses; flush latency; checkpoint-load time; replay time. Check the counts against the formula before interpreting throughput. |
+| When does cleaning become expensive? | Simulate mappings and writes without storing payloads. Fix physical capacity. Compare FIFO and greedy selection with evenly distributed overwrites and writes concentrated in a fixed or moving region. Vary how full the device is. Continue beyond the initial fill until the measurements stabilize. | Live bytes copied, live fraction of selected segments, reserved free space, and write amplification over time. This model cannot establish real I/O latency or crash safety. |
+| Does the complete system benefit? | After correctness tests pass, compare the same filesystem and database settings with and without the engine. Test overwrites and deletion followed by reuse. Report initial filling separately from operation with cleaning. | Throughput, 99th-percentile request latency (p99), actual discard requests, observable bytes written at each layer, RAM, and recovery correctness. Report the backing layers, cache state, when the database calls `fsync`, and differences in integrity checks. |
 
-Use only explicitly disposable backing files or approved disposable devices. A regular-file-backed ublk path includes a lower filesystem that a raw-device comparison does not; label that difference. Engine write counters are not SSD NAND-write counters. Until reclamation exists, report finite-log capacity and time to exhaustion, not sustained database throughput.
+Use only explicitly disposable backing files or approved disposable devices. A ublk device backed by a regular file includes an underlying filesystem that a raw-device comparison does not. Label that difference. Engine write counters do not measure writes to the SSD's flash memory. Until reclamation exists, report finite-log capacity and time to exhaustion, not sustained database throughput.
 
 Start with mapping and checkpoint accounting. They can expose a failed assumption without adding a cleaner, changing the persistent format, or running a large database benchmark.
+
+## Ideas to improve the design
+
+Status: proposal for discussion, 2026-09-15. These are two separate changes: page the mapping to reduce RAM and checkpoint work; segment the log to reuse obsolete records. Neither requires implementing ADR-04's growth proposal first.
+
+Start with fixed logical and backing sizes, one serialized writer, and a new format without in-place conversion. Keep the two-checkpoint fallback contract. The structures below describe the proposed contents and ownership; exact record offsets and encodings belong in the implementation design.
+
+### 1. Page the mapping and checkpoint only changed pages
+
+Use copy-on-write mapping pages and a flat page index. No extent tree, separate mapping journal, or multilevel index initially.
+
+LFS sections 3.1 and 4.1 provide the useful pattern: persist modified mapping blocks, then publish their locations through a checkpoint. F2FS sections 2.1 and 2.7 provide another approach, versioned metadata blocks selected by checkpoint bitmaps. We choose copy-on-write pages here because the engine already appends records.
+
+LSVD section 3.3 still checkpoints full extent maps. Its cleaning design is relevant, but it does not supply this incremental mapping scheme.
+
+#### What changes on disk and in RAM?
+
+Each mapping page covers 320 consecutive LBAs. The page number and entry position imply the LBA:
+
+```text
+page_id = LBA / 320
+entry   = LBA % 320
+
+MappingPage record (one 4 KiB block)
+  record identity: kind, format version, volume ID, LSN
+  page_id                         u32
+  entries[256]   // 320x12 bytes = 3840 bytes
+    physical_payload_block        u32
+    payload_checksum              u64
+  zero padding and record checksum
+
+PageIndex
+  mapping_page_block[page_count]   u32
+  page_count = ceil(logical_blocks / 256)
+```
+
+The entries occupy 3840 bytes, leaving room for framing and validation in the 4 KiB record. Physical block zero means unmapped. A zero page-index entry means that the entire logical range is unmapped. Checksums stay with their mappings, on disk and in cached pages; payload verification is unchanged.
+
+Replace each checkpoint's full mapping body with a complete `PageIndex`. Keep two fixed slots, each containing a descriptor and its own index body. The descriptor identifies the generation, body length/checksum and replay position. Slots remain outside the append log and are sized at format time.
+
+```text
+Disk: checkpoint A or B → page index → mapping pages → payloads
+
+RAM: Volume
+  backing I/O and volume geometry
+  current page index
+  bounded mapping-page cache, including dirty pages
+  append, durability and checkpoint cursors
+  active checkpoint slot and generation
+```
+
+The two dense mapping arrays disappear. The flat index stays resident; mapping pages load on demand. A read whose page is absent from the cache needs a metadata read before its payload read. Bound the cache, buffers and recovery working memory explicitly.
+
+At 1 TiB logical capacity, there are 1,048,576 pages. Four bytes per page pointer gives a 4 MiB index, compared with the current 3 GiB checkpoint body. At 8 TiB the index is 32 MiB. These are pointer-array sizes, excluding descriptors, padding and cache memory. We still rewrite the whole index; page the index itself only if that cost becomes unacceptable.
+
+#### How do writes and checkpoints work?
+
+A data write follows the existing publication rule: append the data record, require exact completion, then update its cached mapping entry. Mark the page dirty. Do not append a mapping page for every write.
+
+Checkpoint publication stops new writes and performs this sequence:
+
+```text
+append dirty mapping pages; update a candidate page index
+→ fsync data and mapping-page records
+→ write the inactive checkpoint's complete index body
+→ fsync the body
+→ write its descriptor with the new generation and replay position
+→ fsync the descriptor; select the checkpoint; resume writes
+```
+
+Unchanged pages keep their old pointers. For example, if only LBA 42 changes, checkpointing writes a new page 0 and a new index. It does not rewrite the other mapping pages. The older checkpoint continues to reference the previous page 0.
+
+Use cache pressure as another checkpoint trigger rather than adding independent dirty-page spill machinery. Keep the replay-tail bound compatible with the recovery memory budget, including recovery from the older checkpoint.
+
+Recovery loads a valid checkpoint index and replays subsequent data records to update mappings. Mapping-page records are snapshots, not new logical writes; an uncommitted snapshot must not independently replace recovered state. The new record framing must let recovery distinguish and traverse both kinds. A successful data flush remains recoverable without requiring a checkpoint.
+
+This first change keeps the log append-only. Old data and mapping-page records still consume space. It improves mapping RAM and checkpoint I/O, but does not yet provide sustained overwrites.
+
+### 2. Segment the log and add a serialized cleaner
+
+Keep the paged mapping design independent of segmentation. When combined, the cleaner must relocate live mapping pages as well as payloads. Otherwise, metadata eventually fills the device even if data cleaning works.
+
+Start with greedy victim selection: choose the eligible sealed segment with the fewest live blocks. F2FS section 2.5 uses greedy selection for foreground cleaning; LSVD section 3.5 uses it for object cleaning. Defer cost-benefit selection, hot/cold streams and a concurrent cleaner thread.
+
+#### What changes on disk and in RAM?
+
+Divide the append region into fixed-size segments. Keep both checkpoint slots in a reserved prefix, outside all segments. Each slot now holds the page index followed by a flat segment table, covered by the checkpoint checksum. The checkpoint generation selects both together; no separate segment-metadata tree is needed initially.
+
+```text
+Disk
+  checkpoint A: descriptor + page index + segment table
+  checkpoint B: descriptor + page index + segment table
+  segment 0: header | data and mapping-page records | summary
+  segment 1: header | data and mapping-page records | summary
+  ...
+
+Segment header
+  volume ID, segment ID, reuse generation, opening LSN, checksum
+
+Segment summary
+  record locations and kinds
+  payload locations and LBAs; mapping-page locations and page IDs
+  used length, segment identity and checksum
+
+Checkpoint segment table
+  one entry per segment: reuse generation and state
+  states: free, open, sealed
+
+Additional RAM state
+  segment table and live-block counts
+  append position: segment ID + offset
+  current segment's summary buffer
+  cleaner victim and copy cursor
+  segments awaiting safe release
+```
+
+Records do not cross segment boundaries. Reserve summary space before accepting records. Seal the segment by persisting its summary; recovery scans record framing for an interrupted or still-open segment. Reopening a reused segment writes a new generation before appending its records. Record identity and replay ordering must reject bytes from an earlier use, including crashes during opening and sealing.
+
+The current map decides whether a payload is live. The current page index decides whether a mapping-page record is live. Summaries identify candidates, not authority. Reconstruct live counts at startup by streaming mapping pages and the page index, then maintain them on updates. This avoids another persistent counter protocol, but startup still reads the populated mapping; it is not constant-time recovery.
+
+Choose segment size from physical backing capacity, not logical size. A 128 MiB logical device can have much more backing. Start experiments with 32 MiB segments, an unmeasured initial choice, and compare 16 and 64 MiB if copying pauses or reserve requirements justify it. Keep the size fixed for an image. Reserve checkpoint space first and use only complete segments in the remaining region.
+
+#### How does background cleaning stay simple?
+
+Run cleaning in bounded batches between foreground requests, through the same serialized writer. Foreground operations can run between batches, but not between checking a source mapping and publishing its relocated copy. This is background scheduling, not concurrent ownership of the map.
+
+For each victim, check exact source addresses, verify payloads, and append live copies through the normal write path. Recompute location-bound checksums. Relocate mapping pages still selected by the current index. If a page is dirty, write its current cached contents rather than restoring its old on-disk mappings. Use the same append head for foreground data, cleaner copies and metadata.
+
+The barrier is checkpoint publication before release:
+
+```text
+copy live payloads and mapping pages out of the victim
+→ persist the resulting mapping state
+→ publish a checkpoint that no longer depends on the victim
+→ publish the other checkpoint without that dependency
+→ allow the allocator to reuse the victim
+```
+
+Both publications include the segment's release in their segment tables. Until both are durable, keep the victim pending in RAM and unavailable for allocation. The free state in just the newest checkpoint is not sufficient permission to overwrite it. After a crash, recovery must reconcile the surviving checkpoint views and complete any required publication before reuse.
+
+Protect every recovery dependency, not only current payloads: older mapping pages and record headers needed to resume replay can also pin a segment. A candidate is releasable only when neither usable checkpoint nor its required replay path needs it. The single writer also ensures that an in-flight read cannot overlap physical reuse.
+
+For the first implementation, release one victim per cycle. Two checkpoint publications per victim are an accepted initial cost; grouping victims can follow if measurement shows this dominates. A failed copy or publication never authorizes release.
+
+#### When should cleaning run?
+
+Try background cleaning when obsolete record bytes exceed 33% of occupied record bytes in sealed segments. Count both data and mapping-page records. This is an experimental policy, not a proven crossover. Obsolete means not selected by current mappings; those bytes may still be protected by an older checkpoint.
+
+Use free-space pressure independently. When immediately reusable space falls below a low watermark, prioritize cleaning over new writes until a higher watermark is reached. Idle-only cleaning cannot keep up with a continuously busy device.
+
+Reserve enough physical space to complete a victim's relocation and mapping-page writes, including record framing and segment overhead. Checkpoint slots are already reserved separately. Compute this requirement before admitting foreground writes; a guessed count of two segments is not a progress proof. If no victim can produce net free space and the fixed backing cannot satisfy a write, return an explicit capacity error rather than stall forever.
+
+### Implement and test the two changes separately
+
+Paged mapping is the smaller first change because it preserves old bytes. Segmentation and cleaning add destructive reuse, allocation recovery and metadata relocation.
+
+1. Implement mapping-page records, the flat index and checkpoint replacement on the finite log. Test sparse reads, cache pressure, unchanged-page reuse, data flush without checkpoint, and fallback after interrupted publication. Measure index/page writes, RAM and recovery reads.
+2. Add segments and the serialized greedy cleaner. Test interruption during opening, sealing, copying and both release checkpoints. Include metadata-only victims and reuse followed by fallback recovery. Run repeated overwrites well beyond backing capacity and verify data after restart.
+
+Build the necessary fault injection with these persistence transitions. Completing the broader ADR-05 medium-fault project is not a prerequisite for designing them. Use disposable files and extend the existing recovery tests rather than starting a separate simulation framework.
+
+[The performance plan](../PLAN-SQLITE-EXT4-PERFORMANCE.md) remains a separate workstream for larger requests, record batching and cheaper checkpoint I/O. Neither finishing that plan nor implementing growth is a prerequisite for these design changes.
