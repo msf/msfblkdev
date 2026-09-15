@@ -9,14 +9,14 @@ mod request_counts;
 use libublk::ctrl::{UblkCtrl, UblkCtrlBuilder};
 use libublk::helpers::IoBuf;
 use libublk::io::{BufDescList, UblkDev, UblkQueue};
+#[cfg(test)]
+use libublk::sys::UBLK_F_USER_RECOVERY;
 use libublk::sys::{
     UBLK_ATTR_VOLATILE_CACHE, UBLK_F_UNPRIVILEGED_DEV, UBLK_IO_F_FAILFAST_DEV,
-    UBLK_IO_F_FAILFAST_DRIVER, UBLK_IO_F_FAILFAST_TRANSPORT, UBLK_IO_F_META, UBLK_IO_OP_FLUSH,
-    UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_PARAM_TYPE_BASIC, ublk_param_basic, ublk_params,
-    ublksrv_io_desc,
+    UBLK_IO_F_FAILFAST_DRIVER, UBLK_IO_F_FAILFAST_TRANSPORT, UBLK_IO_F_FUA, UBLK_IO_F_META,
+    UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_PARAM_TYPE_BASIC, ublk_param_basic,
+    ublk_params, ublksrv_io_desc,
 };
-#[cfg(test)]
-use libublk::sys::{UBLK_F_USER_RECOVERY, UBLK_IO_F_FUA};
 use libublk::{BufDesc, UblkError, UblkFlags, UblkIORes};
 use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions};
@@ -30,11 +30,20 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const BLOCK_SHIFT: u8 = 12;
-const IO_BUFFER_BYTES: u32 = 1 << BLOCK_SHIFT;
+const LOGICAL_BLOCK_BYTES: u32 = 1 << BLOCK_SHIFT;
 const SECTOR_SHIFT: u8 = 9;
 const SECTORS_PER_BLOCK: u64 = 1 << (BLOCK_SHIFT - SECTOR_SHIFT);
+// QUEUE_COUNT is a design invariant, not a tuning knob: the engine has one serialized writer
+// and one write-back buffer, so a second queue would add a second thread contending for both.
 const QUEUE_COUNT: u16 = 1;
-const QUEUE_DEPTH: u16 = 1;
+const DEFAULT_MAX_REQUEST_BYTES: u32 = 131_072;
+const DEFAULT_INFLIGHT_MEMORY_BYTES: u64 = 4 * 1024 * 1024;
+// A request that fits one log record keeps "one ublk request always fits in one log record";
+// the footer holds at most 338 payloads (MAXIMUM_PAYLOAD_BLOCKS in the engine).
+const MAX_REQUEST_BLOCKS: u32 = 338;
+const MIN_QUEUE_DEPTH: u16 = 1;
+// ublk_cmd.h caps queue depth at 4096 (UBLK_MAX_QUEUE_DEPTH).
+const MAX_QUEUE_DEPTH: u16 = 4096;
 const BACKING_LOCKED_MESSAGE: &str = "backing file is already locked";
 const QUEUE_RUNNING_IDLE: u8 = 0;
 const QUEUE_RUNNING_IN_FLIGHT: u8 = 1;
@@ -198,11 +207,58 @@ impl BackingLock {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ServeConfig {
+    max_request_bytes: u32,
+    inflight_memory_bytes: u64,
+}
+
+impl Default for ServeConfig {
+    fn default() -> Self {
+        Self {
+            max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+            inflight_memory_bytes: DEFAULT_INFLIGHT_MEMORY_BYTES,
+        }
+    }
+}
+
+impl ServeConfig {
+    fn validate(self) -> io::Result<()> {
+        if self.max_request_bytes == 0
+            || !self.max_request_bytes.is_multiple_of(LOGICAL_BLOCK_BYTES)
+            || self.max_request_bytes > MAX_REQUEST_BLOCKS * LOGICAL_BLOCK_BYTES
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--max-request-bytes must be a positive multiple of 4096 and at most 338 blocks",
+            ));
+        }
+        if self.inflight_memory_bytes < u64::from(self.max_request_bytes) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--inflight-memory-bytes must hold at least one request",
+            ));
+        }
+        Ok(())
+    }
+
+    fn queue_depth(self) -> u16 {
+        let depth = self.inflight_memory_bytes / u64::from(self.max_request_bytes);
+        let depth = depth.clamp(u64::from(MIN_QUEUE_DEPTH), u64::from(MAX_QUEUE_DEPTH));
+        u16::try_from(depth).unwrap_or(MAX_QUEUE_DEPTH)
+    }
+
+    fn buffer_memory_bytes(self) -> u64 {
+        u64::from(self.queue_depth()) * u64::from(self.max_request_bytes)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum CliCommand {
     Serve {
         backing_path: PathBuf,
         device_id: i32,
+        config: ServeConfig,
     },
     Delete {
         device_id: i32,
@@ -223,7 +279,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} serve <backing> <device-id> | delete <device-id> | format <new-regular-file> <backing-bytes> <volume-bytes>",
+                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] | delete <device-id> | format <new-regular-file> <backing-bytes> <volume-bytes>",
                 PathBuf::from(&program).display()
             ),
         )
@@ -231,24 +287,61 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
 
     let command = args.next().ok_or_else(&usage)?;
     let command = match command.to_str() {
-        Some("serve") => CliCommand::Serve {
-            backing_path: PathBuf::from(args.next().ok_or_else(&usage)?),
-            device_id: parse_serve_device_id(&args.next().ok_or_else(&usage)?)?,
-        },
-        Some("delete") => CliCommand::Delete {
-            device_id: parse_delete_device_id(&args.next().ok_or_else(&usage)?)?,
-        },
-        Some("format") => CliCommand::Format {
-            backing_path: PathBuf::from(args.next().ok_or_else(&usage)?),
-            backing_bytes: parse_bytes(&args.next().ok_or_else(&usage)?)?,
-            volume_bytes: parse_bytes(&args.next().ok_or_else(&usage)?)?,
-        },
+        Some("serve") => {
+            let backing_path = PathBuf::from(args.next().ok_or_else(&usage)?);
+            let device_id = parse_serve_device_id(&args.next().ok_or_else(&usage)?)?;
+            let config = parse_serve_config(&mut args, &usage)?;
+            CliCommand::Serve {
+                backing_path,
+                device_id,
+                config,
+            }
+        }
+        Some("delete") => {
+            let command = CliCommand::Delete {
+                device_id: parse_delete_device_id(&args.next().ok_or_else(&usage)?)?,
+            };
+            if args.next().is_some() {
+                return Err(usage());
+            }
+            command
+        }
+        Some("format") => {
+            let command = CliCommand::Format {
+                backing_path: PathBuf::from(args.next().ok_or_else(&usage)?),
+                backing_bytes: parse_bytes(&args.next().ok_or_else(&usage)?)?,
+                volume_bytes: parse_bytes(&args.next().ok_or_else(&usage)?)?,
+            };
+            if args.next().is_some() {
+                return Err(usage());
+            }
+            command
+        }
         _ => return Err(usage()),
     };
-    if args.next().is_some() {
-        return Err(usage());
-    }
     Ok(command)
+}
+
+fn parse_serve_config(
+    args: &mut impl Iterator<Item = OsString>,
+    usage: &impl Fn() -> io::Error,
+) -> io::Result<ServeConfig> {
+    let mut config = ServeConfig::default();
+    while let Some(flag) = args.next() {
+        let value = args.next().ok_or_else(usage)?;
+        match flag.to_str() {
+            Some("--max-request-bytes") => {
+                config.max_request_bytes =
+                    u32::try_from(parse_bytes(&value)?).map_err(|_| usage())?;
+            }
+            Some("--inflight-memory-bytes") => {
+                config.inflight_memory_bytes = parse_bytes(&value)?;
+            }
+            _ => return Err(usage()),
+        }
+    }
+    config.validate()?;
+    Ok(config)
 }
 
 fn parse_i32(value: &OsStr) -> io::Result<i32> {
@@ -289,13 +382,13 @@ fn parse_bytes(value: &OsStr) -> io::Result<u64> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid byte size"))
 }
 
-fn controller_builder(device_id: i32) -> UblkCtrlBuilder<'static> {
+fn controller_builder(device_id: i32, config: ServeConfig) -> UblkCtrlBuilder<'static> {
     UblkCtrlBuilder::default()
         .name("block-storage")
         .id(device_id)
         .nr_queues(QUEUE_COUNT)
-        .depth(QUEUE_DEPTH)
-        .io_buf_bytes(IO_BUFFER_BYTES)
+        .depth(config.queue_depth())
+        .io_buf_bytes(config.max_request_bytes)
         .ctrl_flags(CONTROL_FLAGS)
         .dev_flags(UblkFlags::UBLK_DEV_F_ADD_DEV)
 }
@@ -305,9 +398,9 @@ struct TargetConfiguration {
     parameters: ublk_params,
 }
 
-fn target_configuration(volume_blocks: u32) -> TargetConfiguration {
+fn target_configuration(volume_blocks: u32, max_request_bytes: u32) -> TargetConfiguration {
     TargetConfiguration {
-        device_bytes: u64::from(volume_blocks) * u64::from(IO_BUFFER_BYTES),
+        device_bytes: u64::from(volume_blocks) * u64::from(LOGICAL_BLOCK_BYTES),
         parameters: ublk_params {
             types: UBLK_PARAM_TYPE_BASIC,
             basic: ublk_param_basic {
@@ -316,7 +409,7 @@ fn target_configuration(volume_blocks: u32) -> TargetConfiguration {
                 physical_bs_shift: BLOCK_SHIFT,
                 io_opt_shift: BLOCK_SHIFT,
                 io_min_shift: BLOCK_SHIFT,
-                max_sectors: IO_BUFFER_BYTES >> SECTOR_SHIFT,
+                max_sectors: max_request_bytes >> SECTOR_SHIFT,
                 dev_sectors: u64::from(volume_blocks) * SECTORS_PER_BLOCK,
                 ..Default::default()
             },
@@ -327,8 +420,8 @@ fn target_configuration(volume_blocks: u32) -> TargetConfiguration {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Request {
-    Read(u32),
-    Write(u32),
+    Read { lba: u32, blocks: u32 },
+    Write { lba: u32, blocks: u32, fua: bool },
     Flush,
 }
 
@@ -343,7 +436,8 @@ fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Requ
                 | UBLK_IO_F_FAILFAST_TRANSPORT
                 | UBLK_IO_F_FAILFAST_DRIVER
         }
-        UBLK_IO_OP_WRITE => UBLK_IO_F_META,
+        // FUA is a per-write durability request under the advertised volatile cache: release now.
+        UBLK_IO_OP_WRITE => UBLK_IO_F_META | UBLK_IO_F_FUA,
         _ => 0,
     };
     if flags & !allowed_hints != 0 {
@@ -352,19 +446,27 @@ fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Requ
 
     match operation {
         UBLK_IO_OP_READ | UBLK_IO_OP_WRITE => {
-            if descriptor.nr_sectors != SECTORS_PER_BLOCK as u32
+            let nr_sectors = u64::from(descriptor.nr_sectors);
+            if nr_sectors == 0
+                || !nr_sectors.is_multiple_of(SECTORS_PER_BLOCK)
                 || !descriptor.start_sector.is_multiple_of(SECTORS_PER_BLOCK)
                 || descriptor.start_sector > dev_sectors
-                || SECTORS_PER_BLOCK > dev_sectors - descriptor.start_sector
+                || nr_sectors > dev_sectors - descriptor.start_sector
             {
                 return Err(-libc::EINVAL);
             }
             let lba = u32::try_from(descriptor.start_sector / SECTORS_PER_BLOCK)
                 .map_err(|_| -libc::EINVAL)?;
+            let blocks =
+                u32::try_from(nr_sectors / SECTORS_PER_BLOCK).map_err(|_| -libc::EINVAL)?;
             if operation == UBLK_IO_OP_READ {
-                Ok(Request::Read(lba))
+                Ok(Request::Read { lba, blocks })
             } else {
-                Ok(Request::Write(lba))
+                Ok(Request::Write {
+                    lba,
+                    blocks,
+                    fua: flags & UBLK_IO_F_FUA != 0,
+                })
             }
         }
         UBLK_IO_OP_FLUSH => Ok(Request::Flush),
@@ -386,10 +488,12 @@ struct RequestOutcome {
     fatal: bool,
 }
 
+const LOGICAL_BLOCK_USIZE: usize = LOGICAL_BLOCK_BYTES as usize;
+
 fn handle_request(
     volume: &mut block_storage::Volume,
     descriptor: &ublksrv_io_desc,
-    buffer: &mut [u8; IO_BUFFER_BYTES as usize],
+    buffer: &mut [u8],
 ) -> RequestOutcome {
     let dev_sectors = u64::from(volume.volume_blocks()) * SECTORS_PER_BLOCK;
     let request = match decode_request(descriptor, dev_sectors) {
@@ -405,38 +509,71 @@ fn handle_request(
             };
         }
     };
-    let result = match request {
-        Request::Read(lba) => volume.read_block(lba, buffer),
-        Request::Write(lba) => volume.write_block(lba, buffer),
-        Request::Flush => volume.flush(),
-    };
-    match result {
-        Ok(()) => RequestOutcome {
-            completion: match request {
-                Request::Read(_) | Request::Write(_) => IO_BUFFER_BYTES as i32,
-                Request::Flush => 0,
-            },
-            fatal: false,
-        },
-        Err(error) => {
-            let completion = engine_error(error);
-            RequestOutcome {
-                completion,
-                fatal: completion != -libc::ENOSPC,
+    match request {
+        Request::Read { lba, blocks } => transfer_blocks(buffer, blocks, |index, block| {
+            volume.read_block(lba + index, block)
+        }),
+        Request::Write { lba, blocks, fua } => {
+            let outcome = transfer_blocks(buffer, blocks, |index, block| {
+                volume.write_block(lba + index, block)
+            });
+            if fua && outcome.completion >= 0 {
+                complete_flush(volume.flush(), outcome.completion)
+            } else {
+                outcome
             }
         }
+        Request::Flush => complete_flush(volume.flush(), 0),
     }
 }
 
-fn handle_buffered_request(
-    volume: &mut block_storage::Volume,
-    descriptor: &ublksrv_io_desc,
+fn transfer_blocks(
     buffer: &mut [u8],
+    blocks: u32,
+    mut transfer: impl FnMut(u32, &mut [u8; LOGICAL_BLOCK_USIZE]) -> io::Result<()>,
 ) -> RequestOutcome {
-    match <&mut [u8; IO_BUFFER_BYTES as usize]>::try_from(buffer) {
-        Ok(buffer) => handle_request(volume, descriptor, buffer),
-        Err(_) => RequestOutcome {
+    let needed = blocks as usize * LOGICAL_BLOCK_USIZE;
+    if buffer.len() < needed {
+        return RequestOutcome {
             completion: -libc::EIO,
+            fatal: true,
+        };
+    }
+    for index in 0..blocks {
+        let start = index as usize * LOGICAL_BLOCK_USIZE;
+        let block = match <&mut [u8; LOGICAL_BLOCK_USIZE]>::try_from(
+            &mut buffer[start..start + LOGICAL_BLOCK_USIZE],
+        ) {
+            Ok(block) => block,
+            Err(_) => {
+                return RequestOutcome {
+                    completion: -libc::EIO,
+                    fatal: true,
+                };
+            }
+        };
+        if let Err(error) = transfer(index, block) {
+            let completion = engine_error(error);
+            return RequestOutcome {
+                completion,
+                fatal: completion != -libc::ENOSPC,
+            };
+        }
+    }
+    RequestOutcome {
+        completion: needed as i32,
+        fatal: false,
+    }
+}
+
+fn complete_flush(result: io::Result<()>, completion: i32) -> RequestOutcome {
+    match result {
+        Ok(()) => RequestOutcome {
+            completion,
+            fatal: false,
+        },
+        Err(error) => RequestOutcome {
+            completion: engine_error(error),
             fatal: true,
         },
     }
@@ -449,7 +586,7 @@ fn handle_queue_request(
     drain: &DrainState,
     queue_error: &mut Option<io::Error>,
 ) -> i32 {
-    let outcome = handle_buffered_request(volume, descriptor, buffer);
+    let outcome = handle_request(volume, descriptor, buffer);
     if outcome.fatal {
         drain.queue_failed.store(true, Ordering::Release);
         queue_error.get_or_insert_with(|| {
@@ -546,7 +683,13 @@ fn close_after_queue(
     );
 }
 
-fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainState>) {
+fn run_queue(
+    qid: u16,
+    dev: &UblkDev,
+    state: SharedQueueState,
+    drain: Arc<DrainState>,
+    config: ServeConfig,
+) {
     let volume = match state.lock() {
         Ok(mut state) => state.volume.take(),
         Err(_) => {
@@ -561,7 +704,10 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainS
         return;
     };
 
-    let mut buffers = vec![IoBuf::<u8>::new(IO_BUFFER_BYTES as usize)];
+    let depth = config.queue_depth();
+    let mut buffers: Vec<IoBuf<u8>> = (0..depth)
+        .map(|_| IoBuf::<u8>::new(config.max_request_bytes as usize))
+        .collect();
     let queue = match UblkQueue::new(qid, dev)
         .and_then(|queue| queue.submit_fetch_commands_unified(BufDescList::Slices(Some(&buffers))))
     {
@@ -578,7 +724,7 @@ fn run_queue(qid: u16, dev: &UblkDev, state: SharedQueueState, drain: Arc<DrainS
     queue.wait_and_handle_io(|queue, tag, _context| {
         let before_ready = !drain.device_ready.load(Ordering::Acquire);
         let op_flags = queue.get_iod(tag).op_flags;
-        let mut context = (&mut volume, buffers[0].as_mut_slice());
+        let mut context = (&mut volume, buffers[tag as usize].as_mut_slice());
         let work = drain.begin_engine_work();
         let cancelled = matches!(&work, EngineWork::Rejected(_));
         let completion = complete_fetched_request(
@@ -658,9 +804,21 @@ fn wait_for_device_removal(device_id: u32) -> io::Result<()> {
     Ok(())
 }
 
-fn serve(backing_path: &Path, device_id: i32, ledger_path: Option<&OsStr>) -> io::Result<()> {
+fn serve(
+    backing_path: &Path,
+    device_id: i32,
+    config: ServeConfig,
+    ledger_path: Option<&OsStr>,
+) -> io::Result<()> {
     let accounting = io_ledger::open_optional(ledger_path)?;
     let _backing_lock = BackingLock::acquire(backing_path)?;
+    eprintln!(
+        "serve config: max_request_bytes={} inflight_memory_bytes={} depth={} buffer_memory_bytes={}",
+        config.max_request_bytes,
+        config.inflight_memory_bytes,
+        config.queue_depth(),
+        config.buffer_memory_bytes(),
+    );
     let signal_guard = SignalGuard::install()?;
     let drain = Arc::new(DrainState::new());
     let readiness_error = Arc::new(Mutex::new(None));
@@ -685,11 +843,14 @@ fn serve(backing_path: &Path, device_id: i32, ledger_path: Option<&OsStr>) -> io
                 .as_ref()
                 .ok_or_else(|| io::Error::other("volume is not available"))?
                 .volume_blocks(),
+            config.max_request_bytes,
         )
     };
 
     let (target_result, stop_result, shutdown_result, device_id) = {
-        let controller = controller_builder(device_id).build().map_err(ublk_error)?;
+        let controller = controller_builder(device_id, config)
+            .build()
+            .map_err(ublk_error)?;
         let device_id = controller.dev_info().dev_id;
         let stop_device_id = i32::try_from(device_id)
             .map_err(|_| io::Error::other("ublk device ID does not fit i32"))?;
@@ -709,7 +870,13 @@ fn serve(backing_path: &Path, device_id: i32, ledger_path: Option<&OsStr>) -> io
                         Ok(())
                     },
                     move |qid, dev| {
-                        run_queue(qid, dev, Arc::clone(&queue_state), Arc::clone(&queue_drain))
+                        run_queue(
+                            qid,
+                            dev,
+                            Arc::clone(&queue_state),
+                            Arc::clone(&queue_drain),
+                            config,
+                        )
                     },
                     move |controller| {
                         let result = write_readiness_line(
@@ -815,7 +982,8 @@ fn run() -> io::Result<()> {
         CliCommand::Serve {
             backing_path,
             device_id,
-        } => serve(&backing_path, device_id, ledger_path.as_deref()),
+            config,
+        } => serve(&backing_path, device_id, config, ledger_path.as_deref()),
         CliCommand::Delete { device_id } => delete(device_id),
         CliCommand::Format {
             backing_path,
@@ -901,7 +1069,7 @@ mod tests {
                 .set_len(1024 * 1024)?;
             block_storage::format(
                 &backing.0,
-                u64::from(volume_blocks) * u64::from(IO_BUFFER_BYTES),
+                u64::from(volume_blocks) * u64::from(LOGICAL_BLOCK_BYTES),
             )?;
             Ok(backing)
         }
@@ -1076,6 +1244,31 @@ mod tests {
             CliCommand::Serve {
                 backing_path: PathBuf::from("volume.img"),
                 device_id: -1,
+                config: ServeConfig::default(),
+            }
+        );
+        assert_eq!(
+            parse_args(
+                [
+                    "daemon",
+                    "serve",
+                    "volume.img",
+                    "3",
+                    "--max-request-bytes",
+                    "65536",
+                    "--inflight-memory-bytes",
+                    "1048576",
+                ]
+                .map(OsString::from)
+            )
+            .unwrap(),
+            CliCommand::Serve {
+                backing_path: PathBuf::from("volume.img"),
+                device_id: 3,
+                config: ServeConfig {
+                    max_request_bytes: 65_536,
+                    inflight_memory_bytes: 1_048_576,
+                },
             }
         );
         assert_eq!(
@@ -1110,7 +1303,7 @@ mod tests {
         format_new(
             &backing.0,
             1024 * 1024,
-            4 * u64::from(IO_BUFFER_BYTES),
+            4 * u64::from(LOGICAL_BLOCK_BYTES),
             None,
         )?;
 
@@ -1178,7 +1371,7 @@ mod tests {
 
     #[test]
     fn configures_exact_v07_target_parameters() {
-        let target = target_configuration(37);
+        let target = target_configuration(37, DEFAULT_MAX_REQUEST_BYTES);
         let params = target.parameters;
         let basic = params.basic;
 
@@ -1190,7 +1383,7 @@ mod tests {
         assert_eq!(basic.physical_bs_shift, BLOCK_SHIFT);
         assert_eq!(basic.io_opt_shift, BLOCK_SHIFT);
         assert_eq!(basic.io_min_shift, BLOCK_SHIFT);
-        assert_eq!(basic.max_sectors, 8);
+        assert_eq!(basic.max_sectors, DEFAULT_MAX_REQUEST_BYTES >> SECTOR_SHIFT);
         assert_eq!(basic.chunk_sectors, 0);
         assert_eq!(basic.dev_sectors, 37 * 8);
         assert_eq!(basic.virt_boundary_mask, 0);
@@ -1211,20 +1404,70 @@ mod tests {
     }
 
     #[test]
-    fn configures_one_depth_one_4k_queue() {
+    fn configures_single_queue_with_derived_depth() {
         assert_eq!(QUEUE_COUNT, 1);
-        assert_eq!(QUEUE_DEPTH, 1);
-        assert_eq!(IO_BUFFER_BYTES, 4096);
+        assert_eq!(LOGICAL_BLOCK_BYTES, 4096);
+        let config = ServeConfig::default();
+        assert_eq!(config.queue_depth(), 32);
 
         let expected = UblkCtrlBuilder::default()
             .name("block-storage")
             .id(4)
             .nr_queues(1)
-            .depth(1)
-            .io_buf_bytes(4096)
+            .depth(32)
+            .io_buf_bytes(DEFAULT_MAX_REQUEST_BYTES)
             .ctrl_flags(CONTROL_FLAGS)
             .dev_flags(UblkFlags::UBLK_DEV_F_ADD_DEV);
-        assert_eq!(controller_builder(4), expected);
+        assert_eq!(controller_builder(4, config), expected);
+    }
+
+    #[test]
+    fn serve_config_validation_and_depth_derivation() {
+        assert!(ServeConfig::default().validate().is_ok());
+        // Not a block multiple.
+        assert!(
+            ServeConfig {
+                max_request_bytes: 4097,
+                inflight_memory_bytes: DEFAULT_INFLIGHT_MEMORY_BYTES,
+            }
+            .validate()
+            .is_err()
+        );
+        // Above the 338-block ceiling.
+        assert!(
+            ServeConfig {
+                max_request_bytes: (MAX_REQUEST_BLOCKS + 1) * LOGICAL_BLOCK_BYTES,
+                inflight_memory_bytes: 1 << 30,
+            }
+            .validate()
+            .is_err()
+        );
+        // Memory budget cannot hold one request.
+        assert!(
+            ServeConfig {
+                max_request_bytes: 131_072,
+                inflight_memory_bytes: 65_536,
+            }
+            .validate()
+            .is_err()
+        );
+        // Depth is derived and clamped to 1..=4096.
+        assert_eq!(
+            ServeConfig {
+                max_request_bytes: LOGICAL_BLOCK_BYTES,
+                inflight_memory_bytes: 1 << 40,
+            }
+            .queue_depth(),
+            MAX_QUEUE_DEPTH
+        );
+        assert_eq!(
+            ServeConfig {
+                max_request_bytes: 131_072,
+                inflight_memory_bytes: 131_072,
+            }
+            .queue_depth(),
+            1
+        );
     }
 
     #[test]
@@ -1298,14 +1541,31 @@ mod tests {
     }
 
     #[test]
-    fn rejects_fua_and_unknown_flags_even_with_metadata_hint() {
+    fn accepts_fua_writes_but_rejects_fua_reads_flushes_and_unknown_flags() {
+        for hint in [0, libublk::sys::UBLK_IO_F_META] {
+            let mut write = descriptor(UBLK_IO_OP_WRITE, 0, 8);
+            write.op_flags |= UBLK_IO_F_FUA | hint;
+            assert_eq!(
+                decode_request(&write, 32),
+                Ok(Request::Write {
+                    lba: 0,
+                    blocks: 1,
+                    fua: true
+                })
+            );
+        }
+        for operation in [UBLK_IO_OP_READ, UBLK_IO_OP_FLUSH] {
+            for hint in [0, libublk::sys::UBLK_IO_F_META] {
+                let mut request = descriptor(operation, 0, 8);
+                request.op_flags |= UBLK_IO_F_FUA | hint;
+                assert_eq!(decode_request(&request, 32), Err(-libc::EOPNOTSUPP));
+            }
+        }
         for operation in [UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_IO_OP_FLUSH] {
-            for unsupported in [UBLK_IO_F_FUA, 1 << 31] {
-                for hint in [0, libublk::sys::UBLK_IO_F_META] {
-                    let mut request = descriptor(operation, 0, 8);
-                    request.op_flags |= unsupported | hint;
-                    assert_eq!(decode_request(&request, 32), Err(-libc::EOPNOTSUPP));
-                }
+            for hint in [0, libublk::sys::UBLK_IO_F_META] {
+                let mut request = descriptor(operation, 0, 8);
+                request.op_flags |= (1 << 31) | hint;
+                assert_eq!(decode_request(&request, 32), Err(-libc::EOPNOTSUPP));
             }
         }
     }
@@ -1315,11 +1575,27 @@ mod tests {
         let dev_sectors = 32;
         assert_eq!(
             decode_request(&descriptor(UBLK_IO_OP_READ, 24, 8), dev_sectors),
-            Ok(Request::Read(3))
+            Ok(Request::Read { lba: 3, blocks: 1 })
         );
         assert_eq!(
             decode_request(&descriptor(UBLK_IO_OP_WRITE, 0, 8), dev_sectors),
-            Ok(Request::Write(0))
+            Ok(Request::Write {
+                lba: 0,
+                blocks: 1,
+                fua: false
+            })
+        );
+        assert_eq!(
+            decode_request(&descriptor(UBLK_IO_OP_READ, 8, 24), dev_sectors),
+            Ok(Request::Read { lba: 1, blocks: 3 })
+        );
+        assert_eq!(
+            decode_request(&descriptor(UBLK_IO_OP_WRITE, 0, 32), dev_sectors),
+            Ok(Request::Write {
+                lba: 0,
+                blocks: 4,
+                fua: false
+            })
         );
         for flush in [
             descriptor(UBLK_IO_OP_FLUSH, 0, 0),
@@ -1340,7 +1616,6 @@ mod tests {
         }
 
         for (operation, flag) in [
-            (UBLK_IO_OP_WRITE, UBLK_IO_F_FUA),
             (UBLK_IO_OP_FLUSH, UBLK_IO_F_FUA),
             (UBLK_IO_OP_FLUSH, libublk::sys::UBLK_IO_F_META),
         ] {
@@ -1368,7 +1643,7 @@ mod tests {
         let flush = descriptor(UBLK_IO_OP_FLUSH, 120, 8);
         let read = descriptor(UBLK_IO_OP_READ, 16, 8);
         let read_neighbor = descriptor(UBLK_IO_OP_READ, 8, 8);
-        let expected = [0xa5; IO_BUFFER_BYTES as usize];
+        let expected = [0xa5; LOGICAL_BLOCK_BYTES as usize];
         let mut buffer = expected;
 
         assert_eq!(
@@ -1399,7 +1674,55 @@ mod tests {
             handle_request(&mut reopened, &read_neighbor, &mut buffer).completion,
             4096
         );
-        assert_eq!(buffer, [0; IO_BUFFER_BYTES as usize]);
+        assert_eq!(buffer, [0; LOGICAL_BLOCK_BYTES as usize]);
+        Ok(())
+    }
+
+    #[test]
+    fn multi_block_request_splits_into_consecutive_logical_blocks() -> io::Result<()> {
+        let backing = TemporaryBacking::formatted(8)?;
+        let mut volume = block_storage::open(&backing.0)?;
+        // One request covering three logical blocks starting at LBA 2.
+        let write = descriptor(UBLK_IO_OP_WRITE, 16, 24);
+        let read = descriptor(UBLK_IO_OP_READ, 16, 24);
+        let mut buffer = [0_u8; 3 * LOGICAL_BLOCK_BYTES as usize];
+        for (index, chunk) in buffer
+            .chunks_exact_mut(LOGICAL_BLOCK_BYTES as usize)
+            .enumerate()
+        {
+            chunk.fill(0xb0 + index as u8);
+        }
+        let expected = buffer;
+
+        assert_eq!(
+            handle_request(&mut volume, &write, &mut buffer),
+            RequestOutcome {
+                completion: 3 * LOGICAL_BLOCK_BYTES as i32,
+                fatal: false
+            }
+        );
+        volume.flush()?;
+        drop(volume);
+
+        let mut reopened = block_storage::open(&backing.0)?;
+        buffer.fill(0);
+        assert_eq!(
+            handle_request(&mut reopened, &read, &mut buffer).completion,
+            3 * LOGICAL_BLOCK_BYTES as i32
+        );
+        assert_eq!(buffer, expected);
+        // The block before the written range stays zero.
+        let mut neighbor = [0xff_u8; LOGICAL_BLOCK_BYTES as usize];
+        assert_eq!(
+            handle_request(
+                &mut reopened,
+                &descriptor(UBLK_IO_OP_READ, 8, 8),
+                &mut neighbor
+            )
+            .completion,
+            LOGICAL_BLOCK_BYTES as i32
+        );
+        assert_eq!(neighbor, [0; LOGICAL_BLOCK_BYTES as usize]);
         Ok(())
     }
 
@@ -1409,7 +1732,7 @@ mod tests {
         let mut volume = block_storage::open(&backing.0)?;
         let write = descriptor(UBLK_IO_OP_WRITE, 0, 8);
         let read = descriptor(UBLK_IO_OP_READ, 0, 8);
-        let mut buffer = [0xa5; IO_BUFFER_BYTES as usize];
+        let mut buffer = [0xa5; LOGICAL_BLOCK_BYTES as usize];
         assert_eq!(
             handle_request(&mut volume, &write, &mut buffer).completion,
             4096
@@ -1417,7 +1740,7 @@ mod tests {
 
         let raw = OpenOptions::new().write(true).open(&backing.0)?;
         // A one-block volume has two one-block maps in each checkpoint slot, so its log starts at block 6.
-        raw.write_all_at(&[0x5a], 6 * u64::from(IO_BUFFER_BYTES))?;
+        raw.write_all_at(&[0x5a], 6 * u64::from(LOGICAL_BLOCK_BYTES))?;
         raw.sync_all()?;
         buffer.fill(0);
         let failure = handle_request(&mut volume, &read, &mut buffer);
@@ -1475,13 +1798,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_unexpected_libublk_buffer_size_without_engine_io() -> io::Result<()> {
+    fn rejects_a_short_libublk_buffer_without_engine_io() -> io::Result<()> {
         let backing = TemporaryBacking::formatted(1)?;
         let mut volume = block_storage::open(&backing.0)?;
-        let mut short_buffer = [0xa5; IO_BUFFER_BYTES as usize - 1];
+        let mut short_buffer = [0xa5; LOGICAL_BLOCK_BYTES as usize - 1];
 
         assert_eq!(
-            handle_buffered_request(
+            handle_request(
                 &mut volume,
                 &descriptor(UBLK_IO_OP_WRITE, 0, 8),
                 &mut short_buffer
@@ -1492,12 +1815,12 @@ mod tests {
             }
         );
 
-        let mut block = [0xff; IO_BUFFER_BYTES as usize];
+        let mut block = [0xff; LOGICAL_BLOCK_BYTES as usize];
         assert_eq!(
             handle_request(&mut volume, &descriptor(UBLK_IO_OP_READ, 0, 8), &mut block).completion,
-            IO_BUFFER_BYTES as i32
+            LOGICAL_BLOCK_BYTES as i32
         );
-        assert_eq!(block, [0; IO_BUFFER_BYTES as usize]);
+        assert_eq!(block, [0; LOGICAL_BLOCK_BYTES as usize]);
         Ok(())
     }
 

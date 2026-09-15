@@ -124,7 +124,8 @@ impl Lab<'_> {
         for (field, expected) in [
             ("queue/logical_block_size", "4096"),
             ("queue/physical_block_size", "4096"),
-            ("queue/max_sectors_kb", "4"),
+            // Default --max-request-bytes is 131072 (128 KiB); the device advertises it as max_sectors.
+            ("queue/max_sectors_kb", "128"),
         ] {
             let actual = fs::read_to_string(sys.join(field))?;
             self.evidence.line(&format!("{field}: {}", actual.trim()))?;
