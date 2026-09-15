@@ -5,7 +5,7 @@ use io_uring::{IoUring, opcode, squeue, types};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
@@ -190,6 +190,72 @@ impl ReleaseStats {
     }
 }
 
+/// Physical and logical space accounting for one volume.
+///
+/// The backing file is sparse, so its declared length is a ceiling rather than
+/// a cost. `allocated_bytes` is what the host filesystem has really given the
+/// file, and it grows as the log is appended.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SpaceUsage {
+    /// Addressable logical capacity presented to the filesystem.
+    pub volume_bytes: u64,
+    /// Logical bytes that hold data, meaning blocks with a mapping.
+    pub live_bytes: u64,
+    /// Declared backing length. Sparse, so mostly unallocated.
+    pub backing_bytes: u64,
+    /// Backing bytes the host filesystem has actually allocated.
+    pub allocated_bytes: u64,
+    /// Header, both mapping tables and both checkpoint slots.
+    pub metadata_bytes: u64,
+    /// Log region length, which bounds writes before `ENOSPC`.
+    pub log_capacity_bytes: u64,
+    /// Log region consumed by records so far.
+    pub log_used_bytes: u64,
+}
+
+impl SpaceUsage {
+    /// Log bytes still available before `ENOSPC`.
+    #[must_use]
+    pub const fn log_free_bytes(&self) -> u64 {
+        self.log_capacity_bytes.saturating_sub(self.log_used_bytes)
+    }
+
+    /// Allocated backing bytes per live logical byte. Zero when nothing is live.
+    #[must_use]
+    pub fn amplification(&self) -> f64 {
+        if self.live_bytes == 0 {
+            return 0.0;
+        }
+        self.allocated_bytes as f64 / self.live_bytes as f64
+    }
+
+    /// A single-line summary suitable for emission outside timed work.
+    #[must_use]
+    pub fn summary(&self) -> String {
+        format!(
+            "volume_mib={:.1} live_mib={:.1} backing_declared_mib={:.1} backing_allocated_mib={:.1} metadata_mib={:.1} log_used_mib={:.1} log_free_mib={:.1} log_capacity_mib={:.1} log_used_percent={:.1} allocated_per_live={:.3}",
+            mib(self.volume_bytes),
+            mib(self.live_bytes),
+            mib(self.backing_bytes),
+            mib(self.allocated_bytes),
+            mib(self.metadata_bytes),
+            mib(self.log_used_bytes),
+            mib(self.log_free_bytes()),
+            mib(self.log_capacity_bytes),
+            if self.log_capacity_bytes == 0 {
+                0.0
+            } else {
+                100.0 * self.log_used_bytes as f64 / self.log_capacity_bytes as f64
+            },
+            self.amplification(),
+        )
+    }
+}
+
+fn mib(bytes: u64) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
+}
+
 /// Configuration for opening a volume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VolumeOpenOptions {
@@ -303,6 +369,35 @@ impl Volume {
     #[must_use]
     pub fn release_stats(&self) -> ReleaseStats {
         self.release_stats
+    }
+
+    /// Reports physical and logical space use. Reads the backing file's real
+    /// allocation from the host filesystem, so it performs one `fstat`.
+    pub fn space_usage(&self) -> io::Result<SpaceUsage> {
+        let volume_bytes = u64::from(self.volume_blocks) * BLOCK_SIZE as u64;
+        let (_, layout) = layout_for(volume_bytes)?;
+        let metadata_blocks = u64::from(layout.log_start);
+        let live_blocks = self
+            .physical_blocks
+            .iter()
+            .filter(|physical| **physical != 0)
+            .count() as u64;
+        // The first log block follows the metadata region; an empty log leaves
+        // `last_footer_block` one block below it.
+        let log_used_blocks = u64::from(self.last_footer_block)
+            .saturating_add(1)
+            .saturating_sub(metadata_blocks);
+        let metadata = self.backing.metadata()?;
+        Ok(SpaceUsage {
+            volume_bytes,
+            live_bytes: live_blocks * BLOCK_SIZE as u64,
+            backing_bytes: metadata.len(),
+            allocated_bytes: metadata.blocks() * 512,
+            metadata_bytes: metadata_blocks * BLOCK_SIZE as u64,
+            log_capacity_bytes: self.backing_blocks.saturating_sub(metadata_blocks)
+                * BLOCK_SIZE as u64,
+            log_used_bytes: log_used_blocks * BLOCK_SIZE as u64,
+        })
     }
 
     /// Releases the write-back buffer and makes all completed writes durable.

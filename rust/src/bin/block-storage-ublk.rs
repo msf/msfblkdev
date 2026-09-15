@@ -832,6 +832,10 @@ fn run_queue(
     }
     log_info!("event=request_totals {}", requests.totals().summary());
     log_info!("event=release_stats {}", volume.release_stats().summary());
+    match volume.space_usage() {
+        Ok(usage) => log_info!("event=space phase=shutdown {}", usage.summary()),
+        Err(error) => log_info!("event=space phase=shutdown error={error}"),
+    }
     close_after_queue(&state, volume, queue_error.map_or(Ok(()), Err));
 }
 
@@ -911,6 +915,12 @@ fn serve(
         }),
         result: None,
     }));
+    if let Ok(guard) = state.lock()
+        && let Some(volume) = guard.volume.as_ref()
+        && let Ok(usage) = volume.space_usage()
+    {
+        log_info!("event=space phase=open {}", usage.summary());
+    }
     let target = {
         let state = state
             .lock()
@@ -1041,7 +1051,15 @@ fn format_new(
             }
             None => block_storage::format(backing_path, volume_bytes),
         }) {
-        Ok(()) => return Ok(()),
+        Ok(()) => {
+            if let Ok(volume) = block_storage::open(backing_path) {
+                if let Ok(usage) = volume.space_usage() {
+                    log_info!("event=format {}", usage.summary());
+                }
+                let _ = volume.close();
+            }
+            return Ok(());
+        }
         Err(error) => error,
     };
 
