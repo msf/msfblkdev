@@ -43,7 +43,15 @@ fn command_construction_is_exact_and_bounded() {
     let format = format_command(daemon, backing);
     assert_eq!(
         format.get_args().collect::<Vec<_>>(),
-        ["format", "/tmp/owned/backing.img", "286720", "262144"].map(OsStr::new)
+        [
+            "format",
+            "/tmp/owned/backing.img",
+            "--prealloc-bytes",
+            "286720",
+            "--size-bytes",
+            "262144",
+        ]
+        .map(OsStr::new)
     );
     assert_eq!(
         serve_command(daemon, backing)

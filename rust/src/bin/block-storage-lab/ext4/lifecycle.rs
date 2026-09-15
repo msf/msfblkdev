@@ -375,7 +375,9 @@ fn format_command(
     command
         .arg("format")
         .arg(backing)
+        .arg("--prealloc-bytes")
         .arg(backing_bytes.to_string())
+        .arg("--size-bytes")
         .arg(volume_bytes.to_string());
     sqlite::configure_ledger_env(&mut command, ledger);
     command

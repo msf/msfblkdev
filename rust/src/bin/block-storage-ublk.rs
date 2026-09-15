@@ -303,7 +303,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] | delete <device-id> | format <new-regular-file> <backing-bytes> <volume-bytes>",
+                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N (or --size-bytes N --prealloc-bytes N)",
                 PathBuf::from(&program).display()
             ),
         )
@@ -331,19 +331,50 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
             command
         }
         Some("format") => {
-            let command = CliCommand::Format {
-                backing_path: PathBuf::from(args.next().ok_or_else(&usage)?),
-                backing_bytes: parse_bytes(&args.next().ok_or_else(&usage)?)?,
-                volume_bytes: parse_bytes(&args.next().ok_or_else(&usage)?)?,
-            };
-            if args.next().is_some() {
-                return Err(usage());
+            let backing_path = PathBuf::from(args.next().ok_or_else(&usage)?);
+            let (backing_bytes, volume_bytes) = parse_format_sizes(&mut args, &usage)?;
+            CliCommand::Format {
+                backing_path,
+                backing_bytes,
+                volume_bytes,
             }
-            command
         }
         _ => return Err(usage()),
     };
     Ok(command)
+}
+
+/// Parses the volume and backing sizes for `format`.
+///
+/// `--prealloc-mib` sets the backing file's declared length. The file is
+/// sparse, so that length is a ceiling that bounds `ENOSPC`, and the host
+/// allocates blocks only as the log consumes them. The byte spellings exist
+/// because the acceptance geometries are smaller than one MiB.
+fn parse_format_sizes(
+    args: &mut impl Iterator<Item = OsString>,
+    usage: &impl Fn() -> io::Error,
+) -> io::Result<(u64, u64)> {
+    const MIB: u64 = 1024 * 1024;
+    let mut backing_bytes = None;
+    let mut volume_bytes = None;
+    while let Some(flag) = args.next() {
+        let value = args.next().ok_or_else(usage)?;
+        let (target, scale) = match flag.to_str() {
+            Some("--prealloc-mib") => (&mut backing_bytes, MIB),
+            Some("--prealloc-bytes") => (&mut backing_bytes, 1),
+            Some("--size-mib") => (&mut volume_bytes, MIB),
+            Some("--size-bytes") => (&mut volume_bytes, 1),
+            _ => return Err(usage()),
+        };
+        if target.is_some() {
+            return Err(usage());
+        }
+        *target = Some(parse_bytes(&value)?.checked_mul(scale).ok_or_else(usage)?);
+    }
+    match (backing_bytes, volume_bytes) {
+        (Some(backing), Some(volume)) => Ok((backing, volume)),
+        _ => Err(usage()),
+    }
 }
 
 fn parse_serve_config(
@@ -1325,8 +1356,19 @@ mod tests {
             CliCommand::Delete { device_id: 7 }
         );
         assert_eq!(
-            parse_args(["daemon", "format", "volume.img", "1048576", "16384"].map(OsString::from))
-                .unwrap(),
+            parse_args(
+                [
+                    "daemon",
+                    "format",
+                    "volume.img",
+                    "--prealloc-bytes",
+                    "1048576",
+                    "--size-bytes",
+                    "16384",
+                ]
+                .map(OsString::from),
+            )
+            .unwrap(),
             CliCommand::Format {
                 backing_path: PathBuf::from("volume.img"),
                 backing_bytes: 1_048_576,

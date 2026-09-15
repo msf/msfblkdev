@@ -233,7 +233,9 @@ pub(super) fn format_command(daemon: &Path, backing: &Path) -> Command {
     command.args([
         OsStr::new("format"),
         backing.as_os_str(),
+        OsStr::new("--prealloc-bytes"),
         OsStr::new(&geometry.backing_bytes().to_string()),
+        OsStr::new("--size-bytes"),
         OsStr::new(&geometry.volume_bytes().to_string()),
     ]);
     command
