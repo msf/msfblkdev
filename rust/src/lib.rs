@@ -285,9 +285,6 @@ pub struct Volume {
     log_bytes_since_checkpoint: u64,
     checkpoint_after_bytes: u64,
     write_buffer: WriteBackBuffer,
-    // Worst-case last footer block if every buffered payload were its own record. Monotonic within
-    // a session, never reclaimed by a batched release, so ENOSPC matches the write-through device.
-    reservation_footer_block: u32,
     footer_scratch: AlignedBlock,
     read_scratch: AlignedBlock,
     release_checksums: Vec<u64>,
@@ -402,17 +399,19 @@ impl Volume {
             self.write_buffer.store(lba, data);
             return Ok(());
         }
-        // A new address reserves one payload block plus its footer. The reservation is never
-        // reclaimed by batching, so the offending write returns ENOSPC, not a later flush.
-        let next_reservation = u64::from(self.reservation_footer_block)
-            .checked_add(2)
-            .ok_or_else(|| io::Error::other("reservation overflow"))?;
-        if next_reservation >= self.backing_blocks {
+        // Admit the write only if the log can still hold every buffered payload, including this
+        // one, at its worst case. The check precedes the store, so the offending write returns
+        // ENOSPC rather than a later flush. Released payloads are already in last_footer_block,
+        // so nothing is reserved twice and batching is not charged write-through economics.
+        let pending = pending_log_blocks(self.write_buffer.len() + 1);
+        let last_needed = u64::from(self.last_footer_block)
+            .checked_add(pending)
+            .ok_or_else(|| io::Error::other("log accounting overflow"))?;
+        if last_needed >= self.backing_blocks {
             return Err(io::Error::from_raw_os_error(libc::ENOSPC));
         }
         let is_new = self.write_buffer.store(lba, data);
         debug_assert!(is_new, "a miss in get must store a new slot");
-        self.reservation_footer_block = next_reservation as u32;
         if self.write_buffer.len() == self.write_buffer.capacity() {
             self.release_records(ReleaseTrigger::Full)?;
         }
@@ -597,6 +596,17 @@ fn encode_write_footer_multi(
     }
     let checksum = xxh3_64(footer);
     footer[FOOTER_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
+}
+
+/// Log blocks a release of `payloads` buffered blocks consumes at worst.
+///
+/// A release drains the whole buffer into records of at most `MAXIMUM_PAYLOAD_BLOCKS`
+/// payloads, each followed by one footer, so the cost is the payloads plus one
+/// footer per record. This is exact, not pessimistic: it equals 2 for a single
+/// payload and 339 for a full record.
+const fn pending_log_blocks(payloads: usize) -> u64 {
+    let payloads = payloads as u64;
+    payloads + payloads.div_ceil(MAXIMUM_PAYLOAD_BLOCKS as u64)
 }
 
 fn layout_for(volume_bytes: u64) -> io::Result<(u32, Layout)> {
@@ -1019,7 +1029,7 @@ fn open_internal(
         log_bytes_since_checkpoint,
         checkpoint_after_bytes: options.checkpoint_after_bytes,
         write_buffer: WriteBackBuffer::with_capacity(write_buffer_blocks),
-        reservation_footer_block: last_footer_block,
+
         footer_scratch: AlignedBlock([0; BLOCK_SIZE]),
         read_scratch: AlignedBlock([0; BLOCK_SIZE]),
         release_checksums,

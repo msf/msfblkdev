@@ -114,39 +114,49 @@ fn read_after_write_without_flush_returns_the_buffered_value() -> io::Result<()>
     volume.close()
 }
 
+/// A 64-block log, exactly the ublk/fio scenario 7 shape.
+///
+/// Capacity depends on how footers amortise, because the log is charged for what
+/// a release really consumes. Write-through spends one payload plus one footer on
+/// every write, so it fits 64/2 = 32. Batching spends one footer per record, so
+/// the same log fits 60: three full 16-payload releases cost 17 blocks each, and
+/// the remaining 13 blocks hold 12 payloads plus their footer.
 #[test]
 fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<()> {
-    // A 32-record volume, exactly the ublk/fio scenario 7 shape.
-    let backing = TemporaryBacking::new()?;
-    let volume_blocks = 64_u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    let options = large_buffer_options(4 * 1024 * 1024);
-    let mut volume = open_with_options(&backing.0, options)?;
+    for (write_buffer_bytes, capacity) in [(BLOCK_SIZE as u64, 32_u32), (4 * 1024 * 1024, 60)] {
+        let backing = TemporaryBacking::new()?;
+        let volume_blocks = 64_u32;
+        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        let options = large_buffer_options(write_buffer_bytes);
+        let mut volume = open_with_options(&backing.0, options)?;
 
-    for lba in 0..32 {
-        volume.write_block(lba, &pattern(lba))?;
-    }
-    assert_eq!(
-        volume
-            .write_block(32, &[0xff; BLOCK_SIZE])
-            .unwrap_err()
-            .raw_os_error(),
-        Some(libc::ENOSPC)
-    );
-    volume.flush()?;
-    volume.close()?;
+        for lba in 0..capacity {
+            volume.write_block(lba, &pattern(lba))?;
+        }
+        assert_eq!(
+            volume
+                .write_block(capacity, &[0xff; BLOCK_SIZE])
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::ENOSPC),
+            "buffer {write_buffer_bytes} must reject write {capacity}"
+        );
+        volume.flush()?;
+        volume.close()?;
 
-    let mut volume = open_with_options(&backing.0, options)?;
-    let mut actual = [0; BLOCK_SIZE];
-    for lba in 0..32 {
-        volume.read_block(lba, &mut actual)?;
-        assert_eq!(actual, pattern(lba), "surviving write {lba}");
+        let mut volume = open_with_options(&backing.0, options)?;
+        let mut actual = [0; BLOCK_SIZE];
+        for lba in 0..capacity {
+            volume.read_block(lba, &mut actual)?;
+            assert_eq!(actual, pattern(lba), "surviving write {lba}");
+        }
+        volume.read_block(capacity, &mut actual)?;
+        assert_eq!(actual, [0; BLOCK_SIZE], "rejected write never persisted");
+        volume.close()?;
     }
-    volume.read_block(32, &mut actual)?;
-    assert_eq!(actual, [0; BLOCK_SIZE], "rejected write never persisted");
-    volume.close()
+    Ok(())
 }
 
 #[test]

@@ -135,7 +135,12 @@ impl Scenario {
                     blocks: 33,
                     options: FioOptions {
                         do_verify: Some(false),
-                        fsync: Some(32),
+                        // One flush per write, so every write becomes its own record of one
+                        // payload plus one footer. That is the write-through economics the
+                        // geometry encodes: RECORD_CAPACITY records fill the log exactly.
+                        // Batched writes amortise footers and fit far more, which the engine
+                        // test enospc_is_returned_by_the_offending_write_not_a_later_flush pins.
+                        fsync: Some(1),
                         output_json: true,
                         ..FioOptions::default()
                     },
