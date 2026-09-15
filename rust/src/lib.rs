@@ -37,6 +37,16 @@ const MAX_VOLUME_BLOCKS: u64 = 1 << 31;
 const MAX_BACKING_BLOCKS: u64 = u32::MAX as u64 + 1;
 const MAXIMUM_RECORD_BLOCKS: u64 = 339;
 const MAXIMUM_PAYLOAD_BLOCKS: usize = MAXIMUM_RECORD_BLOCKS as usize - 1;
+// Library default: a one-block window makes every write its own record (write-through).
+// The ublk daemon opts into a larger write-back buffer through VolumeOpenOptions.
+const MINIMUM_WRITE_BUFFER_BYTES: u64 = BLOCK_SIZE as u64;
+// A release writes the whole buffer and then fsyncs it; a larger buffer turns one FLUSH into an
+// unacceptably long pause. The plan caps the write-back buffer at 16 MiB.
+const MAXIMUM_WRITE_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
+// Reserving log at insert time means a full buffer holds ~2x its blocks of reserved log. Keep the
+// effective buffer to at most a quarter of the log so one buffer window reserves at most half the
+// log; a small device (ublk/fio scenario 7) collapses toward a one-block write-through window.
+const WRITE_BUFFER_DEVICE_DIVISOR: u64 = 4;
 
 #[cfg(any(test, feature = "test-failpoints"))]
 const TEST_FAILPOINT_ENV: &str = "BLOCK_STORAGE_TEST_FAILPOINT";
@@ -68,9 +78,6 @@ fn pause_at_test_failpoint(name: &str) -> io::Result<()> {
 #[repr(align(4096))]
 struct AlignedBlock([u8; BLOCK_SIZE]);
 
-#[repr(align(4096))]
-struct AlignedRecord([u8; 2 * BLOCK_SIZE]);
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Layout {
     physical_map_blocks: u32,
@@ -99,13 +106,77 @@ struct RecoveredRecord {
 pub struct VolumeOpenOptions {
     /// Maximum physical log bytes retained after the selected checkpoint.
     pub checkpoint_after_bytes: u64,
+    /// Write-back buffer capacity in bytes, clamped to the device at open. A one-block value keeps
+    /// write-through semantics; larger values coalesce writes and release them on flush or FUA.
+    pub write_buffer_bytes: u64,
 }
 
 impl Default for VolumeOpenOptions {
     fn default() -> Self {
         Self {
             checkpoint_after_bytes: DEFAULT_CHECKPOINT_AFTER_BYTES,
+            write_buffer_bytes: MINIMUM_WRITE_BUFFER_BYTES,
         }
+    }
+}
+
+/// A preallocated, 4 KiB-aligned write-back buffer indexed by logical block address.
+struct WriteBackBuffer {
+    arena: Vec<AlignedBlock>,
+    lbas: Vec<u32>,
+    slot_of_lba: std::collections::HashMap<u32, usize>,
+}
+
+impl WriteBackBuffer {
+    fn with_capacity(capacity_blocks: usize) -> Self {
+        assert!(
+            capacity_blocks >= 1,
+            "write buffer needs at least one block"
+        );
+        let mut arena = Vec::new();
+        arena.reserve_exact(capacity_blocks);
+        arena.resize_with(capacity_blocks, || AlignedBlock([0; BLOCK_SIZE]));
+        let mut lbas = Vec::new();
+        lbas.reserve_exact(capacity_blocks);
+        let mut slot_of_lba = std::collections::HashMap::with_capacity(capacity_blocks);
+        slot_of_lba.reserve(capacity_blocks);
+        Self {
+            arena,
+            lbas,
+            slot_of_lba,
+        }
+    }
+
+    fn capacity(&self) -> usize {
+        self.arena.len()
+    }
+
+    fn len(&self) -> usize {
+        self.lbas.len()
+    }
+
+    fn get(&self, lba: u32) -> Option<&[u8; BLOCK_SIZE]> {
+        self.slot_of_lba.get(&lba).map(|slot| &self.arena[*slot].0)
+    }
+
+    /// Overwrites the buffered payload for `lba` in place, or appends a new slot. Returns true when
+    /// the payload occupies a new slot, i.e. when it reserves fresh log space.
+    fn store(&mut self, lba: u32, data: &[u8; BLOCK_SIZE]) -> bool {
+        if let Some(slot) = self.slot_of_lba.get(&lba) {
+            self.arena[*slot].0.copy_from_slice(data);
+            return false;
+        }
+        let slot = self.lbas.len();
+        assert!(slot < self.arena.len(), "write buffer overflow");
+        self.arena[slot].0.copy_from_slice(data);
+        self.lbas.push(lba);
+        self.slot_of_lba.insert(lba, slot);
+        true
+    }
+
+    fn clear(&mut self) {
+        self.lbas.clear();
+        self.slot_of_lba.clear();
     }
 }
 
@@ -124,6 +195,12 @@ pub struct Volume {
     next_checkpoint_slot: CheckpointSlot,
     log_bytes_since_checkpoint: u64,
     checkpoint_after_bytes: u64,
+    write_buffer: WriteBackBuffer,
+    // Worst-case last footer block if every buffered payload were its own record. Monotonic within
+    // a session, never reclaimed by a batched release, so ENOSPC matches the write-through device.
+    reservation_footer_block: u32,
+    footer_scratch: AlignedBlock,
+    release_checksums: Vec<u64>,
     failed: bool,
 }
 
@@ -133,11 +210,17 @@ impl Volume {
         self.volume_blocks
     }
 
-    /// Makes all completed writes durable.
+    /// Releases the write-back buffer and makes all completed writes durable.
     pub fn flush(&mut self) -> io::Result<()> {
         if self.failed {
             return Err(io::Error::other("volume failed"));
         }
+        self.release_records()?;
+        self.fsync_log()
+    }
+
+    /// Issues one backing fsync and advances the durable sequence bound.
+    fn fsync_log(&mut self) -> io::Result<()> {
         let fsync = opcode::Fsync::new(types::Fd(self.backing.as_raw_fd())).build();
         if let Err(error) = submit_exact(&mut self.backing_io, fsync, self.last_lsn, 0) {
             self.failed = true;
@@ -151,8 +234,12 @@ impl Volume {
 
     /// Flushes and checkpoints changed mapping state before releasing its resources.
     pub fn close(mut self) -> io::Result<()> {
+        if self.failed {
+            return Err(io::Error::other("volume failed"));
+        }
+        self.release_records()?;
         if self.last_lsn == self.checkpoint_lsn {
-            self.flush()
+            self.fsync_log()
         } else {
             self.publish_checkpoint()
         }
@@ -165,6 +252,11 @@ impl Volume {
         }
         if lba >= self.volume_blocks {
             return Err(invalid_input("invalid logical block"));
+        }
+
+        if let Some(buffered) = self.write_buffer.get(lba) {
+            data.copy_from_slice(buffered);
+            return Ok(());
         }
 
         let physical_block = self.physical_blocks[lba as usize];
@@ -199,7 +291,8 @@ impl Volume {
         Ok(())
     }
 
-    /// Appends one payload and footer record and publishes it after exact completion.
+    /// Buffers one payload, reserving log space, and completes immediately. Repeated writes to one
+    /// address overwrite in place; a full buffer or a 338-payload window releases before returning.
     pub fn write_block(&mut self, lba: u32, data: &[u8; BLOCK_SIZE]) -> io::Result<()> {
         if self.failed {
             return Err(io::Error::other("volume failed"));
@@ -207,68 +300,127 @@ impl Volume {
         if lba >= self.volume_blocks {
             return Err(invalid_input("invalid logical block"));
         }
+        if self.write_buffer.get(lba).is_some() {
+            self.write_buffer.store(lba, data);
+            return Ok(());
+        }
+        // A new address reserves one payload block plus its footer. The reservation is never
+        // reclaimed by batching, so the offending write returns ENOSPC, not a later flush.
+        let next_reservation = u64::from(self.reservation_footer_block)
+            .checked_add(2)
+            .ok_or_else(|| io::Error::other("reservation overflow"))?;
+        if next_reservation >= self.backing_blocks {
+            return Err(io::Error::from_raw_os_error(libc::ENOSPC));
+        }
+        let is_new = self.write_buffer.store(lba, data);
+        debug_assert!(is_new, "a miss in get must store a new slot");
+        self.reservation_footer_block = next_reservation as u32;
+        if self.write_buffer.len() == self.write_buffer.capacity() {
+            self.release_records()?;
+        }
+        Ok(())
+    }
+
+    /// Writes every buffered payload as one or more records (each `writev`), advancing the log and
+    /// mapping. It does not fsync: durability is the caller's flush or a checkpoint.
+    fn release_records(&mut self) -> io::Result<()> {
+        let total = self.write_buffer.len();
+        let mut start = 0;
+        while start < total {
+            let count = (total - start).min(MAXIMUM_PAYLOAD_BLOCKS);
+            let record_bytes = (count as u64 + 1) * BLOCK_SIZE as u64;
+            let bytes_after = self
+                .log_bytes_since_checkpoint
+                .checked_add(record_bytes)
+                .ok_or_else(|| io::Error::other("checkpoint byte count overflow"))?;
+            if bytes_after > self.checkpoint_after_bytes {
+                self.publish_checkpoint()?;
+            }
+            self.write_one_record(start, count)?;
+            start += count;
+        }
+        self.write_buffer.clear();
+        Ok(())
+    }
+
+    /// Emits one record covering `count` buffered payloads starting at buffer slot `start`.
+    fn write_one_record(&mut self, start: usize, count: usize) -> io::Result<()> {
+        assert!(
+            (1..=MAXIMUM_PAYLOAD_BLOCKS).contains(&count),
+            "record payload count"
+        );
         let lsn = self
             .last_lsn
             .checked_add(1)
             .ok_or_else(|| io::Error::other("sequence exhausted"))?;
-        let payload_block = u64::from(self.last_footer_block) + 1;
-        let footer_block = payload_block + 1;
-        if footer_block >= self.backing_blocks {
-            return Err(io::Error::from_raw_os_error(libc::ENOSPC));
-        }
-        let record_bytes = (2 * BLOCK_SIZE) as u64;
-        let bytes_after_write = self
-            .log_bytes_since_checkpoint
-            .checked_add(record_bytes)
-            .ok_or_else(|| io::Error::other("checkpoint byte count overflow"))?;
-        if bytes_after_write > self.checkpoint_after_bytes {
-            self.publish_checkpoint()?;
-        }
-
-        let payload_block = payload_block as u32;
+        let first_payload_block = u64::from(self.last_footer_block) + 1;
+        let footer_block = first_payload_block + count as u64;
+        // Reservation guarantees room, but assert the invariant that keeps the write in bounds.
+        assert!(
+            footer_block < self.backing_blocks,
+            "release exceeds reserved log"
+        );
         let footer_block = footer_block as u32;
-        let checksum = payload_checksum(self.volume_id, lba, payload_block, data);
 
-        let mut record = AlignedRecord([0; 2 * BLOCK_SIZE]);
-        record.0[..BLOCK_SIZE].copy_from_slice(data);
-        encode_write_footer(
-            &mut record.0[BLOCK_SIZE..],
+        self.release_checksums.clear();
+        for index in 0..count {
+            let lba = self.write_buffer.lbas[start + index];
+            let payload_block = first_payload_block as u32 + index as u32;
+            let payload = &self.write_buffer.arena[start + index].0;
+            self.release_checksums.push(payload_checksum(
+                self.volume_id,
+                lba,
+                payload_block,
+                payload,
+            ));
+        }
+        encode_write_footer_multi(
+            &mut self.footer_scratch.0,
             self.volume_id,
             lsn,
             self.last_footer_block,
             footer_block,
-            lba,
-            checksum,
+            &self.write_buffer.lbas[start..start + count],
+            &self.release_checksums,
         );
-        let iovecs = [
-            libc::iovec {
-                iov_base: record.0.as_mut_ptr().cast(),
+
+        // iovecs hold raw pointers into the arena and footer scratch; keep them local so `Volume`
+        // stays `Send` and the buffers outlive the wait inside submit_exact.
+        let mut iovecs: Vec<libc::iovec> = Vec::with_capacity(count + 1);
+        for index in 0..count {
+            iovecs.push(libc::iovec {
+                iov_base: self.write_buffer.arena[start + index].0.as_ptr() as *mut libc::c_void,
                 iov_len: BLOCK_SIZE,
-            },
-            libc::iovec {
-                iov_base: record.0[BLOCK_SIZE..].as_mut_ptr().cast(),
-                iov_len: BLOCK_SIZE,
-            },
-        ];
+            });
+        }
+        iovecs.push(libc::iovec {
+            iov_base: self.footer_scratch.0.as_ptr() as *mut libc::c_void,
+            iov_len: BLOCK_SIZE,
+        });
+
+        let record_bytes = (count + 1) * BLOCK_SIZE;
         let write = opcode::Writev::new(
             types::Fd(self.backing.as_raw_fd()),
             iovecs.as_ptr(),
             iovecs.len() as u32,
         )
-        .offset(u64::from(payload_block) * BLOCK_SIZE as u64)
+        .offset(first_payload_block * BLOCK_SIZE as u64)
         .build();
-        if let Err(error) = submit_exact(&mut self.backing_io, write, lsn, record.0.len() as i32) {
+        if let Err(error) = submit_exact(&mut self.backing_io, write, lsn, record_bytes as i32) {
             self.failed = true;
             return Err(error);
         }
         #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(RECORD_WRITE_COMPLETE_FAILPOINT)?;
 
-        self.physical_blocks[lba as usize] = payload_block;
-        self.checksums[lba as usize] = checksum;
+        for index in 0..count {
+            let lba = self.write_buffer.lbas[start + index] as usize;
+            self.physical_blocks[lba] = first_payload_block as u32 + index as u32;
+            self.checksums[lba] = self.release_checksums[index];
+        }
         self.last_lsn = lsn;
         self.last_footer_block = footer_block;
-        self.log_bytes_since_checkpoint += record_bytes;
+        self.log_bytes_since_checkpoint += record_bytes as u64;
         #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(MAPPING_PUBLISHED_FAILPOINT)?;
         Ok(())
@@ -305,15 +457,20 @@ fn payload_checksum(volume_id: u64, lba: u32, physical_block: u32, payload: &[u8
     hasher.digest()
 }
 
-fn encode_write_footer(
+fn encode_write_footer_multi(
     footer: &mut [u8],
     volume_id: u64,
     lsn: u64,
     previous_footer_block: u32,
     footer_block: u32,
-    lba: u32,
-    payload_checksum: u64,
+    lbas: &[u32],
+    checksums: &[u64],
 ) {
+    assert_eq!(lbas.len(), checksums.len(), "footer entries must be paired");
+    assert!(
+        !lbas.is_empty() && lbas.len() <= MAXIMUM_PAYLOAD_BLOCKS,
+        "footer payload count out of range"
+    );
     footer.fill(0);
     footer[..4].copy_from_slice(FOOTER_MAGIC);
     footer[4] = FORMAT_VERSION;
@@ -322,9 +479,13 @@ fn encode_write_footer(
     footer[16..24].copy_from_slice(&lsn.to_le_bytes());
     footer[24..28].copy_from_slice(&previous_footer_block.to_le_bytes());
     footer[28..32].copy_from_slice(&footer_block.to_le_bytes());
-    footer[FOOTER_LBA_OFFSET..FOOTER_LBA_OFFSET + 4].copy_from_slice(&lba.to_le_bytes());
-    footer[FOOTER_PAYLOAD_CHECKSUM_OFFSET..FOOTER_PAYLOAD_CHECKSUM_OFFSET + 8]
-        .copy_from_slice(&payload_checksum.to_le_bytes());
+    for (index, (lba, checksum)) in lbas.iter().zip(checksums).enumerate() {
+        let lba_offset = FOOTER_LBA_OFFSET + index * size_of::<u32>();
+        let checksum_offset = FOOTER_PAYLOAD_CHECKSUM_OFFSET + index * size_of::<u64>();
+        footer[lba_offset..lba_offset + size_of::<u32>()].copy_from_slice(&lba.to_le_bytes());
+        footer[checksum_offset..checksum_offset + size_of::<u64>()]
+            .copy_from_slice(&checksum.to_le_bytes());
+    }
     let checksum = xxh3_64(footer);
     footer[FOOTER_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
 }
@@ -642,6 +803,12 @@ fn open_internal(
     {
         return Err(invalid_input("invalid checkpoint_after_bytes"));
     }
+    if !options.write_buffer_bytes.is_multiple_of(BLOCK_SIZE as u64)
+        || options.write_buffer_bytes < MINIMUM_WRITE_BUFFER_BYTES
+        || options.write_buffer_bytes > MAXIMUM_WRITE_BUFFER_BYTES
+    {
+        return Err(invalid_input("invalid write_buffer_bytes"));
+    }
 
     let mut backing = OpenOptions::new()
         .read(true)
@@ -714,6 +881,14 @@ fn open_internal(
         checkpoint.backing_blocks,
     )?;
 
+    let write_buffer_blocks = clamp_write_buffer_blocks(
+        options.write_buffer_bytes,
+        checkpoint.backing_blocks,
+        checkpoint.layout.log_start,
+    );
+    let mut release_checksums = Vec::new();
+    release_checksums.reserve_exact(MAXIMUM_PAYLOAD_BLOCKS);
+
     Ok(Volume {
         backing,
         backing_io,
@@ -732,8 +907,26 @@ fn open_internal(
         },
         log_bytes_since_checkpoint,
         checkpoint_after_bytes: options.checkpoint_after_bytes,
+        write_buffer: WriteBackBuffer::with_capacity(write_buffer_blocks),
+        reservation_footer_block: last_footer_block,
+        footer_scratch: AlignedBlock([0; BLOCK_SIZE]),
+        release_checksums,
         failed: false,
     })
+}
+
+/// Clamps the configured write-back buffer to a fraction of the device log so one buffer window
+/// cannot exhaust the log; a small device collapses to a one-block write-through window.
+fn clamp_write_buffer_blocks(
+    write_buffer_bytes: u64,
+    backing_blocks: u64,
+    log_start: u32,
+) -> usize {
+    let configured = (write_buffer_bytes / BLOCK_SIZE as u64).max(1);
+    let log_capacity = backing_blocks.saturating_sub(u64::from(log_start));
+    let device_limit = (log_capacity / WRITE_BUFFER_DEVICE_DIVISOR).max(1);
+    let blocks = configured.min(device_limit).max(1);
+    usize::try_from(blocks).unwrap_or(1)
 }
 
 /// Writes the two checksummed empty checkpoint roots to a pre-sized backing file.

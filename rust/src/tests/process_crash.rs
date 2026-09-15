@@ -121,6 +121,119 @@ fn recover_after_uncaught_unwinding_panic_without_close() -> io::Result<()> {
     })
 }
 
+#[test]
+fn buffered_write_is_volatile_until_flush_across_sigkill() -> io::Result<()> {
+    const BUFFER_MODE_ENV: &str = "BLOCK_STORAGE_BUFFER_CRASH_MODE";
+    const FLUSHED_HANDSHAKE: &str = "buffered-flushed";
+    const UNFLUSHED_HANDSHAKE: &str = "buffered-unflushed";
+    let new = [0xa5; BLOCK_SIZE];
+    // A 64 KiB buffer clamps to 16 slots here, so one write stays buffered until flush.
+    let options = VolumeOpenOptions {
+        write_buffer_bytes: 64 * 1024,
+        ..VolumeOpenOptions::default()
+    };
+
+    if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
+        let flush_write = std::env::var_os(BUFFER_MODE_ENV).as_deref() == Some(OsStr::new("flush"));
+        let mut volume = open_with_options(PathBuf::from(backing), options)?;
+        volume.write_block(0, &new)?;
+        if flush_write {
+            volume.flush()?;
+            println!("{FLUSHED_HANDSHAKE}");
+        } else {
+            println!("{UNFLUSHED_HANDSHAKE}");
+        }
+        io::stdout().flush()?;
+        loop {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+
+    let test_name = "tests::process_crash::buffered_write_is_volatile_until_flush_across_sigkill";
+    repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
+        // Flushed: the write is durable and survives SIGKILL.
+        let backing = TemporaryBacking::new()?;
+        let (_, layout) = layout_for(4 * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+        format(&backing.0, 4 * BLOCK_SIZE as u64)?;
+        run_buffer_crash_child(test_name, &backing.0, FLUSHED_HANDSHAKE, Some("flush"))?;
+        let mut volume = open_with_options(&backing.0, options)?;
+        let mut actual = [0; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(actual, new, "flushed write must survive SIGKILL");
+        volume.close()?;
+
+        // Unflushed: the buffered write is volatile and is lost.
+        let backing = TemporaryBacking::new()?;
+        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+        format(&backing.0, 4 * BLOCK_SIZE as u64)?;
+        run_buffer_crash_child(test_name, &backing.0, UNFLUSHED_HANDSHAKE, None)?;
+        let mut volume = open_with_options(&backing.0, options)?;
+        let mut actual = [0xff; BLOCK_SIZE];
+        volume.read_block(0, &mut actual)?;
+        assert_eq!(
+            actual, [0; BLOCK_SIZE],
+            "unflushed buffered write must be lost"
+        );
+        volume.close()
+    })
+}
+
+fn run_buffer_crash_child(
+    test_name: &str,
+    backing: &Path,
+    handshake: &str,
+    mode: Option<&str>,
+) -> io::Result<()> {
+    let mut command = Command::new(std::env::current_exe()?);
+    command
+        .args(["--exact", test_name, "--nocapture"])
+        .env(CRASH_TEST_BACKING, backing)
+        .stdout(Stdio::piped());
+    if let Some(mode) = mode {
+        command.env("BLOCK_STORAGE_BUFFER_CRASH_MODE", mode);
+    }
+    let mut child = command.spawn()?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            kill_and_reap(&mut child)?;
+            return Err(io::Error::other("buffer crash child stdout unavailable"));
+        }
+    };
+    let expected = handshake.to_owned();
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let reader = std::thread::spawn(move || {
+        let result = BufReader::new(stdout)
+            .lines()
+            .find_map(|line| match line {
+                Ok(line) if line == expected => Some(Ok(())),
+                Ok(_) => None,
+                Err(error) => Some(Err(error)),
+            })
+            .unwrap_or_else(|| Err(io::Error::other("child exited before handshake")));
+        sender.send(result)
+    });
+    let handshake_result = match receiver.recv_timeout(HANDSHAKE_TIMEOUT) {
+        Ok(result) => result,
+        Err(_) => Err(io::Error::other(
+            "timed out waiting for buffer crash handshake",
+        )),
+    };
+    let status = kill_and_reap(&mut child)?;
+    reader
+        .join()
+        .map_err(|_| io::Error::other("buffer crash reader panicked"))?
+        .map_err(|_| io::Error::other("buffer crash handshake receiver disconnected"))?;
+    handshake_result?;
+    if status.signal() != Some(libc::SIGKILL) {
+        return Err(io::Error::other(
+            "buffer crash child was not killed by SIGKILL",
+        ));
+    }
+    Ok(())
+}
+
 fn repeat_process_crash_scenario(
     plan: &CrashTestPlan,
     mut scenario: impl FnMut() -> io::Result<()>,

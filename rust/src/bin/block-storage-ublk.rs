@@ -38,6 +38,9 @@ const SECTORS_PER_BLOCK: u64 = 1 << (BLOCK_SHIFT - SECTOR_SHIFT);
 const QUEUE_COUNT: u16 = 1;
 const DEFAULT_MAX_REQUEST_BYTES: u32 = 131_072;
 const DEFAULT_INFLIGHT_MEMORY_BYTES: u64 = 4 * 1024 * 1024;
+const DEFAULT_WRITE_BUFFER_BYTES: u64 = 4 * 1024 * 1024;
+// The engine caps the write-back buffer at 16 MiB (a release writes and fsyncs the whole buffer).
+const MAX_WRITE_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
 // A request that fits one log record keeps "one ublk request always fits in one log record";
 // the footer holds at most 338 payloads (MAXIMUM_PAYLOAD_BLOCKS in the engine).
 const MAX_REQUEST_BLOCKS: u32 = 338;
@@ -211,6 +214,7 @@ impl BackingLock {
 struct ServeConfig {
     max_request_bytes: u32,
     inflight_memory_bytes: u64,
+    write_buffer_bytes: u64,
 }
 
 impl Default for ServeConfig {
@@ -218,6 +222,7 @@ impl Default for ServeConfig {
         Self {
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             inflight_memory_bytes: DEFAULT_INFLIGHT_MEMORY_BYTES,
+            write_buffer_bytes: DEFAULT_WRITE_BUFFER_BYTES,
         }
     }
 }
@@ -239,7 +244,25 @@ impl ServeConfig {
                 "--inflight-memory-bytes must hold at least one request",
             ));
         }
+        if self.write_buffer_bytes == 0
+            || !self
+                .write_buffer_bytes
+                .is_multiple_of(u64::from(LOGICAL_BLOCK_BYTES))
+            || self.write_buffer_bytes > MAX_WRITE_BUFFER_BYTES
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--write-buffer-bytes must be a positive multiple of 4096 and at most 16 MiB",
+            ));
+        }
         Ok(())
+    }
+
+    fn volume_open_options(self) -> block_storage::VolumeOpenOptions {
+        block_storage::VolumeOpenOptions {
+            write_buffer_bytes: self.write_buffer_bytes,
+            ..block_storage::VolumeOpenOptions::default()
+        }
     }
 
     fn queue_depth(self) -> u16 {
@@ -279,7 +302,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] | delete <device-id> | format <new-regular-file> <backing-bytes> <volume-bytes>",
+                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] | delete <device-id> | format <new-regular-file> <backing-bytes> <volume-bytes>",
                 PathBuf::from(&program).display()
             ),
         )
@@ -336,6 +359,9 @@ fn parse_serve_config(
             }
             Some("--inflight-memory-bytes") => {
                 config.inflight_memory_bytes = parse_bytes(&value)?;
+            }
+            Some("--write-buffer-bytes") => {
+                config.write_buffer_bytes = parse_bytes(&value)?;
             }
             _ => return Err(usage()),
         }
@@ -813,11 +839,12 @@ fn serve(
     let accounting = io_ledger::open_optional(ledger_path)?;
     let _backing_lock = BackingLock::acquire(backing_path)?;
     eprintln!(
-        "serve config: max_request_bytes={} inflight_memory_bytes={} depth={} buffer_memory_bytes={}",
+        "serve config: max_request_bytes={} inflight_memory_bytes={} depth={} buffer_memory_bytes={} write_buffer_bytes={}",
         config.max_request_bytes,
         config.inflight_memory_bytes,
         config.queue_depth(),
         config.buffer_memory_bytes(),
+        config.write_buffer_bytes,
     );
     let signal_guard = SignalGuard::install()?;
     let drain = Arc::new(DrainState::new());
@@ -826,10 +853,10 @@ fn serve(
         volume: Some(match accounting {
             Some(writer) => block_storage::open_with_accounting(
                 backing_path,
-                block_storage::VolumeOpenOptions::default(),
+                config.volume_open_options(),
                 writer,
             )?,
-            None => block_storage::open(backing_path)?,
+            None => block_storage::open_with_options(backing_path, config.volume_open_options())?,
         }),
         result: None,
     }));
@@ -1268,6 +1295,7 @@ mod tests {
                 config: ServeConfig {
                     max_request_bytes: 65_536,
                     inflight_memory_bytes: 1_048_576,
+                    ..ServeConfig::default()
                 },
             }
         );
@@ -1429,6 +1457,7 @@ mod tests {
             ServeConfig {
                 max_request_bytes: 4097,
                 inflight_memory_bytes: DEFAULT_INFLIGHT_MEMORY_BYTES,
+                ..ServeConfig::default()
             }
             .validate()
             .is_err()
@@ -1438,6 +1467,7 @@ mod tests {
             ServeConfig {
                 max_request_bytes: (MAX_REQUEST_BLOCKS + 1) * LOGICAL_BLOCK_BYTES,
                 inflight_memory_bytes: 1 << 30,
+                ..ServeConfig::default()
             }
             .validate()
             .is_err()
@@ -1447,6 +1477,7 @@ mod tests {
             ServeConfig {
                 max_request_bytes: 131_072,
                 inflight_memory_bytes: 65_536,
+                ..ServeConfig::default()
             }
             .validate()
             .is_err()
@@ -1456,6 +1487,7 @@ mod tests {
             ServeConfig {
                 max_request_bytes: LOGICAL_BLOCK_BYTES,
                 inflight_memory_bytes: 1 << 40,
+                ..ServeConfig::default()
             }
             .queue_depth(),
             MAX_QUEUE_DEPTH
@@ -1464,6 +1496,7 @@ mod tests {
             ServeConfig {
                 max_request_bytes: 131_072,
                 inflight_memory_bytes: 131_072,
+                ..ServeConfig::default()
             }
             .queue_depth(),
             1

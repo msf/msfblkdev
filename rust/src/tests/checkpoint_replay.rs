@@ -344,6 +344,7 @@ fn rejects_invalid_checkpoint_after_bytes_before_touching_backing() -> io::Resul
     for checkpoint_after_bytes in invalid_values {
         let options = VolumeOpenOptions {
             checkpoint_after_bytes,
+            ..VolumeOpenOptions::default()
         };
         for path in [&backing.0, &missing.0] {
             let error = match open_with_options(path, options) {
@@ -358,6 +359,7 @@ fn rejects_invalid_checkpoint_after_bytes_before_touching_backing() -> io::Resul
 
     let minimum = VolumeOpenOptions {
         checkpoint_after_bytes: MINIMUM_CHECKPOINT_AFTER_BYTES,
+        ..VolumeOpenOptions::default()
     };
     let volume = open_with_options(&backing.0, minimum)?;
     assert_eq!(
@@ -389,6 +391,7 @@ fn checkpoints_before_write_exceeding_replay_bound() -> io::Result<()> {
     format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
     let options = VolumeOpenOptions {
         checkpoint_after_bytes: CHECKPOINT_BLOCKS * BLOCK_SIZE as u64,
+        ..VolumeOpenOptions::default()
     };
     let mut volume = open_with_options(&backing.0, options)?;
 
@@ -529,6 +532,7 @@ fn log_full_write_does_not_publish_live_checkpoint() -> io::Result<()> {
     format(&backing.0, BLOCK_SIZE as u64)?;
     let options = VolumeOpenOptions {
         checkpoint_after_bytes: CHECKPOINT_BLOCKS * BLOCK_SIZE as u64,
+        ..VolumeOpenOptions::default()
     };
     let mut volume = open_with_options(&backing.0, options)?;
     for lsn in 1..=CHECKPOINT_BLOCKS / 2 {

@@ -48,7 +48,7 @@ pub(super) struct Checkpoint {
 
 impl Volume {
     pub(super) fn publish_checkpoint(&mut self) -> io::Result<()> {
-        self.flush()?;
+        self.fsync_log()?;
         let body_checksum = self.persist_checkpoint_body()?;
         let mut descriptor = AlignedBlock([0; BLOCK_SIZE]);
         let checkpoint = Checkpoint {
@@ -80,7 +80,7 @@ impl Volume {
         }
         #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(DESCRIPTOR_WRITE_COMPLETE_FAILPOINT)?;
-        self.flush()?;
+        self.fsync_log()?;
         #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT)?;
         self.checkpoint_lsn = self.last_lsn;
@@ -136,7 +136,7 @@ impl Volume {
                 "{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{body_block_index}"
             ))?;
         }
-        self.flush()?;
+        self.fsync_log()?;
         #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT)?;
         Ok(hasher.digest())
