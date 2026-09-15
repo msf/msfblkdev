@@ -19,6 +19,10 @@ use std::time::{Duration, Instant};
 
 // Acceptance repeats the complete lifecycle, never reusing a previous repetition's log.
 const REPETITIONS: usize = 3;
+/// The daemon's default `--max-request-bytes`, which it advertises to the
+/// kernel as `max_sectors`. The lifecycle asserts the device reports it and the
+/// SQLite metadata records it, so both read this one value.
+const DAEMON_MAX_REQUEST_BYTES: u32 = 131_072;
 const POLL: Duration = Duration::from_millis(10);
 const MAX_CAPTURE_BYTES: u64 = 16 * 1024 * 1024;
 

@@ -13,6 +13,7 @@ mod accounted_io;
 mod checkpoint;
 
 pub mod io_accounting;
+pub mod logging;
 
 use accounted_io::{BackingIo, submit_exact};
 use checkpoint::{
@@ -171,7 +172,7 @@ impl ReleaseStats {
             (self.footer_bytes + self.payload_bytes) as f64 / self.payload_bytes as f64
         };
         format!(
-            "release-stats records={} payloads={} payloads_per_record={:.3} backing_over_payload={:.3} footer_bytes={} payload_bytes={} full_releases={} flush_releases={} histogram={:?}",
+            "records={} payloads={} payloads_per_record={:.3} backing_over_payload={:.3} footer_bytes={} payload_bytes={} full_releases={} flush_releases={} histogram={:?}",
             self.records,
             self.payloads,
             if self.records == 0 {
@@ -525,6 +526,10 @@ impl Volume {
         self.last_footer_block = footer_block;
         self.log_bytes_since_checkpoint += record_bytes as u64;
         self.release_stats.record(count);
+        log_debug!(
+            "event=release_record lsn={lsn} payloads={count} footer_block={footer_block} record_bytes={record_bytes} buffered={}",
+            self.write_buffer.len()
+        );
         #[cfg(any(test, feature = "test-failpoints"))]
         pause_at_test_failpoint(MAPPING_PUBLISHED_FAILPOINT)?;
         Ok(())

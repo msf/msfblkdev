@@ -274,7 +274,7 @@ impl Lab<'_> {
                    "kernel": kernel.trim(), "backing_medium": medium.trim(),
                    "hardware": hardware::read()?,
                    "geometry": {"logical_block_bytes": 4096, "physical_block_bytes": 4096,
-                                "max_request_bytes": 4096, "volume_bytes": Filesystem::Ext4.volume_bytes(),
+                                "max_request_bytes": super::DAEMON_MAX_REQUEST_BYTES, "volume_bytes": Filesystem::Ext4.volume_bytes(),
                                 "backing_bytes": Filesystem::Ext4.backing_bytes()},
                    "profiles_available_for_later_matrix": profiles}),
         );
@@ -578,18 +578,44 @@ impl Lab<'_> {
         let point = point
             .as_mut()
             .ok_or_else(|| io::Error::other("pre-stop I/O sample is absent"))?;
-        if completed.reads < point.block.reads
-            || completed.writes < point.block.writes
-            || completed.flushes < point.block.flushes
-        {
-            return Err(io::Error::other(
-                "daemon completed fewer requests than the kernel sample",
-            ));
+        // Sectors and flushes are compared, never request counts: one request
+        // carries many logical blocks, so only the transferred quantity is
+        // comparable between the kernel and the daemon. The daemon may exceed
+        // the sample, because it keeps completing work after the sysfs read.
+        for (unit, kernel, daemon) in [
+            (
+                "read_sectors",
+                point.block.read_sectors,
+                completed.read_sectors,
+            ),
+            (
+                "write_sectors",
+                point.block.write_sectors,
+                completed.write_sectors,
+            ),
+            ("flushes", point.block.flushes, completed.flushes),
+        ] {
+            if daemon < kernel {
+                return Err(io::Error::other(format!(
+                    "daemon completed less than the kernel sample: unit={unit} kernel={kernel} daemon={daemon} deficit={} \
+                     kernel_read_sectors={} kernel_write_sectors={} kernel_flushes={} \
+                     daemon_reads={} daemon_writes={} daemon_read_sectors={} daemon_write_sectors={} daemon_flushes={}",
+                    kernel - daemon,
+                    point.block.read_sectors,
+                    point.block.write_sectors,
+                    point.block.flushes,
+                    completed.reads,
+                    completed.writes,
+                    completed.read_sectors,
+                    completed.write_sectors,
+                    completed.flushes,
+                )));
+            }
         }
-        // Include requests completed after the last sysfs sample, before removal.
+        // Include work completed after the last sysfs sample, before removal.
         point.block = BlockCounters {
-            reads: completed.reads,
-            writes: completed.writes,
+            read_sectors: completed.read_sectors,
+            write_sectors: completed.write_sectors,
             flushes: completed.flushes,
         };
         Ok(())
@@ -837,8 +863,8 @@ fn io_delta(before: &IoPoint, after: &IoPoint) -> io::Result<Value> {
             .ok_or_else(|| io::Error::other("I/O counter decreased within one device instance"))
     };
     Ok(json!({
-        "ublk_completed_reads": subtract(after.block.reads, before.block.reads)?,
-        "ublk_completed_writes": subtract(after.block.writes, before.block.writes)?,
+        "ublk_read_sectors": subtract(after.block.read_sectors, before.block.read_sectors)?,
+        "ublk_write_sectors": subtract(after.block.write_sectors, before.block.write_sectors)?,
         "ublk_completed_flushes": subtract(after.block.flushes, before.block.flushes)?,
         "backing_read_completed_bytes": subtract(after.ledger.read_bytes, before.ledger.read_bytes)?,
         "backing_write_completed_bytes": subtract(after.ledger.write_completed_bytes, before.ledger.write_completed_bytes)?,
@@ -847,7 +873,7 @@ fn io_delta(before: &IoPoint, after: &IoPoint) -> io::Result<Value> {
         "backing_completed_writes": subtract(after.ledger.writes, before.ledger.writes)?,
         "backing_completed_flushes": subtract(after.ledger.flushes, before.ledger.flushes)?,
         "excludes_deallocation_and_host_device_amplification": true,
-        "ublk_counter_source": "data sectors / 8 and flush completions; final daemon totals at shutdown",
+        "ublk_counter_source": "512-byte data sectors and flush completions; final daemon totals at shutdown",
     }))
 }
 
@@ -863,8 +889,8 @@ fn restart_io_delta(origin: &IoPoint, first_end: &IoPoint, second: &IoPoint) -> 
             .ok_or_else(|| io::Error::other("restart I/O counter overflow"))
     };
     Ok(json!({
-        "ublk_completed_reads": add(subtract(first_end.block.reads, origin.block.reads)?, second.block.reads)?,
-        "ublk_completed_writes": add(subtract(first_end.block.writes, origin.block.writes)?, second.block.writes)?,
+        "ublk_read_sectors": add(subtract(first_end.block.read_sectors, origin.block.read_sectors)?, second.block.read_sectors)?,
+        "ublk_write_sectors": add(subtract(first_end.block.write_sectors, origin.block.write_sectors)?, second.block.write_sectors)?,
         "ublk_completed_flushes": add(subtract(first_end.block.flushes, origin.block.flushes)?, second.block.flushes)?,
         "backing_read_completed_bytes": subtract(second.ledger.read_bytes, origin.ledger.read_bytes)?,
         "backing_write_completed_bytes": subtract(second.ledger.write_completed_bytes, origin.ledger.write_completed_bytes)?,
@@ -1095,16 +1121,16 @@ mod tests {
         assert_eq!(
             parse_block_stat(stat).unwrap(),
             BlockCounters {
-                reads: 7,
-                writes: 11,
+                read_sectors: 56,
+                write_sectors: 88,
                 flushes: 13
             }
         );
         let before = IoPoint::default();
         let after = IoPoint {
             block: BlockCounters {
-                reads: 1,
-                writes: 2,
+                read_sectors: 1,
+                write_sectors: 2,
                 flushes: 3,
             },
             ledger: LedgerCounters {
@@ -1119,8 +1145,8 @@ mod tests {
         assert!(io_delta(&after, &before).is_err());
         let first_end = IoPoint {
             block: BlockCounters {
-                reads: 3,
-                writes: 4,
+                read_sectors: 3,
+                write_sectors: 4,
                 flushes: 5,
             },
             ledger: LedgerCounters {
@@ -1130,8 +1156,8 @@ mod tests {
         };
         let second = IoPoint {
             block: BlockCounters {
-                reads: 6,
-                writes: 7,
+                read_sectors: 6,
+                write_sectors: 7,
                 flushes: 8,
             },
             ledger: LedgerCounters {
@@ -1140,7 +1166,7 @@ mod tests {
             },
         };
         let restart = restart_io_delta(&before, &first_end, &second).unwrap();
-        assert_eq!(restart["ublk_completed_reads"], 9);
+        assert_eq!(restart["ublk_read_sectors"], 9);
         assert_eq!(restart["backing_write_completed_bytes"], 20);
     }
 

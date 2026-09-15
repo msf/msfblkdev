@@ -7,14 +7,24 @@ comparison is not included; it needs operator approval for mounts (see
 
 ## Outcome
 
-All three changes are implemented, each in its own commit, and pass every gate
-that does not need a privileged mount:
+All three changes are implemented, each in its own commit, and pass every gate,
+including the live-mount gates:
 
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`
 - `make lint test`
 - `make test-acceptance` (exhaustive engine crash matrix, 20 repetitions per
   boundary, including every checkpoint-body block boundary)
 - `make test-ublk-fio` (all seven live scenarios, three repetitions each)
+- `make test-ext4`, `make test-xfs` (live filesystem lifecycles)
+- `make test-sqlite`, `make test-sqlite-ext4` (87 of 87 matrix runs, 0 failures)
+- `make lint-zig`, `make test-zig` (historical Zig mirror)
+
+The first `make test-sqlite-ext4` run after change A failed, and the cause was a
+stale lab invariant rather than the engine. The lab derived a request count from
+the kernel's data sectors by dividing by eight, which assumed one request per
+4 KiB block. That identity held only while `max_request_bytes` was 4096. The
+invariant now compares sectors and flushes, which a wide request path does not
+distort, and which check the transferred quantity rather than a count.
 
 The two hard requirements hold, verified by running them:
 
@@ -88,14 +98,15 @@ release (one `writev` per 338-payload record plus one shared `fsync`).
   derived depth; multi-block request splitting; FUA accepted on writes and
   rejected on reads/flushes.
 
-## Not measured (needs operator approval)
+## Not measured
 
-The full comparison in the plan — native ext4 on a loop image, ext4 over the
-unchanged release build, and ext4 over the batched build, three fresh
-repetitions each in release mode — is not run here. `make test-ext4` and
-`make test-sqlite-ext4` need live mounts and the privileged helper. Ask before
-running them. Peak-RSS-over-a-long-run confirmation of constant resident memory
-also needs a live workload.
+The full throughput comparison in the plan — native ext4 on a loop image, ext4
+over the unchanged release build, and ext4 over the batched build, three fresh
+repetitions each in release mode — is not run here. The gates above prove
+correctness under the batched path, not a speedup against native ext4. All
+numbers in this note come from debug builds, so they are not throughput claims.
+Peak-RSS-over-a-long-run confirmation of constant resident memory also needs a
+live workload.
 
 Debug-versus-release control and the checkpoint-interval follow-on (64 MiB to
 512 MiB) are deliberately deferred: the follow-on is a separate experiment after

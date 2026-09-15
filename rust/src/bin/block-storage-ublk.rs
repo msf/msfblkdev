@@ -6,6 +6,7 @@ mod io_ledger;
 #[path = "ublk_support/request_counts.rs"]
 mod request_counts;
 
+use block_storage::{log_debug, log_info};
 use libublk::ctrl::{UblkCtrl, UblkCtrlBuilder};
 use libublk::helpers::IoBuf;
 use libublk::io::{BufDescList, UblkDev, UblkQueue};
@@ -451,6 +452,16 @@ enum Request {
     Flush,
 }
 
+/// Names the ublk opcode for diagnostics; unknown opcodes keep their number.
+fn operation_name(op_flags: u32) -> &'static str {
+    match op_flags & 0xff {
+        UBLK_IO_OP_READ => "read",
+        UBLK_IO_OP_WRITE => "write",
+        UBLK_IO_OP_FLUSH => "flush",
+        _ => "unsupported",
+    }
+}
+
 fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Request, i32> {
     let operation = descriptor.op_flags & 0xff;
     let flags = descriptor.op_flags & !0xff;
@@ -749,7 +760,8 @@ fn run_queue(
     let mut requests = request_counts::RequestCounts::new();
     queue.wait_and_handle_io(|queue, tag, _context| {
         let before_ready = !drain.device_ready.load(Ordering::Acquire);
-        let op_flags = queue.get_iod(tag).op_flags;
+        let descriptor = *queue.get_iod(tag);
+        let op_flags = descriptor.op_flags;
         let mut context = (&mut volume, buffers[tag as usize].as_mut_slice());
         let work = drain.begin_engine_work();
         let cancelled = matches!(&work, EngineWork::Rejected(_));
@@ -760,7 +772,13 @@ fn run_queue(
                 handle_queue_request(volume, queue.get_iod(tag), buffer, &drain, &mut queue_error)
             },
             |(_, buffer), result| {
-                requests.record(op_flags, before_ready, result, cancelled);
+                requests.record(op_flags, descriptor.nr_sectors, before_ready, result, cancelled);
+                log_debug!(
+                    "event=request tag={tag} op={} op_flags={op_flags:#x} start_sector={} nr_sectors={} completion={result} cancelled={cancelled}",
+                    operation_name(op_flags),
+                    descriptor.start_sector,
+                    descriptor.nr_sectors
+                );
                 queue.complete_io_cmd_unified(
                     tag,
                     BufDesc::Slice(buffer),
@@ -781,7 +799,8 @@ fn run_queue(
             "request evidence failed: {error}; queue error: {queue_error:?}"
         )));
     }
-    eprintln!("{}", volume.release_stats().summary());
+    log_info!("event=request_totals {}", requests.totals().summary());
+    log_info!("event=release_stats {}", volume.release_stats().summary());
     close_after_queue(&state, volume, queue_error.map_or(Ok(()), Err));
 }
 
@@ -839,8 +858,8 @@ fn serve(
 ) -> io::Result<()> {
     let accounting = io_ledger::open_optional(ledger_path)?;
     let _backing_lock = BackingLock::acquire(backing_path)?;
-    eprintln!(
-        "serve config: max_request_bytes={} inflight_memory_bytes={} depth={} buffer_memory_bytes={} write_buffer_bytes={}",
+    log_info!(
+        "event=serve_config max_request_bytes={} inflight_memory_bytes={} depth={} buffer_memory_bytes={} write_buffer_bytes={}",
         config.max_request_bytes,
         config.inflight_memory_bytes,
         config.queue_depth(),
@@ -1005,6 +1024,7 @@ fn format_new(
 }
 
 fn run() -> io::Result<()> {
+    block_storage::logging::configure_from_env()?;
     let ledger_path = std::env::var_os(io_ledger::ENVIRONMENT_VARIABLE);
     match parse_args(std::env::args_os())? {
         CliCommand::Serve {

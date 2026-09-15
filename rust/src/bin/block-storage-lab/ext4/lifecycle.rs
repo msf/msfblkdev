@@ -121,11 +121,12 @@ impl Lab<'_> {
             device.node_identity
         ))?;
         let sys = Path::new("/sys/block").join(format!("ublkb{}", device.path.id()));
+        let max_sectors_kb = (super::DAEMON_MAX_REQUEST_BYTES / 1024).to_string();
         for (field, expected) in [
             ("queue/logical_block_size", "4096"),
             ("queue/physical_block_size", "4096"),
-            // Default --max-request-bytes is 131072 (128 KiB); the device advertises it as max_sectors.
-            ("queue/max_sectors_kb", "128"),
+            // The daemon advertises --max-request-bytes to the kernel as max_sectors.
+            ("queue/max_sectors_kb", max_sectors_kb.as_str()),
         ] {
             let actual = fs::read_to_string(sys.join(field))?;
             self.evidence.line(&format!("{field}: {}", actual.trim()))?;

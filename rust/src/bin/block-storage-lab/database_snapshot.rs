@@ -108,8 +108,8 @@ fn record(
         "connection": request.connection,
         "monotonic_ns": monotonic_ns,
         "block": {
-            "reads": block.reads,
-            "writes": block.writes,
+            "read_sectors": block.read_sectors,
+            "write_sectors": block.write_sectors,
             "flushes": block.flushes,
         },
         "ledger": {
@@ -186,8 +186,8 @@ mod tests {
             },
             123,
             &BlockCounters {
-                reads: 1,
-                writes: 2,
+                read_sectors: 8,
+                write_sectors: 16,
                 flushes: 3,
             },
             &ledger,
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(value["record"], "device_snapshot");
         assert_eq!(value["phase"], "drain_end");
         assert_eq!(value["connection"], 64);
-        assert_eq!(value["block"]["writes"], 2);
+        assert_eq!(value["block"]["write_sectors"], 16);
         assert_eq!(value["ledger"]["write_limit_bytes"], 8192);
         assert_eq!(value["ledger"]["pending_operations"], 0);
         assert_eq!(value["ledger"]["completed_totals_incomplete"], false);

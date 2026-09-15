@@ -55,6 +55,80 @@ Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT
 
 V0.8 gates remain the regression baseline. V0.9 and V1.0 add the accepted ext4 and XFS lifecycles.
 
+### Running every test
+
+The suite is split by privilege, because most targets create nothing and a few
+create a live device or a mount. Run them in this order: each group needs more
+access than the one before it.
+
+```sh
+# 1. Unprivileged. No device, no mount, no sudo.
+make lint test test-acceptance
+make lint-zig test-zig          # historical Zig mirror
+
+# 2. Live ublk device. Needs loaded ublk support, access to /dev/ublk-control, and fio.
+make test-ublk-fio
+
+# 3. Live mounts. Needs the installed sudo mount helper (see the ext4 section).
+make test-ext4
+make test-xfs
+
+# 4. SQLite on a live mount. Run setup-sqlite once; it is pinned to 3.51.3.
+make setup-sqlite
+make test-sqlite                # one fresh ext4 WAL/FULL probe
+make test-sqlite-ext4           # 87-run fail-fast matrix
+```
+
+| Target | Requires | Creates |
+| --- | --- | --- |
+| `lint`, `test` | nothing | nothing |
+| `test-acceptance` | nothing | regular-file backing in a temporary directory |
+| `lint-zig`, `test-zig` | downloads pinned Zig on first use | nothing |
+| `test-ublk-fio` | ublk, `fio` | ublk device, regular-file backing |
+| `test-ext4`, `test-xfs` | mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
+| `test-sqlite`, `test-sqlite-ext4` | the above plus `make setup-sqlite` | ublk device, ext4, mount, databases |
+
+Check prerequisites without creating anything:
+
+```sh
+make check-ext4 check-xfs check-sqlite check-sqlite-ext4
+```
+
+To repeat one matrix member instead of all 87:
+
+```sh
+make test-sqlite-ext4-one SQLITE_CASE=speedtest-main \
+	SQLITE_PROFILE=delete-extra SQLITE_REPETITION=1
+```
+
+Every target writes evidence under `evidence/`, and a failed run preserves its
+fixture directory and prints the path. Read those files first when a target
+fails: the console output is intentionally short.
+
+### Diagnostic logging
+
+The daemon and engine log to standard error at three levels, selected by
+`BLOCK_STORAGE_LOG`:
+
+| Level | Content |
+| --- | --- |
+| `off` | nothing |
+| `info` | default. Lifecycle and aggregate events only, with no per-request cost |
+| `debug` | adds one record per request and per log write |
+
+Records are one line of `key=value` pairs after the level name:
+
+```text
+info event=request_totals reads=355 writes=432 flushes=191 read_sectors=10608 write_sectors=40960
+debug event=request tag=3 op=write op_flags=0x801 start_sector=4096 nr_sectors=256 completion=131072
+```
+
+Use `debug` to compare the daemon's request stream against the kernel's
+`/sys/block/ublkb*/stat` counters. Do not use it while measuring performance,
+because one write per request perturbs timing. An unrecognized value is an
+error rather than a silent fallback. Machine-read evidence, such as the
+`request-count` lines the lab parses, is not logging and is always emitted.
+
 ### Development loop
 
 Use Cargo for a focused inner loop while editing Rust. Use the top-level Makefile targets for repository gates and before each commit.

@@ -198,8 +198,8 @@ fn parse_snapshot(record: &Value) -> io::Result<SnapshotPoint> {
         monotonic_ns: required_u64(record, "monotonic_ns")?,
         io: IoPoint {
             block: BlockCounters {
-                reads: required_u64(block, "reads")?,
-                writes: required_u64(block, "writes")?,
+                read_sectors: required_u64(block, "read_sectors")?,
+                write_sectors: required_u64(block, "write_sectors")?,
                 flushes: required_u64(block, "flushes")?,
             },
             ledger: LedgerCounters {
@@ -334,7 +334,7 @@ fn telemetry_json(
 }
 
 fn block_json(block: &BlockCounters) -> Value {
-    json!({"reads": block.reads, "writes": block.writes, "flushes": block.flushes})
+    json!({"read_sectors": block.read_sectors, "write_sectors": block.write_sectors, "flushes": block.flushes})
 }
 
 fn validate_settings(record: &Value, profile: Profile) -> io::Result<()> {
@@ -370,7 +370,7 @@ mod tests {
 
     fn snapshot(phase: &str, monotonic_ns: u64, value: u64) -> String {
         format!(
-            "sqlite-lab {{\"record\":\"device_snapshot\",\"phase\":\"{phase}\",\"connection\":2,\"monotonic_ns\":{monotonic_ns},\"block\":{{\"reads\":{value},\"writes\":{value},\"flushes\":{value}}},\"ledger\":{{\"write_limit_bytes\":536870912,\"write_reserved_bytes\":{value},\"write_completed_bytes\":{value},\"read_completed_bytes\":{value},\"read_completed_operations\":{value},\"write_completed_operations\":{value},\"flush_completed_operations\":{value},\"pending_operations\":3,\"errors\":0,\"completed_totals_incomplete\":false,\"budget_exhausted\":false}}}}\n"
+            "sqlite-lab {{\"record\":\"device_snapshot\",\"phase\":\"{phase}\",\"connection\":2,\"monotonic_ns\":{monotonic_ns},\"block\":{{\"read_sectors\":{value},\"write_sectors\":{value},\"flushes\":{value}}},\"ledger\":{{\"write_limit_bytes\":536870912,\"write_reserved_bytes\":{value},\"write_completed_bytes\":{value},\"read_completed_bytes\":{value},\"read_completed_operations\":{value},\"write_completed_operations\":{value},\"flush_completed_operations\":{value},\"pending_operations\":3,\"errors\":0,\"completed_totals_incomplete\":false,\"budget_exhausted\":false}}}}\n"
         )
     }
 
@@ -402,7 +402,7 @@ mod tests {
         assert_eq!(parsed.snapshot_overhead_ns, 20);
         assert_eq!(parsed.drain_close_ns, 100);
         assert_eq!(
-            io_delta(&parsed.drain_start, &parsed.drain_end).unwrap()["ublk_completed_writes"],
+            io_delta(&parsed.drain_start, &parsed.drain_end).unwrap()["ublk_write_sectors"],
             5
         );
         assert_eq!(

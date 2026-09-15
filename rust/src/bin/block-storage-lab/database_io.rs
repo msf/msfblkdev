@@ -1,9 +1,16 @@
 use std::io;
 
+/// Kernel block I/O counters for one ublk device, in the units Linux reports.
+///
+/// Transfers are counted in 512-byte sectors rather than requests: a wide
+/// request path merges many logical blocks into one request, so request counts
+/// are not comparable between the kernel and the daemon, while sectors are.
+/// The kernel's completed-write counter also includes zero-data flush I/O, so
+/// it is never used here.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct BlockCounters {
-    pub(crate) reads: u64,
-    pub(crate) writes: u64,
+    pub(crate) read_sectors: u64,
+    pub(crate) write_sectors: u64,
     pub(crate) flushes: u64,
 }
 
@@ -19,21 +26,19 @@ pub(crate) fn parse_block_stat(text: &str) -> io::Result<BlockCounters> {
             .parse()
             .map_err(io::Error::other)
     };
-    // Linux reports 512-byte sectors. This lab validates 4096-byte logical blocks
-    // and a 4096-byte maximum request. Each successful data request is eight sectors.
-    // The completed-write counter also includes zero-data flush I/O, so it is not
-    // the count of data requests delivered to ublk.
-    let requests = |sectors: u64| -> io::Result<u64> {
+    // The device advertises 4096-byte logical blocks, so every transfer is a
+    // whole multiple of eight 512-byte sectors regardless of request width.
+    let sectors = |sectors: u64| -> io::Result<u64> {
         if !sectors.is_multiple_of(8) {
             return Err(io::Error::other(
-                "sector count is not whole 4096-byte requests",
+                "sector count is not whole 4096-byte blocks",
             ));
         }
-        Ok(sectors / 8)
+        Ok(sectors)
     };
     Ok(BlockCounters {
-        reads: requests(number(2)?)?,
-        writes: requests(number(6)?)?,
+        read_sectors: sectors(number(2)?)?,
+        write_sectors: sectors(number(6)?)?,
         flushes: number(15)?,
     })
 }
@@ -44,13 +49,15 @@ mod tests {
 
     #[test]
     fn uses_data_sectors_instead_of_flush_inflated_write_completions() {
-        // Captured from the first SQLite probe; the daemon counted 25607 writes.
+        // Captured from the first SQLite probe. Field 5 reports 28389 completed
+        // writes because it includes flush I/O; the 204856 data sectors are the
+        // comparable quantity.
         let stat = "1355 0 10840 31 28389 0 204856 1571 0 1384 1641 0 0 0 0 5558 38";
         assert_eq!(
             parse_block_stat(stat).unwrap(),
             BlockCounters {
-                reads: 1355,
-                writes: 25607,
+                read_sectors: 10840,
+                write_sectors: 204856,
                 flushes: 5558
             }
         );
