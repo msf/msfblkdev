@@ -99,9 +99,11 @@ fn public_accounting_apis_count_format_open_write_checkpoint_and_close() -> io::
         snapshot.write_reserved_bytes,
         snapshot.write_completed_bytes
     );
+    // format descriptor (1) + two stale-tail clears + one record writev + one batched checkpoint
+    // body chunk + one checkpoint descriptor. The body block writes collapse into one 128 KiB chunk.
     assert_eq!(
         snapshot.write_completed_operations,
-        1 + 2 * MAXIMUM_RECORD_BLOCKS + 4
+        1 + 2 * MAXIMUM_RECORD_BLOCKS + 3
     );
     assert_eq!(
         snapshot.read_completed_bytes,

@@ -78,6 +78,20 @@ fn pause_at_test_failpoint(name: &str) -> io::Result<()> {
 #[repr(align(4096))]
 struct AlignedBlock([u8; BLOCK_SIZE]);
 
+// A checkpoint body streams through a 128 KiB aligned buffer instead of one 4 KiB block at a time.
+const CHECKPOINT_BODY_BLOCKS: usize = 32;
+#[repr(align(4096))]
+struct AlignedBody([u8; CHECKPOINT_BODY_BLOCKS * BLOCK_SIZE]);
+
+/// Preallocated `writev` iovecs reused per release. It only holds pointers into this `Volume`'s own
+/// stable heap arena and footer scratch, and is cleared between releases.
+struct ReleaseIovecs(Vec<libc::iovec>);
+
+// SAFETY: the iovecs reference arena and footer memory owned by the same `Volume`. That memory is
+// heap-allocated and stable for the volume's life, so it stays valid when the `Volume` moves
+// between threads, and the vector is empty except during a single-threaded release call.
+unsafe impl Send for ReleaseIovecs {}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Layout {
     physical_map_blocks: u32,
@@ -200,7 +214,9 @@ pub struct Volume {
     // a session, never reclaimed by a batched release, so ENOSPC matches the write-through device.
     reservation_footer_block: u32,
     footer_scratch: AlignedBlock,
+    read_scratch: AlignedBlock,
     release_checksums: Vec<u64>,
+    release_iovecs: ReleaseIovecs,
     failed: bool,
 }
 
@@ -265,10 +281,10 @@ impl Volume {
             return Ok(());
         }
 
-        let mut payload = AlignedBlock([0; BLOCK_SIZE]);
+        // The read overwrites the whole aligned scratch block, so it is never zero-initialized.
         let read = opcode::Read::new(
             types::Fd(self.backing.as_raw_fd()),
-            payload.0.as_mut_ptr(),
+            self.read_scratch.0.as_mut_ptr(),
             BLOCK_SIZE as u32,
         )
         .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
@@ -282,12 +298,12 @@ impl Volume {
             self.failed = true;
             return Err(error);
         }
-        if payload_checksum(self.volume_id, lba, physical_block, &payload.0)
+        if payload_checksum(self.volume_id, lba, physical_block, &self.read_scratch.0)
             != self.checksums[lba as usize]
         {
             return Err(invalid_data("payload checksum mismatch"));
         }
-        data.copy_from_slice(&payload.0);
+        data.copy_from_slice(&self.read_scratch.0);
         Ok(())
     }
 
@@ -384,9 +400,9 @@ impl Volume {
             &self.release_checksums,
         );
 
-        // iovecs hold raw pointers into the arena and footer scratch; keep them local so `Volume`
-        // stays `Send` and the buffers outlive the wait inside submit_exact.
-        let mut iovecs: Vec<libc::iovec> = Vec::with_capacity(count + 1);
+        // Reuse the preallocated iovec scratch: no heap allocation on the release path.
+        let iovecs = &mut self.release_iovecs.0;
+        iovecs.clear();
         for index in 0..count {
             iovecs.push(libc::iovec {
                 iov_base: self.write_buffer.arena[start + index].0.as_ptr() as *mut libc::c_void,
@@ -888,6 +904,8 @@ fn open_internal(
     );
     let mut release_checksums = Vec::new();
     release_checksums.reserve_exact(MAXIMUM_PAYLOAD_BLOCKS);
+    let mut release_iovecs = Vec::new();
+    release_iovecs.reserve_exact(MAXIMUM_RECORD_BLOCKS as usize);
 
     Ok(Volume {
         backing,
@@ -910,7 +928,9 @@ fn open_internal(
         write_buffer: WriteBackBuffer::with_capacity(write_buffer_blocks),
         reservation_footer_block: last_footer_block,
         footer_scratch: AlignedBlock([0; BLOCK_SIZE]),
+        read_scratch: AlignedBlock([0; BLOCK_SIZE]),
         release_checksums,
+        release_iovecs: ReleaseIovecs(release_iovecs),
         failed: false,
     })
 }

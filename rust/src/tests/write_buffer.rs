@@ -126,6 +126,38 @@ fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<(
 }
 
 #[test]
+fn checkpoint_body_round_trips_across_the_128kib_chunk_boundary() -> io::Result<()> {
+    // 16384 blocks => 16 physical-map + 32 checksum-map = 48 body blocks per slot, spanning two
+    // 128 KiB (32-block) chunks, so persist and load both cross a chunk boundary.
+    let backing = TemporaryBacking::new()?;
+    let volume_blocks = 16_384_u32;
+    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    assert!(layout.physical_map_blocks + layout.checksum_map_blocks > 32);
+    backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
+    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+
+    let writes = [(0_u32, 0xa5_u8), (1000, 0x5a), (16_383, 0xc3)];
+    let mut volume = open(&backing.0)?;
+    for (lba, byte) in writes {
+        volume.write_block(lba, &[byte; BLOCK_SIZE])?;
+    }
+    volume.close()?;
+
+    let mut volume = open(&backing.0)?;
+    let mut actual = [0; BLOCK_SIZE];
+    for (lba, byte) in writes {
+        volume.read_block(lba, &mut actual)?;
+        assert_eq!(
+            actual, [byte; BLOCK_SIZE],
+            "lba {lba} after chunked checkpoint"
+        );
+    }
+    volume.read_block(500, &mut actual)?;
+    assert_eq!(actual, [0; BLOCK_SIZE]);
+    volume.close()
+}
+
+#[test]
 fn short_backing_write_fails_the_release_without_publishing() -> io::Result<()> {
     let (backing, options, _) = buffered_volume(8)?;
     let mut volume = open_with_options(&backing.0, options)?;

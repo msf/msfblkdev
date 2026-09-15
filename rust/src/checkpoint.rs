@@ -1,8 +1,8 @@
 #[cfg(any(test, feature = "test-failpoints"))]
 use super::pause_at_test_failpoint;
 use super::{
-    AlignedBlock, BLOCK_SIZE, FORMAT_VERSION, Layout, Volume, accounted_io::BackingIo,
-    backing_blocks_for, layout_for, read_block_exact, read_u32, read_u64, submit_exact,
+    AlignedBlock, AlignedBody, BLOCK_SIZE, CHECKPOINT_BODY_BLOCKS, FORMAT_VERSION, Layout, Volume,
+    accounted_io::BackingIo, backing_blocks_for, layout_for, read_u32, read_u64, submit_exact,
 };
 use io_uring::{opcode, types};
 use std::fs::File;
@@ -98,43 +98,30 @@ impl Volume {
             CheckpointSlot::Green => layout.green_physical_map_start,
             CheckpointSlot::Blue => layout.blue_physical_map_start,
         };
+        let total_blocks = layout.physical_map_blocks + layout.checksum_map_blocks;
         let mut hasher = Xxh3::new();
-        let mut block = AlignedBlock([0; BLOCK_SIZE]);
+        let mut body = AlignedBody([0; CHECKPOINT_BODY_BLOCKS * BLOCK_SIZE]);
+        // A 128 KiB buffer streams the body in up to 32-block writes instead of one block at a time.
+        let mut chunk_start = 0_u32;
+        let mut filled = 0_usize;
 
-        for block_index in 0..layout.physical_map_blocks {
-            block.0.fill(0);
-            let first = block_index as usize * (BLOCK_SIZE / size_of::<u32>());
-            for (bytes, value) in block
-                .0
-                .chunks_exact_mut(size_of::<u32>())
-                .zip(self.physical_blocks[first..].iter())
-            {
-                bytes.copy_from_slice(&value.to_le_bytes());
-            }
-            hasher.update(&block.0);
-            self.write_checkpoint_body_block(body_start + block_index, &block)?;
+        for block_index in 0..total_blocks {
+            let slot = &mut body.0[filled * BLOCK_SIZE..(filled + 1) * BLOCK_SIZE];
+            encode_checkpoint_body_block(slot, &layout, block_index, self);
+            hasher.update(slot);
+            filled += 1;
             #[cfg(any(test, feature = "test-failpoints"))]
             pause_at_test_failpoint(&format!(
                 "{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{block_index}"
             ))?;
-        }
-        for block_index in 0..layout.checksum_map_blocks {
-            block.0.fill(0);
-            let first = block_index as usize * (BLOCK_SIZE / size_of::<u64>());
-            for (bytes, value) in block
-                .0
-                .chunks_exact_mut(size_of::<u64>())
-                .zip(self.checksums[first..].iter())
-            {
-                bytes.copy_from_slice(&value.to_le_bytes());
+            if filled == CHECKPOINT_BODY_BLOCKS || block_index + 1 == total_blocks {
+                self.write_checkpoint_body_chunk(
+                    body_start + chunk_start,
+                    &body.0[..filled * BLOCK_SIZE],
+                )?;
+                chunk_start += filled as u32;
+                filled = 0;
             }
-            hasher.update(&block.0);
-            let body_block_index = layout.physical_map_blocks + block_index;
-            self.write_checkpoint_body_block(body_start + body_block_index, &block)?;
-            #[cfg(any(test, feature = "test-failpoints"))]
-            pause_at_test_failpoint(&format!(
-                "{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{body_block_index}"
-            ))?;
         }
         self.fsync_log()?;
         #[cfg(any(test, feature = "test-failpoints"))]
@@ -142,15 +129,11 @@ impl Volume {
         Ok(hasher.digest())
     }
 
-    fn write_checkpoint_body_block(
-        &mut self,
-        physical_block: u32,
-        block: &AlignedBlock,
-    ) -> io::Result<()> {
+    fn write_checkpoint_body_chunk(&mut self, physical_block: u32, chunk: &[u8]) -> io::Result<()> {
         let write = opcode::Write::new(
             types::Fd(self.backing.as_raw_fd()),
-            block.0.as_ptr(),
-            BLOCK_SIZE as u32,
+            chunk.as_ptr(),
+            chunk.len() as u32,
         )
         .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
         .build();
@@ -158,12 +141,41 @@ impl Volume {
             &mut self.backing_io,
             write,
             self.last_lsn,
-            BLOCK_SIZE as i32,
+            chunk.len() as i32,
         ) {
             self.failed = true;
             return Err(error);
         }
         Ok(())
+    }
+}
+
+/// Encodes one 4 KiB checkpoint body block: physical-map blocks first, then checksum-map blocks,
+/// each little-endian with a zeroed tail, preserving the on-disk layout and checksum.
+fn encode_checkpoint_body_block(
+    block: &mut [u8],
+    layout: &Layout,
+    block_index: u32,
+    volume: &Volume,
+) {
+    block.fill(0);
+    if block_index < layout.physical_map_blocks {
+        let first = block_index as usize * (BLOCK_SIZE / size_of::<u32>());
+        for (bytes, value) in block
+            .chunks_exact_mut(size_of::<u32>())
+            .zip(volume.physical_blocks[first..].iter())
+        {
+            bytes.copy_from_slice(&value.to_le_bytes());
+        }
+    } else {
+        let first =
+            (block_index - layout.physical_map_blocks) as usize * (BLOCK_SIZE / size_of::<u64>());
+        for (bytes, value) in block
+            .chunks_exact_mut(size_of::<u64>())
+            .zip(volume.checksums[first..].iter())
+        {
+            bytes.copy_from_slice(&value.to_le_bytes());
+        }
     }
 }
 
@@ -239,6 +251,27 @@ pub(super) fn decode_checkpoint(
     })
 }
 
+fn read_body_chunk(
+    backing_io: &mut BackingIo,
+    backing: &File,
+    physical_block: u32,
+    chunk: &mut [u8],
+) -> io::Result<()> {
+    let read = opcode::Read::new(
+        types::Fd(backing.as_raw_fd()),
+        chunk.as_mut_ptr(),
+        chunk.len() as u32,
+    )
+    .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
+    .build();
+    submit_exact(
+        backing_io,
+        read,
+        u64::from(physical_block),
+        chunk.len() as i32,
+    )
+}
+
 pub(super) fn load_checkpoint_body(
     backing_io: &mut BackingIo,
     backing: &File,
@@ -263,34 +296,44 @@ pub(super) fn load_checkpoint_body(
         CheckpointSlot::Green => checkpoint.layout.green_physical_map_start,
         CheckpointSlot::Blue => checkpoint.layout.blue_physical_map_start,
     };
+    let physical_map_blocks = checkpoint.layout.physical_map_blocks;
+    let total_blocks = physical_map_blocks + checkpoint.layout.checksum_map_blocks;
     let mut hasher = Xxh3::new();
-    let mut block = AlignedBlock([0; BLOCK_SIZE]);
-    for block_index in 0..checkpoint.layout.physical_map_blocks {
-        read_block_exact(backing_io, backing, body_start + block_index, &mut block)?;
-        hasher.update(&block.0);
-        let first = block_index as usize * (BLOCK_SIZE / size_of::<u32>());
-        for (value, bytes) in physical_blocks[first..]
-            .iter_mut()
-            .zip(block.0.chunks_exact(size_of::<u32>()))
-        {
-            *value = u32::from_le_bytes(bytes.try_into().unwrap());
-        }
-    }
-    for block_index in 0..checkpoint.layout.checksum_map_blocks {
-        read_block_exact(
+    let mut body = AlignedBody([0; CHECKPOINT_BODY_BLOCKS * BLOCK_SIZE]);
+    // Read the body in up to 32-block chunks, matching the write path's 128 KiB buffer.
+    let mut block_index = 0_u32;
+    while block_index < total_blocks {
+        let count = (total_blocks - block_index).min(CHECKPOINT_BODY_BLOCKS as u32);
+        read_body_chunk(
             backing_io,
             backing,
-            body_start + checkpoint.layout.physical_map_blocks + block_index,
-            &mut block,
+            body_start + block_index,
+            &mut body.0[..count as usize * BLOCK_SIZE],
         )?;
-        hasher.update(&block.0);
-        let first = block_index as usize * (BLOCK_SIZE / size_of::<u64>());
-        for (value, bytes) in checksums[first..]
-            .iter_mut()
-            .zip(block.0.chunks_exact(size_of::<u64>()))
-        {
-            *value = u64::from_le_bytes(bytes.try_into().unwrap());
+        for offset in 0..count {
+            let index = block_index + offset;
+            let block = &body.0[offset as usize * BLOCK_SIZE..(offset as usize + 1) * BLOCK_SIZE];
+            hasher.update(block);
+            if index < physical_map_blocks {
+                let first = index as usize * (BLOCK_SIZE / size_of::<u32>());
+                for (value, bytes) in physical_blocks[first..]
+                    .iter_mut()
+                    .zip(block.chunks_exact(size_of::<u32>()))
+                {
+                    *value = u32::from_le_bytes(bytes.try_into().unwrap());
+                }
+            } else {
+                let first =
+                    (index - physical_map_blocks) as usize * (BLOCK_SIZE / size_of::<u64>());
+                for (value, bytes) in checksums[first..]
+                    .iter_mut()
+                    .zip(block.chunks_exact(size_of::<u64>()))
+                {
+                    *value = u64::from_le_bytes(bytes.try_into().unwrap());
+                }
+            }
         }
+        block_index += count;
     }
 
     Ok((hasher.digest() == checkpoint.body_checksum).then_some((physical_blocks, checksums)))
