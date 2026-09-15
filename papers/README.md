@@ -173,17 +173,17 @@ entry   = LBA % 320
 MappingPage record (one 4 KiB block)
   record identity: kind, format version, volume ID, LSN
   page_id                         u32
-  entries[256]   // 320x12 bytes = 3840 bytes
+  entries[320]
     physical_payload_block        u32
     payload_checksum              u64
   zero padding and record checksum
 
 PageIndex
   mapping_page_block[page_count]   u32
-  page_count = ceil(logical_blocks / 256)
+  page_count = ceil(logical_blocks / 320)
 ```
 
-The entries occupy 3840 bytes, leaving room for framing and validation in the 4 KiB record. Physical block zero means unmapped. A zero page-index entry means that the entire logical range is unmapped. Checksums stay with their mappings, on disk and in cached pages; payload verification is unchanged.
+The entries occupy 3840 bytes, leaving 256 bytes for framing, padding and the record checksum. Entries beyond the logical volume size in the final page must be zero. Physical block zero means unmapped. A zero page-index entry means that the entire logical range is unmapped. Checksums stay with their mappings, on disk and in cached pages; payload verification is unchanged.
 
 Replace each checkpoint's full mapping body with a complete `PageIndex`. Keep two fixed slots, each containing a descriptor and its own index body. The descriptor identifies the generation, body length/checksum and replay position. Slots remain outside the append log and are sized at format time.
 
@@ -200,7 +200,7 @@ RAM: Volume
 
 The two dense mapping arrays disappear. The flat index stays resident; mapping pages load on demand. A read whose page is absent from the cache needs a metadata read before its payload read. Bound the cache, buffers and recovery working memory explicitly.
 
-At 1 TiB logical capacity, there are 1,048,576 pages. Four bytes per page pointer gives a 4 MiB index, compared with the current 3 GiB checkpoint body. At 8 TiB the index is 32 MiB. These are pointer-array sizes, excluding descriptors, padding and cache memory. We still rewrite the whole index; page the index itself only if that cost becomes unacceptable.
+At 1 TiB logical capacity, there are 838,861 pages (?). Four bytes per page pointer gives a 3,355,444-byte index (about 3.2 MiB), compared with the current 3 GiB checkpoint body. At 8 TiB there are 6,710,887 pages and the index is 26,843,548 bytes (about 25.6 MiB). These are pointer-array sizes, excluding descriptors, padding and cache memory. We still rewrite the whole index; page the index itself only if that cost becomes unacceptable.
 
 #### How do writes and checkpoints work?
 
