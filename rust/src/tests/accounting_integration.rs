@@ -119,6 +119,21 @@ fn public_accounting_apis_count_format_open_write_checkpoint_and_close() -> io::
 }
 
 #[test]
+fn format_v3_accounts_both_index_bodies_descriptors_and_barriers() -> io::Result<()> {
+    let (backing, _) = create_backing(1)?;
+    let (accounting, reader) = AccountingFixture::new(1024 * 1024)?;
+    crate::format_v3::storage::format(&backing.0, 4096, Some(accounting.writer()?))?;
+    let snapshot = reader.snapshot()?;
+    assert_eq!(snapshot.write_completed_bytes, 4 * 4096);
+    assert_eq!(snapshot.write_reserved_bytes, 4 * 4096);
+    assert_eq!(snapshot.write_completed_operations, 4);
+    assert_eq!(snapshot.flush_completed_operations, 2);
+    assert_eq!(snapshot.pending_operations, 0);
+    assert_eq!(snapshot.errors, 0);
+    Ok(())
+}
+
+#[test]
 fn exact_budget_exhaustion_rejects_write_before_backing_modification() -> io::Result<()> {
     let (backing, layout) = create_backing(1)?;
     format(&backing.0, BLOCK_SIZE as u64)?;
