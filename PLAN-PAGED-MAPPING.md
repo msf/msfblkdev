@@ -9,6 +9,8 @@ Delivery 2 evidence (2026-09-18): isolated framing, mapping snapshots, data foot
 
 Delivery 3 prerequisite (2026-09-18): isolated checkpoint publication appends dirty snapshots and persists the inactive index and descriptor before selecting the new root or clearing dirty flags. Three tests cover successful publication, pointer reuse, preflight rejection, and failures at each write stage. `make lint test` passed all 268 commands. Integration and crash/recovery proof remain pending.
 
+Publication crash evidence (2026-09-18): the existing SIGKILL harness passed 160 interruptions across eight version-3 publication boundaries. The selected root and the flushed data record matched expectations after every crash. All 269 repository gate commands passed. Recovery integration and its interruption tests remain pending.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

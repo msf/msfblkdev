@@ -515,6 +515,7 @@ fn verify_invalid_gap_recovery(fixture: &InvalidGapFixture) -> io::Result<()> {
 mod accounting_integration;
 mod checkpoint_replay;
 mod format_geometry;
+mod format_v3_crash;
 mod format_v3_load;
 mod format_v3_publish;
 mod format_v3_storage;

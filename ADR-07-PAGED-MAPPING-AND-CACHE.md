@@ -283,6 +283,7 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 
 ### Delivery 4: acceptance and completion
 
+- [x] Exercise isolated publication with the existing SIGKILL harness. Evidence (2026-09-18): all eight boundaries passed 20 repetitions (160 crashes), covering snapshot append, log fsync, both index blocks, index fsync, descriptor write, and descriptor fsync. Each run selected the expected root and retained the flushed data record and its payload checksum. All 269 repository gate commands passed. This proves process-crash behavior for publication; tail replay and power-loss behavior remain unverified.
 - [ ] Prove interruption at mapping, index, descriptor, and recovery publication boundaries, including repeated recovery crashes.
 - [ ] Prove pressure checkpoints, unchanged-page reuse, flush without checkpoint, malformed metadata rejection, and fallback after snapshot corruption.
 - [ ] Record cache/index/peak mapping memory and separate RSS measurements, with exact access-sequence hit rates.
