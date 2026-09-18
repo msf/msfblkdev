@@ -80,6 +80,10 @@ Run cache-only tests with `cd rust && cargo test --lib mapping_cache`; these nee
 backing file or `io_uring`. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md) records the exact
 persistent schema, delivery steps, and executed validation.
 
+The [memory and access report](evidence/adr7-mapping-profile-2026-09-18.md) includes
+reproduction commands for `mapping_cache_profile`, default allocation measurements,
+separate process RSS snapshots, and exact hit rates for four deterministic read sequences.
+
 ### Engine API
 
 The crate exposes:

@@ -1,6 +1,6 @@
 # Delivery plan: paged mapping and bounded cache
 
-Status: Deliveries 1–3 complete; public version-3 crash acceptance passed; memory measurements and approved live gates remain pending
+Status: Deliveries 1–3 complete; public version-3 crash acceptance and memory/access measurements passed; approved live gates remain pending
 Contract: [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 
 Delivery 1 evidence (2026-09-18): 16 isolated cache tests passed, including allocation-counted churn and a deterministic mapping reference model. `make lint test` passed all 234 test commands. The cache is compiled only under `cfg(test)`; persistence and engine integration remain unimplemented.
@@ -34,6 +34,8 @@ Staged engine acceptance evidence (2026-09-18): the complete open/write/flush/re
 Public activation evidence (2026-09-18): format/open and the ublk adapter now use version 3. The dense-map engine and its checkpoint module are removed. Regression tests retain payload, capacity, corruption, fallback, and crash checks with version-3 layouts; volatile durable-LSN assertions are replaced by flush/reopen and exact fsync accounting. A buffered-group threshold test complements the two-crossing write-through test. The fio fixture reserves both existing and pending snapshots. All 296 repository gate commands passed, followed by a public cache-budget/hit-count test and lint. Frontend reporting, exhaustive acceptance, memory measurements, and approved live gates remain pending.
 
 Public crash and frontend evidence (2026-09-18): `make test-acceptance` passed all 297 commands at `6bfb347`, including the exhaustive stale-tail, publication, and recovery crash matrices. The subsequent daemon configuration/reporting step passed all 298 normal gate commands, including a FUA request across mapping pages and drop/reopen recovery. Mapping info records use the existing daemon stderr capture. Memory measurements and approved live gates remain pending.
+
+Memory/access evidence (2026-09-18): the release-build profile verifies exact lookup counts for sequential, hot, scattered, and moving-hot reads with four cache slots. Three fresh processes measure default allocations for 4 GiB, 400 GiB, and 4 TiB logical geometries on 128 MiB sparse backings. [The report](evidence/adr7-mapping-profile-2026-09-18.md) separates cache/index allocations and calculated checkpoint/recovery bounds from sampled process RSS. Lint and all 298 normal gate commands passed. Live ext4/XFS preflight reached the helper identity check and rejected a byte mismatch between the installed helper and this build; no device was created or mounted. SQLite tooling validation passed. Approved live acceptance remains pending.
 
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
