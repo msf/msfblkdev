@@ -28,7 +28,7 @@ fn write_checkpoint(file: &File, checkpoint: &Checkpoint) -> io::Result<()> {
     )
 }
 
-fn populated_fixture(volume_blocks: u32) -> io::Result<(TemporaryBacking, Checkpoint)> {
+pub(super) fn populated_fixture(volume_blocks: u32) -> io::Result<(TemporaryBacking, Checkpoint)> {
     let geometry = Geometry::new(volume_blocks, 32)?;
     let backing = TemporaryBacking::new()?;
     backing.create_sized(32 * BLOCK_SIZE as u64)?;

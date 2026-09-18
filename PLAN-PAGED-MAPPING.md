@@ -7,6 +7,8 @@ Delivery 1 evidence (2026-09-18): 16 isolated cache tests passed, including allo
 
 Delivery 2 evidence (2026-09-18): isolated framing, mapping snapshots, data footers, checkpoint descriptors and index bodies, formatter, checkpoint loading, append reservation, and buffered-page grouping pass their tests. The latest `make lint test` passed all 265 commands. ADR-07 records each step's validation. Corrupted-snapshot traversal and bounded recovery publication ordering remain open; the public engine still uses version 1.
 
+Delivery 3 prerequisite (2026-09-18): isolated checkpoint publication appends dirty snapshots and persists the inactive index and descriptor before selecting the new root or clearing dirty flags. Three tests cover successful publication, pointer reuse, preflight rejection, and failures at each write stage. `make lint test` passed all 268 commands. Integration and crash/recovery proof remain pending.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

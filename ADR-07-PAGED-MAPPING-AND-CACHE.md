@@ -275,6 +275,7 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 
 ### Delivery 3: engine and frontend integration
 
+- [x] Implement isolated checkpoint publication. Evidence (2026-09-18): three file-backed tests verify dirty-snapshot persistence, unchanged-pointer reuse, preservation of the old root, pre-write tail/capacity/generation rejection, and write-budget failures at snapshot, index, and descriptor stages. Successful publication accounts for three fsyncs. All 268 repository gate commands passed. Crash interruption and engine failed-volume integration remain unverified.
 - [ ] Replace dense maps with the resident page index and cache; acquire mapping capacity before data-record append.
 - [ ] Publish dirty snapshots and the candidate index in the specified fsync order; preserve flush/FUA semantics and failed-volume behavior.
 - [ ] Implement bounded recovery, older-checkpoint fallback, smaller-cache reopen, and explicit space-exhaustion handling.

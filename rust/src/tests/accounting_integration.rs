@@ -155,6 +155,47 @@ fn checkpoint_load_accounts_reads_and_skips_unmapped_pages() -> io::Result<()> {
 }
 
 #[test]
+fn checkpoint_publish_preserves_dirty_state_until_all_writes_succeed() -> io::Result<()> {
+    use crate::format_v3::{checkpoint_load, checkpoint_publish};
+
+    for blocks in 0..=3 {
+        let (backing, mut active) = super::format_v3_load::populated_fixture(321)?;
+        let (mut cache, tail) = super::format_v3_publish::pending_update(&backing, &active)?;
+        let original = active.try_clone()?;
+        let (accounting, reader) = AccountingFixture::new((blocks * 4096).max(1))?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_DIRECT)
+            .open(&backing.0)?;
+        let result = checkpoint_publish::publish(
+            &mut BackingIo::new(Some(accounting.writer()?))?,
+            &file,
+            &mut active,
+            &mut cache,
+            tail,
+        );
+        let selected = checkpoint_load::load(&mut BackingIo::new(None)?, &file, 32)?;
+        if blocks < 3 {
+            assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::ENOSPC));
+            assert_eq!(active.descriptor, original.descriptor);
+            assert_eq!(active.mapping_page_block, original.mapping_page_block);
+            assert_eq!(cache.snapshot().dirty_slots, 1);
+            assert_eq!(selected.descriptor, original.descriptor);
+        } else {
+            assert_eq!(result?.lsn, tail.lsn + 1);
+            assert_eq!(cache.snapshot().dirty_slots, 0);
+            assert_eq!(selected.descriptor, active.descriptor);
+        }
+        let snapshot = reader.snapshot()?;
+        assert_eq!(snapshot.write_completed_operations, blocks);
+        assert_eq!(snapshot.write_completed_bytes, blocks * 4096);
+        assert_eq!(snapshot.flush_completed_operations, blocks);
+    }
+    Ok(())
+}
+
+#[test]
 fn exact_budget_exhaustion_rejects_write_before_backing_modification() -> io::Result<()> {
     let (backing, layout) = create_backing(1)?;
     format(&backing.0, BLOCK_SIZE as u64)?;
