@@ -1,6 +1,6 @@
 # ADR-07 Paged mapping and bounded cache
 
-Status: version-3 engine active; cache, crash, memory, and live ublk/fio checks passed; filesystem acceptance pending
+Status: complete; all engine, memory, and live acceptance gates passed (2026-09-19)
 On-disk format: 3
 Updates: ADR-01 and ADR-03 for newly formatted version-3 images only
 Related: [research proposal](papers/README.md#ideas-to-improve-the-design), [delivery plan](PLAN-PAGED-MAPPING.md)
@@ -269,7 +269,7 @@ The delivery plan must resolve and test the identified recovery and allocation d
 
 ## Deliveries and validation
 
-Each delivery uses isolated commits. Checkboxes record executed evidence, not intended behavior. The [delivery plan](PLAN-PAGED-MAPPING.md) provides the detailed test matrix.
+Each delivery uses isolated commits. Checkboxes record executed evidence, not intended behavior. Entries are chronological; a limitation describes the state at that step. The final entries record completion. The [delivery plan](PLAN-PAGED-MAPPING.md) provides the detailed test matrix.
 
 ### Delivery 1: isolated mapping cache
 
@@ -317,4 +317,6 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 - [x] Prove pressure checkpoints, unchanged-page reuse, flush without checkpoint, malformed metadata rejection, and fallback after snapshot corruption. Evidence: the publication, bounded recovery, staged-engine, and migrated public-engine tests above all passed in the exhaustive acceptance run at `6bfb347`.
 - [x] Record cache/index/peak mapping memory and separate RSS measurements, with exact access-sequence hit rates. Evidence (2026-09-18): the release-build `mapping_cache_profile` example checks four 4,096-read sequences through the public engine. Default caches for 4 GiB, 400 GiB, and 4 TiB logical volumes allocate 429,464, 42,947,552, and 439,802,624 bytes. [The measurement report](evidence/adr7-mapping-profile-2026-09-18.md) records slots, lookup/policy bytes, index sizes, calculated checkpoint/recovery heap bounds, and separate `smaps_rollup` RSS snapshots. These mapping heap bounds exclude fixed buffers and allocator overhead; RSS snapshots are not process peak measurements. `make lint` and all 298 `make test` commands passed.
 - [x] Pass the operator-approved live ublk/fio gate. Evidence (2026-09-19): `make test-ublk-fio` passed all seven scenarios with three repetitions each at `1e741be`, including graceful restart, SIGKILL restart, descriptor interruption, and exact ENOSPC behavior. The daemon's mapping statistics appeared in the captured live reports. Log: `evidence/ublk-fio-1789774139742756390-1e741be6fd474623720e9d0c4fa0406c2bde4a38.log` (`result: PASS`, 26.041 seconds).
-- [ ] Complete final acceptance with the passing `make lint test`, `make test-acceptance`, and live ublk/fio evidence above, plus the authorized ext4, XFS, and SQLite regression gates. The operator installed the matching helper; byte identity and root ownership were verified. Update documentation and create the completion tag only after all required evidence passes.
+- [x] Pass the authorized ext4 and XFS regression gates. Evidence (2026-09-19): `make test-ext4` and `make test-xfs` each passed three fresh-image lifecycles, all 12 filesystem checks, content verification across clean restart, request/flag checks, and fixture cleanup. Logs: `evidence/ext4-1789774403275866806.log` and `evidence/xfs-1789774443341096331.log`, both `result: PASS`. Live mapping statistics were captured at open and before close.
+- [x] Pass the authorized SQLite regressions. Evidence (2026-09-19): `make test-sqlite-ext4` passed all 87 exact selections in 116.849 seconds; the manifest, summary, and every case result were checked for completeness and zero failures. Evidence directory: `evidence/sqlite-1789774471226558259`. The separate `make test-sqlite` WAL/FULL probe also passed: `evidence/sqlite-1789774611754898730`. These filesystem/database gates verify clean-restart behavior, not power-loss durability.
+- [x] Complete the acceptance audit and documentation. `make lint`, all 298 normal test commands, the exhaustive crash matrix, live ublk/fio, ext4, XFS, and both SQLite gates passed. The engine source is unchanged since the exhaustive crash run; later frontend configuration/reporting changes passed the normal and live gates. README, this ADR, and the delivery plan record format compatibility, exact schemas, measured allocations, hit rates, and evidence. Create the completion tag only after committing this final record.

@@ -10,6 +10,11 @@ ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem
 
 The SQLite/ext4 portion of Delivery 3 passed 87 fresh runs across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. All 348 filesystem checks and 174 logical validations passed. [SQLITE-EXT4.md](SQLITE-EXT4.md) records the suite and selected initial baseline. SQLite on XFS and RocksDB remain unimplemented.
 
+ADR-07 is complete. The version-3 engine uses paged mappings and a bounded CLOCK cache.
+Engine/crash tests, memory/access measurements, live ublk/fio, ext4, XFS, and the full
+87-case SQLite/ext4 regression matrix passed. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
+records the schema, compatibility rules, isolated deliveries, and validation evidence.
+
 [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
 
 The completed minimum credible device sequence is:
@@ -32,6 +37,7 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
 - [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
 - [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 are complete. Delivery 3 has accepted SQLite/ext4 coverage; SQLite/XFS and RocksDB remain open.
+- [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the implemented version-3 format, mapping cache, checkpoint publication, and bounded recovery.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API
@@ -41,8 +47,8 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 The Rust engine now formats and opens ADR-07 version 3. Version-1, version-2,
 and unknown-format images are rejected before recovery writes. There is no migration
 path. The public engine uses a resident page-pointer index and a bounded mapping cache;
-it no longer allocates dense per-LBA address and checksum arrays. Final ADR-07 acceptance
-and the completion tag remain pending.
+it no longer allocates dense per-LBA address and checksum arrays. ADR-07 acceptance
+passed on 2026-09-19.
 
 The cache preallocates slots, a `hashbrown` 0.17.1 hash map, and CLOCK reference bits.
 It fills unused slots sequentially and reuses clean victims. Dirty mapping pages remain

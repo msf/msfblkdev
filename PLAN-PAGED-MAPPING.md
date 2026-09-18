@@ -1,7 +1,10 @@
 # Delivery plan: paged mapping and bounded cache
 
-Status: Deliveries 1–3 complete; public crash, memory/access, and live ublk/fio checks passed; authorized filesystem gates in progress
+Status: Deliveries 1–4 complete; all required engine, memory, and live gates passed (2026-09-19)
 Contract: [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
+
+Progress entries are chronological. Pending work in an earlier entry describes that step;
+the final completion audit records the delivered state.
 
 Delivery 1 evidence (2026-09-18): 16 isolated cache tests passed, including allocation-counted churn and a deterministic mapping reference model. `make lint test` passed all 234 test commands. The cache is compiled only under `cfg(test)`; persistence and engine integration remain unimplemented.
 
@@ -117,7 +120,7 @@ Run focused Cargo tests during each delivery. Run the current repository `make l
 
 Update `README.md` with format compatibility, cache configuration, statistics, memory accounting, and remaining finite-log limits. Mark ADR/plan implementation status only after execution evidence exists. Do not present microbenchmarks as sustainable-overwrite performance.
 
-### Completion audit (2026-09-18)
+### Pre-live completion audit (2026-09-18)
 
 Inspected implementation and evidence at `b12f2f3`:
 
@@ -159,8 +162,48 @@ The terminal result is `PASS`. Each successful fixture was cleaned up by the exi
 `make build-ext4` succeeded. The operator installed the helper after the agent's
 noninteractive sudo attempt required authentication. `cmp` confirmed exact binary
 identity; ownership and permissions are `root:root 0755`. Approval is recorded for
-the helper replacement and all live gates and must not be requested again. Run ext4,
-XFS, and the 87-run SQLite/ext4 matrix, then create the completion tag only after they pass.
+the helper replacement and all live gates and must not be requested again.
+
+`make test-ext4` passed in 3.649 seconds; `make test-xfs` passed in 4.888 seconds.
+Each ran three fresh-image lifecycles, all 12 filesystem checks, content validation
+across clean restart, and request/flag accounting. All owned fixtures were removed.
+Each log contains 12 mapping-statistics records across its six daemon lifetimes.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| `evidence/ext4-1789774403275866806.log` | `fb5bc214344f9442d7297a8b83a80744af5f964403a2b8f0cc75a16607969b94` |
+| `evidence/xfs-1789774443341096331.log` | `2dcd384cb9de91becdf55578498746d663d379b5462e72d03a79b971e258773f` |
+
+`make test-sqlite-ext4` passed all 87 selections in 116.848928982 seconds.
+The manifest records 87 attempted, 87 completed, zero failed, and status `pass`.
+An independent read verified that planned, completed, and summary selection sets match,
+contain 87 unique identities, and each case has exactly one passing result with no errors.
+The evidence directory is `evidence/sqlite-1789774471226558259`:
+
+| File | SHA-256 |
+| --- | --- |
+| `manifest.json` | `6c1f539290767d666ed2aee4747b442125151fd8174e781691c3de6b48437e25` |
+| `summary.json` | `b538216756bcccbb947e8b9ed7399ee75fcc8f9e1756043ec841d24cebe1c193` |
+| `commands.log` | `e4840789bd18e9755156f8753a8ab57933adced62780b76dfa8a475781671868` |
+
+The separate `make test-sqlite` seeded-random WAL/FULL probe passed in 2.251705462 seconds.
+Its result is `evidence/sqlite-1789774611754898730/result.jsonl`, SHA-256
+`4d6bdea57dfe3d7b25ae444d384edf482905e2ed8c6dd65849a8cc98ac96830e`.
+This probe complements the 87-case matrix; it does not replace it.
+
+### Final completion audit (2026-09-19)
+
+All four rows of the pre-live audit now have passing implementation/acceptance evidence.
+The engine is unchanged since the exhaustive crash run at `6bfb347`; subsequent Rust
+changes add frontend configuration/reporting and the profile example. Those changes
+passed lint, all 298 normal test commands, and the live gates above. Runtime and at-rest
+definitions include both checkpoint/index ownership and mapping-record framing, entries,
+padding, and checksums. The independent header checksum was explicitly approved.
+
+No required implementation or validation remains. Commit the final ADR/README/plan
+record and create the annotated `v1.2` tag at that commit. Preserve the unrelated local
+`.gitignore` and `manual-test-ext4.txt` changes. The finite log, format incompatibility,
+and absence of a power-loss claim remain documented limitations, not failed acceptance.
 
 ### Final agent handoff
 
