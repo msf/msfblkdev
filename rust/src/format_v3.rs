@@ -5,6 +5,7 @@ use crate::{BLOCK_SIZE, MAXIMUM_PAYLOAD_BLOCKS, invalid_data, read_u32, read_u64
 use std::io;
 use xxhash_rust::xxh3::Xxh3;
 
+pub(crate) mod buffered_pages;
 pub(crate) mod checkpoint;
 pub(crate) mod data_record;
 pub(crate) mod geometry;

@@ -1,9 +1,11 @@
 # Delivery plan: paged mapping and bounded cache
 
-Status: Delivery 1 implemented in isolation; version-3 codecs and engine integration remain pending
+Status: Delivery 1 complete; Delivery 2 codecs, formatter, reservation, and buffered-page grouping implemented in isolation; engine integration remains pending
 Contract: [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 
 Delivery 1 evidence (2026-09-18): 16 isolated cache tests passed, including allocation-counted churn and a deterministic mapping reference model. `make lint test` passed all 234 test commands. The cache is compiled only under `cfg(test)`; persistence and engine integration remain unimplemented.
+
+Delivery 2 evidence (2026-09-18): isolated framing, mapping snapshots, data footers, checkpoint descriptors and index bodies, formatter, append reservation, and buffered-page grouping pass their tests. The latest `make lint test` passed all 259 commands. ADR-07 records each step's validation. Corrupted-snapshot traversal and bounded recovery publication ordering remain open; the public engine still uses version 1.
 
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 

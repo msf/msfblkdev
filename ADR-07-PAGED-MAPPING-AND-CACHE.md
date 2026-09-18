@@ -269,6 +269,7 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 - [x] Implement a test-only formatter. Evidence (2026-09-18): three file-backed tests verify both persisted bodies and descriptors, untouched log bytes, non-mutating geometry rejection, and exact write/fsync accounting. All 19 version-3 tests and all 253 repository gate commands passed. The public formatter still emits version 1.
 - [ ] Verify mixed record chains, partial pages, checksums, zero padding, overflow, and non-mutating unsupported-version rejection.
 - [x] Document and test foreground append reservation. Evidence (2026-09-18): three isolated tests cover exact charges, capacity/overflow limits, and exhaustive small dirty-set/pressure schedules. All 256 repository gate commands passed. Engine integration must still enforce the tested page-grouping premise.
+- [x] Implement isolated buffered-page grouping. Evidence (2026-09-18): three tests cover interleaved pages, coalesced payloads, agreement with reservation at the 4,096-payload buffer limit, and allocation-free grouping. All 259 repository gate commands passed. The production release path remains unchanged until engine integration.
 - [ ] Resolve corrupted-snapshot traversal and prove bounded recovery publication ordering before engine integration.
 
 ### Delivery 3: engine and frontend integration
