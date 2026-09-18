@@ -1,6 +1,6 @@
 # Delivery plan: paged mapping and bounded cache
 
-Status: Deliveries 1–3 complete; public version-3 crash acceptance and memory/access measurements passed; approved live gates remain pending
+Status: Deliveries 1–3 complete; public crash, memory/access, and live ublk/fio checks passed; authorized filesystem gates in progress
 Contract: [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 
 Delivery 1 evidence (2026-09-18): 16 isolated cache tests passed, including allocation-counted churn and a deterministic mapping reference model. `make lint test` passed all 234 test commands. The cache is compiled only under `cfg(test)`; persistence and engine integration remain unimplemented.
@@ -142,6 +142,25 @@ the installed helper's is `36e34a338522ea38444e6ebe4dd86b0b81afea7958b2568a8dfac
 Replacing the installed helper and running the live gates require operator approval.
 Recheck both files before installation. The completion tag remains conditional on all
 four live gates passing, including all 87 accepted SQLite/ext4 cases.
+
+### Live acceptance update (2026-09-19)
+
+The operator authorized the existing disposable-fixture gates and replacement of the
+installed mount helper. `make test-ublk-fio` passed all 21 scenario/repetition pairs at
+`1e741be` in 26.041 seconds. Coverage includes sequential/random reads and writes,
+overwrites, graceful/SIGKILL restart, descriptor interruption, and ENOSPC. The live log
+contains 33 mapping-statistics records at open and 30 before close; SIGKILL can bypass
+the close report. All three exhaustion runs report the expected errno `-28`.
+
+Log: `evidence/ublk-fio-1789774139742756390-1e741be6fd474623720e9d0c4fa0406c2bde4a38.log`.
+SHA-256: `d825c00c56af97abce7b2ce5c4330c80c3bd2e4d54c78d0dc93e897c688a3348`.
+The terminal result is `PASS`. Each successful fixture was cleaned up by the existing harness.
+
+`make build-ext4` succeeded. The operator installed the helper after the agent's
+noninteractive sudo attempt required authentication. `cmp` confirmed exact binary
+identity; ownership and permissions are `root:root 0755`. Approval is recorded for
+the helper replacement and all live gates and must not be requested again. Run ext4,
+XFS, and the 87-run SQLite/ext4 matrix, then create the completion tag only after they pass.
 
 ### Final agent handoff
 
