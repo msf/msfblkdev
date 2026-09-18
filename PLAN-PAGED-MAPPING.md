@@ -117,6 +117,32 @@ Run focused Cargo tests during each delivery. Run the current repository `make l
 
 Update `README.md` with format compatibility, cache configuration, statistics, memory accounting, and remaining finite-log limits. Mark ADR/plan implementation status only after execution evidence exists. Do not present microbenchmarks as sustainable-overwrite performance.
 
+### Completion audit (2026-09-18)
+
+Inspected implementation and evidence at `b12f2f3`:
+
+| Requirement | Inspected evidence | Result |
+| --- | --- | --- |
+| Isolated cache, fixed allocations, dirty protection, typed retry, exact metrics | Layout/budget tests, deterministic reference model, allocation-counted churn, CLOCK bounds, publication/retry counters | Passed in the 298-command normal gate |
+| Complete runtime and disk schemas, codecs, pointer ownership, compatibility | ADR-07 layouts; descriptor/index/snapshot codecs; byte corruption, padding, geometry, generation, version rejection, checkpoint fallback tests | Implemented and passed |
+| Public read/write, reservation, flush/FUA, publication, bounded recovery, memory measurements | Public regressions; one-slot replay versus fitting-cache output and source-byte comparison; repeated SIGKILL recovery; adapter FUA across pages; memory/access report | Passed; exhaustive crashes at `6bfb347`, subsequent frontend and profile changes covered by normal gate |
+| Live ublk/fio, ext4, XFS, SQLite/ext4 and completion tag | New ext4/XFS preflight logs; SQLite build validation; installed/current helper comparison | Pending operator approval and matching installed helper; no completion tag |
+
+The exhaustive crash log ends in `result: PASS`:
+`evidence/engine-crash-1789766272869232313-6bfb347dd61fc381b717adc3b2aec77782403a1e.log`.
+Its SHA-256 is `cc17e1d078cde2bca94ccc515340e82a88617f20801c749365eed63016a6d98f`.
+Raw run logs remain local under the repository's log-ignore rule.
+
+Live preflight logs are `evidence/ext4-1789767036230947561.log` and
+`evidence/xfs-1789767036735814999.log`. Both stopped before device creation at the
+required byte-for-byte helper check. `make build-ext4` subsequently completed using
+the Makefile's standard target directory. The freshly built helper's SHA-256 is
+`8b9eae5d6108981d56e8aae6122ba9f134b992835a9fca3fd53eed8608693faf`;
+the installed helper's is `36e34a338522ea38444e6ebe4dd86b0b81afea7958b2568a8dfac0e6839514dd`.
+Replacing the installed helper and running the live gates require operator approval.
+Recheck both files before installation. The completion tag remains conditional on all
+four live gates passing, including all 87 accepted SQLite/ext4 cases.
+
 ### Final agent handoff
 
 Report changed paths, delivery units, exact commands and outcomes, format version, default/effective cache sizing, measured hit rate with its access sequence, and unresolved limitations. State whether bounded recovery and crash fallback were executed or remain unverified. Do not claim completion while allocation bounds, persistence ordering, or mandatory regression failures remain unresolved.

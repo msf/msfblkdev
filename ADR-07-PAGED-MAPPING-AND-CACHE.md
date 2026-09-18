@@ -1,6 +1,6 @@
 # ADR-07 Paged mapping and bounded cache
 
-Status: implementation in progress; cache, storage, and recovery verified in isolation
+Status: version-3 engine active; cache, crash, and memory checks passed; live acceptance pending
 On-disk format: 3
 Updates: ADR-01 and ADR-03 for newly formatted version-3 images only
 Related: [research proposal](papers/README.md#ideas-to-improve-the-design), [delivery plan](PLAN-PAGED-MAPPING.md)
@@ -44,6 +44,7 @@ Checkpoints will simply contain the location of each mapping entry page, becomin
 The complete checkpoint consists of a descriptor and its index body. The pointer array belongs to the checkpoint; it does not fit inside the fixed 4 KiB descriptor. These are decoded Rust types, not structures to cast onto disk bytes:
 
 ```rust
+#[repr(u8)]
 enum CheckpointSlot { Green = 0, Blue = 1 }
 
 struct CheckpointDescriptor {
@@ -71,6 +72,11 @@ struct RecordHeader {
     lsn: u64,
     previous_boundary: u32,
     boundary: u32,
+}
+
+struct MappingEntries {
+    physical_addr: [u32; 320],
+    payload_checksum: [u64; 320],
 }
 
 struct MappingPageRecord {
@@ -253,7 +259,7 @@ Required evidence includes byte-layout fixtures, malformed-record rejection, iso
 
 ## Consequences
 
-A cache miss can add a mapping-page read before the payload read. Small caches can cause frequent checkpoints under scattered writes. CLOCK is approximate LRU; neither its hit rate nor the default budget is established by measurement.
+A cache miss can add a mapping-page read before the payload read. Small caches can cause frequent checkpoints under scattered writes. CLOCK is approximate LRU. The deterministic access measurements below establish accounting for those sequences; they do not establish a production hit rate or justify the default budget for a particular workload.
 
 Checkpoint bodies shrink to four bytes per 320 logical blocks, rounded to 4 KiB. Mapping-page writes depend on dirty pages rather than the complete map. The resident index still grows with logical capacity, and peak checkpoint memory includes a candidate copy.
 
