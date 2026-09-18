@@ -105,11 +105,22 @@ mod tests {
             for stride in [1, 319, 320, 997] {
                 buffer.clear();
                 let mut reference = BTreeMap::<u32, Vec<usize>>::new();
+                let mut page_count = 0;
                 // Odd multiplication permutes all 4096 slots, interleaving pages.
                 for slot in 0..count {
                     let lba = ((slot * 17) % capacity * stride) as u32;
+                    let (admission, allocations) =
+                        measure(|| Reservation::admit(&buffer.lbas, page_count, 0, lba));
+                    let admission = admission.unwrap();
+                    assert_eq!(allocations, 0);
+                    page_count = admission.data_records as usize;
                     assert!(buffer.store(lba, &[slot as u8; BLOCK_SIZE]));
                     reference.entry(lba / 320).or_default().push(slot);
+                    assert_eq!(page_count, reference.len());
+                    assert_eq!(
+                        admission.total_blocks,
+                        (slot + 1 + 2 * reference.len()) as u64
+                    );
                 }
                 let reservation = Reservation::buffered(&buffer.lbas, 0, None).unwrap();
                 let mut first_slots = Vec::new();

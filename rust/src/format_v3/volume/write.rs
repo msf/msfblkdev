@@ -21,10 +21,11 @@ impl Volume {
             self.write_buffer.store(lba, data);
             return Ok(());
         }
-        let reservation = Reservation::buffered(
+        let reservation = Reservation::admit(
             &self.write_buffer.lbas,
+            self.buffered_pages,
             self.mapping.cache.dirty_pages().count(),
-            Some(lba),
+            lba,
         )?;
         ensure_space(
             self.mapping.tail.boundary,
@@ -32,6 +33,7 @@ impl Volume {
             reservation.total_blocks,
         )?;
         assert!(self.write_buffer.store(lba, data), "new buffered LBA");
+        self.buffered_pages = reservation.data_records as usize;
         if self.write_buffer.len() == self.write_buffer.capacity() {
             self.release_records(ReleaseTrigger::Full)?;
         }
@@ -56,6 +58,7 @@ impl Volume {
             self.latch(result)?;
         }
         self.write_buffer.clear();
+        self.buffered_pages = 0;
         Ok(())
     }
 

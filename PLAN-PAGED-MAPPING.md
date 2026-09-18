@@ -27,6 +27,8 @@ Space accounting evidence (2026-09-18): streaming checkpoint validation supplies
 
 Mapping metrics evidence (2026-09-18): staged snapshots and report formatting expose cache counts, capacity/allocation, index bytes, recovery passes, completed metadata I/O, pressure checkpoints, and checkpoint failures. Exact tests include failed publication after a successful snapshot write and metadata reads rejected by validation. All 292 repository gate commands passed. Public API and daemon/lab reporting remain pending.
 
+Admission evidence (2026-09-18): a release-build probe exposed cubic work from recounting all distinct pages before each payload insertion. Retaining the pending page count reduces membership work to one scan per new payload. The 4,096-distinct-page probe fell from 3,749,600 to 6,740 microseconds; reference and allocation tests passed, as did all 292 repository gate commands. The timing excludes backing I/O.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

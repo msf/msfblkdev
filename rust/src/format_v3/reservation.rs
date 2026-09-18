@@ -13,7 +13,38 @@ pub(crate) struct Reservation {
 }
 
 impl Reservation {
+    pub(crate) fn admit(
+        lbas: &[u32],
+        page_count: usize,
+        dirty_pages: usize,
+        lba: u32,
+    ) -> io::Result<Self> {
+        if lbas.len() >= (MAXIMUM_WRITE_BUFFER_BYTES / BLOCK_SIZE as u64) as usize {
+            return Err(invalid_input(
+                "pending writes exceed the write-buffer limit",
+            ));
+        }
+        assert!(
+            page_count <= lbas.len(),
+            "pending page count cannot exceed payload count"
+        );
+        assert!(
+            !lbas.contains(&lba),
+            "coalesced writes need no new reservation"
+        );
+        let page = lba / ENTRIES_PER_PAGE as u32;
+        let additional_page = !lbas
+            .iter()
+            .any(|earlier| *earlier / ENTRIES_PER_PAGE as u32 == page);
+        Self::for_counts(
+            lbas.len() + 1,
+            page_count + usize::from(additional_page),
+            dirty_pages,
+        )
+    }
+
     /// Release must group each mapping page's buffered LBAs into one data record.
+    #[cfg(test)]
     pub(crate) fn buffered(
         lbas: &[u32],
         dirty_pages: usize,
@@ -31,7 +62,7 @@ impl Reservation {
                 "pending writes exceed the write-buffer limit",
             ));
         }
-        let mut pages = 0_u64;
+        let mut pages = 0;
         for (index, lba) in lbas.iter().enumerate() {
             let page = *lba / ENTRIES_PER_PAGE as u32;
             if !lbas[..index]
@@ -50,18 +81,25 @@ impl Reservation {
                 pages += 1;
             }
         }
+        Self::for_counts(payloads, pages, dirty_pages)
+    }
+
+    fn for_counts(payloads: usize, pages: usize, dirty_pages: usize) -> io::Result<Self> {
+        if dirty_pages as u64 > MAX_VOLUME_BLOCKS.div_ceil(ENTRIES_PER_PAGE as u64) {
+            return Err(invalid_input("dirty page count exceeds volume limit"));
+        }
         // An initially dirty page may be checkpointed before its pending update.
         // Reserve its old snapshot and a new snapshot, even when the IDs overlap.
         let mapping_snapshots = (dirty_pages as u64)
-            .checked_add(pages)
+            .checked_add(pages as u64)
             .ok_or_else(|| invalid_input("mapping snapshot reservation overflow"))?;
         let total_blocks = (payloads as u64)
-            .checked_add(pages)
+            .checked_add(pages as u64)
             .and_then(|blocks| blocks.checked_add(mapping_snapshots))
             .ok_or_else(|| invalid_input("append reservation overflow"))?;
         Ok(Self {
             payload_blocks: payloads as u64,
-            data_records: pages,
+            data_records: pages as u64,
             mapping_snapshots,
             total_blocks,
         })
@@ -156,6 +194,8 @@ mod tests {
         let full: Vec<_> = (0..4096).collect();
         assert!(Reservation::buffered(&full, 0, Some(4096)).is_err());
         assert!(Reservation::buffered(&[], usize::MAX, Some(0)).is_err());
+        assert!(Reservation::admit(&full, 13, 0, 4096).is_err());
+        assert!(Reservation::admit(&[], 0, usize::MAX, 0).is_err());
     }
 
     #[test]
