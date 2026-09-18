@@ -2,6 +2,65 @@ use super::*;
 use crate::format_v3::{storage, volume};
 
 #[test]
+fn paged_metrics_distinguish_cache_lookups_snapshot_io_and_tail_scans() -> io::Result<()> {
+    let backing = TemporaryBacking::new()?;
+    backing.create_sized(32 * BLOCK_SIZE as u64)?;
+    storage::format(&backing.0, 641 * BLOCK_SIZE as u64, None)?;
+    let mut volume = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)?;
+    let initial = volume.mapping_stats();
+    assert_eq!(initial.index_bytes, 12);
+    assert_eq!(initial.io.page_reads, 0);
+    assert_eq!(initial.io.page_writes, 0);
+    assert_eq!(initial.io.index_bytes_written, 0);
+    assert_eq!(initial.io.tail_blocks_read, 28);
+    assert_eq!(initial.recovery_passes, 1);
+    assert_eq!(initial.cache.counters.foreground.hit_rate(), None);
+    assert!(
+        initial
+            .summary()
+            .contains("mapping_foreground_hit_rate=unavailable")
+    );
+    let mut bytes = [0; BLOCK_SIZE];
+    for lba in [0, 0, 320] {
+        volume.read_block(lba, &mut bytes)?;
+    }
+    volume.write_block(320, &[1; BLOCK_SIZE])?;
+    volume.read_block(640, &mut bytes)?;
+    volume.read_block(320, &mut bytes)?;
+    volume.write_block(320, &[2; BLOCK_SIZE])?;
+    volume.flush()?;
+    let stats = volume.mapping_stats();
+    assert_eq!(stats.cache.counters.foreground.hits, 3);
+    assert_eq!(stats.cache.counters.foreground.misses, 4);
+    assert_eq!(stats.cache.counters.clean_evictions, 3);
+    assert_eq!(stats.cache.counters.checkpoint_required, 1);
+    assert_eq!(stats.pressure_checkpoints, 1);
+    assert_eq!(stats.checkpoint_failures, 0);
+    assert_eq!(stats.io.page_reads, 1);
+    assert_eq!(stats.io.page_writes, 1);
+    assert_eq!(stats.io.index_bytes_written, 4096);
+    assert_eq!(stats.io.tail_blocks_read, 28);
+    assert_eq!(stats.cache.dirty_slots, 1);
+    assert!(
+        stats
+            .summary()
+            .contains("mapping_foreground_hit_rate=0.428571")
+    );
+    drop(volume);
+
+    let reopened = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)?;
+    let stats = reopened.mapping_stats();
+    assert_eq!(stats.io.page_reads, 2);
+    assert_eq!(stats.io.page_writes, 0);
+    assert_eq!(stats.io.index_bytes_written, 0);
+    assert_eq!(stats.io.tail_blocks_read, 27);
+    assert_eq!(stats.recovery_passes, 2);
+    assert_eq!(stats.cache.counters.recovery.misses, 1);
+    assert_eq!(stats.cache.counters.foreground.misses, 0);
+    reopened.close()
+}
+
+#[test]
 fn paged_reads_checkpoint_dirty_pressure_and_retry_without_double_counting() -> io::Result<()> {
     let (backing, checkpoint) = super::format_v3_load::populated_fixture(641)?;
     super::format_v3_publish::pending_update(&backing, &checkpoint)?;
@@ -66,6 +125,7 @@ fn paged_metadata_failure_preserves_output_and_latches_the_volume() -> io::Resul
     let mut bytes = [0xee; BLOCK_SIZE];
     volume.read_block(0, &mut bytes)?;
     bytes.fill(0xee);
+    let reads_before = volume.mapping_stats().io.page_reads;
     let file = OpenOptions::new().write(true).open(&backing.0)?;
     file.write_all_at(
         &[0xff],
@@ -76,6 +136,7 @@ fn paged_metadata_failure_preserves_output_and_latches_the_volume() -> io::Resul
         io::ErrorKind::InvalidData
     );
     assert_eq!(bytes, [0xee; BLOCK_SIZE]);
+    assert_eq!(volume.mapping_stats().io.page_reads, reads_before + 1);
     assert_eq!(volume.cache_snapshot().counters.clean_evictions, 0);
     assert_eq!(volume.cache_snapshot().resident_slots, 1);
     assert_eq!(

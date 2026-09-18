@@ -48,6 +48,9 @@ fn bounded_recovery_matches_fast_path_and_preserves_its_replay_source() -> io::R
         .map(|(id, entries)| (id, entries.clone()))
         .collect();
     let end = fast.tail;
+    assert_eq!(backing_io.mapping_io.page_reads, 0);
+    assert_eq!(backing_io.mapping_io.page_writes, 0);
+    assert_eq!(backing_io.mapping_io.index_bytes_written, 0);
     drop(fast);
     assert_eq!(active.descriptor.generation, 0);
     let plain = OpenOptions::new().read(true).write(true).open(&backing.0)?;
@@ -62,6 +65,8 @@ fn bounded_recovery_matches_fast_path_and_preserves_its_replay_source() -> io::R
     assert_eq!(bounded.stats.page_reads, 0);
     assert_eq!(bounded.stats.snapshot_writes, 2);
     assert_eq!(bounded.stats.index_bytes, BLOCK_SIZE as u64);
+    assert_eq!(backing_io.mapping_io.page_writes, 2);
+    assert_eq!(backing_io.mapping_io.index_bytes_written, BLOCK_SIZE as u64);
     assert_eq!(
         (bounded.stats.lookups.hits, bounded.stats.lookups.misses),
         (336, 2)

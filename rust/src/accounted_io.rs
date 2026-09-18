@@ -5,6 +5,8 @@ use std::io;
 pub(super) struct BackingIo {
     pub(super) ring: Option<IoUring>,
     accounting: Option<Writer>,
+    #[cfg(test)]
+    pub(super) mapping_io: crate::format_v3::metrics::MappingIo,
 }
 
 impl BackingIo {
@@ -12,6 +14,8 @@ impl BackingIo {
         Ok(Self {
             ring: Some(IoUring::new(2)?),
             accounting,
+            #[cfg(test)]
+            mapping_io: crate::format_v3::metrics::MappingIo::default(),
         })
     }
 }
@@ -22,7 +26,9 @@ pub(super) fn submit_exact(
     user_data: u64,
     expected_result: i32,
 ) -> io::Result<()> {
-    let BackingIo { ring, accounting } = backing_io;
+    let BackingIo {
+        ring, accounting, ..
+    } = backing_io;
     let Some(writer) = accounting.as_mut() else {
         return super::submit_exact_raw(ring, entry, user_data, expected_result);
     };

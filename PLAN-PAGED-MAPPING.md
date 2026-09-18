@@ -25,6 +25,8 @@ Foreground write evidence (2026-09-18): staged writes coalesce payloads and rele
 
 Space accounting evidence (2026-09-18): streaming checkpoint validation supplies the initial live-block count; replay and completed writes add only newly mapped entries. Tests verify exact live/log counts through pressure, buffering, overwrites, fallback, and smaller-cache recovery. All 290 repository gate commands passed. Public metrics and activation remain pending.
 
+Mapping metrics evidence (2026-09-18): staged snapshots and report formatting expose cache counts, capacity/allocation, index bytes, recovery passes, completed metadata I/O, pressure checkpoints, and checkpoint failures. Exact tests include failed publication after a successful snapshot write and metadata reads rejected by validation. All 292 repository gate commands passed. Public API and daemon/lab reporting remain pending.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

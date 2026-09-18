@@ -105,6 +105,7 @@ pub(crate) fn read_page(
     }
     let mut bytes = AlignedBlock([0; BLOCK_SIZE]);
     read_block_exact(backing_io, backing, boundary, &mut bytes)?;
+    backing_io.mapping_io.page_reads += 1;
     Ok(MappingPageRecord::decode(
         &bytes.0,
         &PageExpectation {

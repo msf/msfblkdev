@@ -91,6 +91,17 @@ impl Volume {
         self.release_stats
     }
 
+    pub(crate) fn mapping_stats(&self) -> super::metrics::MappingStats {
+        super::metrics::MappingStats {
+            cache: self.cache_snapshot(),
+            io: self.backing_io.mapping_io,
+            index_bytes: self.mapping.checkpoint.allocated_bytes(),
+            pressure_checkpoints: self.mapping.pressure_checkpoints,
+            checkpoint_failures: self.mapping.checkpoint_failures,
+            recovery_passes: self.mapping.recovery.tail_passes,
+        }
+    }
+
     pub(crate) fn space_usage(&self) -> io::Result<SpaceUsage> {
         let geometry = self.mapping.checkpoint.descriptor.geometry()?;
         let metadata_blocks = u64::from(geometry.log_start);

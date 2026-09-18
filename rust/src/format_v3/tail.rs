@@ -57,6 +57,7 @@ pub(crate) fn read_next(
     }
     let mut bytes = AlignedBlock([0; BLOCK_SIZE]);
     read_block_exact(backing_io, backing, first as u32, &mut bytes)?;
+    backing_io.mapping_io.tail_blocks_read += 1;
     if current_metadata(&bytes.0, checkpoint.volume_id)
         && let Ok(header) =
             MappingPageRecord::decode_framing(&bytes.0, geometry, checkpoint.volume_id)
@@ -71,6 +72,7 @@ pub(crate) fn read_next(
         (u64::from(position.boundary) + MAXIMUM_RECORD_BLOCKS).min(geometry.backing_blocks - 1);
     for boundary in first + 1..=limit {
         read_block_exact(backing_io, backing, boundary as u32, &mut bytes)?;
+        backing_io.mapping_io.tail_blocks_read += 1;
         if !current_metadata(&bytes.0, checkpoint.volume_id)
             || Some(read_u64(&bytes.0, 16)) != position.lsn.checked_add(1)
             || read_u32(&bytes.0, 24) != position.boundary

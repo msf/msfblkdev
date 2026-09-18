@@ -168,13 +168,9 @@ fn checkpoint_publish_preserves_dirty_state_until_all_writes_succeed() -> io::Re
             .write(true)
             .custom_flags(libc::O_DIRECT)
             .open(&backing.0)?;
-        let result = checkpoint_publish::publish(
-            &mut BackingIo::new(Some(accounting.writer()?))?,
-            &file,
-            &mut active,
-            &mut cache,
-            tail,
-        );
+        let mut backing_io = BackingIo::new(Some(accounting.writer()?))?;
+        let result =
+            checkpoint_publish::publish(&mut backing_io, &file, &mut active, &mut cache, tail);
         let (selected, _) = checkpoint_load::load(&mut BackingIo::new(None)?, &file, 32)?;
         if blocks < 3 {
             assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::ENOSPC));
@@ -191,7 +187,50 @@ fn checkpoint_publish_preserves_dirty_state_until_all_writes_succeed() -> io::Re
         assert_eq!(snapshot.write_completed_operations, blocks);
         assert_eq!(snapshot.write_completed_bytes, blocks * 4096);
         assert_eq!(snapshot.flush_completed_operations, blocks);
+        assert_eq!(backing_io.mapping_io.page_writes, u64::from(blocks >= 1));
+        assert_eq!(
+            backing_io.mapping_io.index_bytes_written,
+            u64::from(blocks >= 2) * 4096
+        );
     }
+    Ok(())
+}
+
+#[test]
+fn paged_failed_pressure_counts_completed_io_without_counting_publication() -> io::Result<()> {
+    use crate::format_v3::{storage, volume};
+    let backing = TemporaryBacking::new()?;
+    backing.create_sized(32 * BLOCK_SIZE as u64)?;
+    storage::format(&backing.0, 321 * 4096, None)?;
+    // Sanitation uses 28 blocks, the data record two, and the snapshot one.
+    let (accounting, _) = AccountingFixture::new(31 * 4096)?;
+    let mut volume = volume::open(
+        &backing.0,
+        VolumeOpenOptions::default(),
+        Some(1),
+        Some(accounting.writer()?),
+    )?;
+    volume.write_block(0, &[1; BLOCK_SIZE])?;
+    let mut bytes = [0xff; BLOCK_SIZE];
+    assert_eq!(
+        volume
+            .read_block(320, &mut bytes)
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOSPC)
+    );
+    assert_eq!(bytes, [0xff; BLOCK_SIZE]);
+    let stats = volume.mapping_stats();
+    assert_eq!(stats.checkpoint_failures, 1);
+    assert_eq!(stats.pressure_checkpoints, 0);
+    assert_eq!(stats.cache.counters.foreground.misses, 2);
+    assert_eq!(stats.cache.counters.checkpoint_required, 1);
+    assert_eq!(stats.cache.dirty_slots, 1);
+    assert_eq!(stats.io.page_writes, 1);
+    assert_eq!(stats.io.index_bytes_written, 0);
+    assert!(volume.flush().is_err());
+    assert_eq!(volume.mapping_stats(), stats);
+    assert!(volume.close().is_err());
     Ok(())
 }
 

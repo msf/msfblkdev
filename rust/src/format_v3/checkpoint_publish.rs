@@ -95,6 +95,7 @@ pub(crate) fn append_snapshots(
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint(&format!("mapping-page-write-before-{page_id}"))?;
         storage::write_block(backing_io, backing, record.header.boundary, &bytes)?;
+        backing_io.mapping_io.page_writes += 1;
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint(&format!("mapping-page-write-complete-{page_id}"))?;
         candidate.mapping_page_block[page_id as usize] = record.header.boundary;
@@ -120,6 +121,7 @@ pub(crate) fn persist_root(
             candidate.descriptor.slot.body_start(geometry) + block,
             &bytes,
         )?;
+        backing_io.mapping_io.index_bytes_written += BLOCK_SIZE as u64;
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint(&format!("checkpoint-body-block-complete-{block}"))?;
     }

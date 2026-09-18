@@ -76,6 +76,7 @@ fn load_candidate(
             continue;
         }
         read_block_exact(backing_io, backing, boundary, bytes)?;
+        backing_io.mapping_io.page_reads += 1;
         let page = MappingPageRecord::decode(
             &bytes.0,
             &PageExpectation {

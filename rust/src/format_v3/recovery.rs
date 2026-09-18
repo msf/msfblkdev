@@ -247,6 +247,7 @@ impl Recovery<'_> {
         }
         let mut bytes = AlignedBlock([0; BLOCK_SIZE]);
         read_block_exact(self.backing_io, self.backing, boundary, &mut bytes)?;
+        self.backing_io.mapping_io.page_reads += 1;
         self.stats.page_reads += 1;
         Ok(MappingPageRecord::decode(
             &bytes.0,
