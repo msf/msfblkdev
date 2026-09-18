@@ -1,6 +1,6 @@
 # Delivery plan: paged mapping and bounded cache
 
-Status: Delivery 1 complete; Delivery 2 codecs, formatter, checkpoint loading, reservation, and buffered-page grouping implemented in isolation; engine integration remains pending
+Status: Deliveries 1–2 complete; checkpoint publication and bounded recovery verified in isolation; public engine integration remains pending
 Contract: [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 
 Delivery 1 evidence (2026-09-18): 16 isolated cache tests passed, including allocation-counted churn and a deterministic mapping reference model. `make lint test` passed all 234 test commands. The cache is compiled only under `cfg(test)`; persistence and engine integration remain unimplemented.
@@ -16,6 +16,8 @@ Recovery framing decision (2026-09-18): ADR-07 now uses eight reserved snapshot 
 Tail-reader evidence (2026-09-18): four file-backed tests cover mixed records, record-size limits, partial data appends, malformed/unsupported framing, and older-root traversal through damaged snapshot contents to later flushed data. All 275 repository gate commands passed. Cache-window application and recovery publication remain pending.
 
 Bounded-recovery evidence (2026-09-18): isolated cache-window replay matches the fitting-cache path, preserves replay-source bytes, publishes one final root, and rejects insufficient space before writing. Recovery keeps at most one cache plus the active and candidate indexes. All 278 repository gate commands passed. Recovery crash tests, public engine activation, metrics, and final acceptance remain pending.
+
+Recovery crash evidence (2026-09-18): 180 interruptions across nine recovery boundaries and three consecutive interrupted recoveries of one image passed. All final mappings and payload checksums matched the original 338 writes. The combined publication/recovery matrix passed 343 crashes; `make lint test` passed all 280 commands. The next delivery integrates these verified components into foreground reads/writes and the public version-3 open/format path.
 
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 

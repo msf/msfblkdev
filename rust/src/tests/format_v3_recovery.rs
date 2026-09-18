@@ -6,7 +6,7 @@ use crate::format_v3::{
     recovery, storage,
 };
 
-fn fixture(blocks: u64) -> io::Result<(TemporaryBacking, Checkpoint)> {
+pub(super) fn fixture(blocks: u64) -> io::Result<(TemporaryBacking, Checkpoint)> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(blocks * BLOCK_SIZE as u64)?;
     storage::format(&backing.0, 640 * BLOCK_SIZE as u64, None)?;

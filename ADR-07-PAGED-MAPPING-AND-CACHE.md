@@ -1,6 +1,6 @@
 # ADR-07 Paged mapping and bounded cache
 
-Status: implementation in progress; isolated cache complete
+Status: implementation in progress; cache, storage, and recovery verified in isolation
 On-disk format: 3
 Updates: ADR-01 and ADR-03 for newly formatted version-3 images only
 Related: [research proposal](papers/README.md#ideas-to-improve-the-design), [delivery plan](PLAN-PAGED-MAPPING.md)
@@ -284,7 +284,7 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 - [x] Implement isolated buffered-page grouping. Evidence (2026-09-18): three tests cover interleaved pages, coalesced payloads, agreement with reservation at the 4,096-payload buffer limit, and allocation-free grouping. All 259 repository gate commands passed. The production release path remains unchanged until engine integration.
 - [x] Separate snapshot traversal integrity from mapping contents. Evidence (2026-09-18): independent header-checksum tests flip every byte of a 4 KiB snapshot, reject damaged headers and mapping state, and retain valid traversal fields after body damage. Additional cases reject invalid framing with a recomputed checksum. All 271 repository gate commands passed. Replay integration remains pending.
 - [x] Implement isolated mixed-record tail traversal. Evidence (2026-09-18): four file-backed tests cover footer-size bounds, incomplete data appends, invalid cursors, unsupported records, detected mapping-header damage, and application payloads resembling metadata. Older-root fallback traverses a damaged snapshot body and reaches a later flushed write with its original payload checksum. All 275 repository gate commands passed. Applying the tail through bounded cache windows remains pending.
-- [ ] Prove bounded recovery publication ordering before engine integration.
+- [x] Prove bounded recovery publication ordering before engine integration. Evidence (2026-09-18): recovery scans and reserves before writing, stops every pass at the fixed replay boundary, appends snapshots beyond that boundary, and selects one complete root. The recovery crash matrix below verifies interruption between windows and repeated retries without changing logical mappings.
 
 ### Delivery 3: engine and frontend integration
 
@@ -298,6 +298,7 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 ### Delivery 4: acceptance and completion
 
 - [x] Exercise isolated publication with the existing SIGKILL harness. Evidence (2026-09-18): all eight boundaries passed 20 repetitions (160 crashes), covering snapshot append, log fsync, both index blocks, index fsync, descriptor write, and descriptor fsync. Each run selected the expected root and retained the flushed data record and its payload checksum. All 269 repository gate commands passed. This proves process-crash behavior for publication; tail replay and power-loss behavior remain unverified.
+- [x] Exercise isolated bounded recovery with the same SIGKILL harness. Evidence (2026-09-18): nine recovery boundaries passed 20 repetitions (180 crashes); three consecutive interruptions of one image also recovered successfully. Every final root retained all 338 payload mappings and checksums. Completed uncommitted snapshots advanced framing only, without becoming logical writes. The publication and recovery matrix passed all 343 crashes, and all 280 repository gate commands passed. Public engine integration remains pending; these tests do not simulate power loss.
 - [ ] Prove interruption at mapping, index, descriptor, and recovery publication boundaries, including repeated recovery crashes.
 - [ ] Prove pressure checkpoints, unchanged-page reuse, flush without checkpoint, malformed metadata rejection, and fallback after snapshot corruption.
 - [ ] Record cache/index/peak mapping memory and separate RSS measurements, with exact access-sequence hit rates.
