@@ -11,6 +11,8 @@ Delivery 3 prerequisite (2026-09-18): isolated checkpoint publication appends di
 
 Publication crash evidence (2026-09-18): the existing SIGKILL harness passed 160 interruptions across eight version-3 publication boundaries. The selected root and the flushed data record matched expectations after every crash. All 269 repository gate commands passed. Recovery integration and its interruption tests remain pending.
 
+Recovery framing decision (2026-09-18): ADR-07 now uses eight reserved snapshot bytes for a checksum of the header and page ID. This lets replay traverse a damaged snapshot body while rejecting it as checkpoint mapping state. Byte-by-byte corruption and malformed-header tests passed; all 271 repository gate commands passed. The remaining prerequisite is bounded recovery ordering and integration.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

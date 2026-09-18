@@ -84,7 +84,7 @@ struct MappingPageRecord {
 
 ### Version-3 records and checkpoint schema
 
-Retain ADR-01's geometry bounds, physical-address units, checksum algorithms, payload checksum inputs, and explicit encoding. All metadata padding is zero and validated. Metadata checksums cover their entire 4 KiB block with the checksum field zeroed.
+Retain ADR-01's geometry bounds, physical-address units, checksum algorithms, payload checksum inputs, and explicit encoding. All metadata padding is zero and validated. Record and descriptor checksums cover their entire 4 KiB block with the final checksum field zeroed. Mapping snapshots also carry the independent header checksum defined below.
 
 Use the existing footer framing for both record kinds. The shared fields at offsets 0–31 remain ADR-01's `VBLF` magic, version, kind, zero padding, volume ID, LSN, previous record boundary, and this record boundary. Version is 3. Every record, including a mapping snapshot, consumes one strictly increasing LSN. The boundary is the physical block containing the footer or mapping-page record.
 
@@ -114,10 +114,15 @@ Mapping-page records use kind 2 and have no preceding payload. Require `this_bou
 | 36 | 4 | Zero padding |
 | 40 | 1280 | `physical_addr[320]`, little-endian `u32` |
 | 1320 | 2560 | `payload_checksum[320]`, little-endian `u64` |
-| 3880 | 208 | Zero padding |
+| 3880 | 8 | Header checksum: XXH3-64 over bytes 0–39, little-endian `u64` |
+| 3888 | 200 | Zero padding |
 | 4088 | 8 | Record checksum |
 
 Both arrays begin at 8-byte-aligned offsets. A directory lookup validates the record checksum, kind, version, volume, expected physical boundary, page ID, entry bounds, and that the snapshot is not newer than the selecting checkpoint. Snapshot records describe mappings; they are not independent logical writes during replay.
+
+The header checksum includes the shared framing, page ID, and padding through byte 39. The full record checksum also covers this header checksum. Mapping-page decoding requires both checksums. Replay may traverse a snapshot whose entries or full record checksum are damaged only when its independent header checksum, identity, geometry, and consecutive chain position validate. It must not use that snapshot's entries. Corrupted framing is an error, not evidence of a clean end of log.
+
+This second checksum is required for older-checkpoint fallback. With only a full record checksum, one damaged mapping entry invalidates the snapshot and its traversal fields together. Recovery could select the older root but could not safely reach later flushed data records. Using eight reserved bytes separates these checks without moving either entry array or increasing the record size.
 
 The reserved prefix contains descriptors at blocks 0 and 1, followed by the green and blue index bodies. Each body contains `page_count` little-endian `u32` pointers, rounded once to 4 KiB with zero padding. Derive body positions and sizes from validated geometry. The append log starts immediately after both bodies.
 
@@ -271,7 +276,8 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 - [x] Verify mixed record chains, partial pages, checksums, zero padding, overflow, and non-mutating unsupported-version rejection in the isolated codecs and loader. A captured version-1 formatter fixture proves rejection independently of future public formatter changes. Versions 2 and 255 are also rejected without writing. Public `open` activation remains in Delivery 3.
 - [x] Document and test foreground append reservation. Evidence (2026-09-18): three isolated tests cover exact charges, capacity/overflow limits, and exhaustive small dirty-set/pressure schedules. All 256 repository gate commands passed. Engine integration must still enforce the tested page-grouping premise.
 - [x] Implement isolated buffered-page grouping. Evidence (2026-09-18): three tests cover interleaved pages, coalesced payloads, agreement with reservation at the 4,096-payload buffer limit, and allocation-free grouping. All 259 repository gate commands passed. The production release path remains unchanged until engine integration.
-- [ ] Resolve corrupted-snapshot traversal and prove bounded recovery publication ordering before engine integration.
+- [x] Separate snapshot traversal integrity from mapping contents. Evidence (2026-09-18): independent header-checksum tests flip every byte of a 4 KiB snapshot, reject damaged headers and mapping state, and retain valid traversal fields after body damage. Additional cases reject invalid framing with a recomputed checksum. All 271 repository gate commands passed. Replay integration remains pending.
+- [ ] Prove bounded recovery publication ordering before engine integration.
 
 ### Delivery 3: engine and frontend integration
 

@@ -102,8 +102,12 @@ impl RecordHeader {
 
     pub(crate) fn decode(bytes: &[u8]) -> io::Result<Self> {
         let bytes = validate_metadata(bytes, RECORD_MAGIC)?;
-        if bytes[6..8] != [0, 0] {
-            return Err(invalid_data("nonzero record header padding"));
+        Self::decode_fields(bytes)
+    }
+
+    fn decode_fields(bytes: &[u8; BLOCK_SIZE]) -> io::Result<Self> {
+        if &bytes[..4] != RECORD_MAGIC || bytes[4] != VERSION || bytes[6..8] != [0, 0] {
+            return Err(invalid_data("record magic, version, or padding mismatch"));
         }
         let header = Self {
             kind: RecordKind::try_from(bytes[5])?,
