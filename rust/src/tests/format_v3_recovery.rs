@@ -10,7 +10,8 @@ pub(super) fn fixture(blocks: u64) -> io::Result<(TemporaryBacking, Checkpoint)>
     let backing = TemporaryBacking::new()?;
     backing.create_sized(blocks * BLOCK_SIZE as u64)?;
     storage::format(&backing.0, 640 * BLOCK_SIZE as u64, None)?;
-    let checkpoint = checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, blocks)?;
+    let (checkpoint, _) =
+        checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, blocks)?;
     let file = OpenOptions::new().write(true).open(&backing.0)?;
     super::format_v3_tail::write_zero_payload_record(&file, checkpoint.descriptor, 338)?;
     file.sync_all()?;
@@ -33,6 +34,7 @@ fn bounded_recovery_matches_fast_path_and_preserves_its_replay_source() -> io::R
     let fast = recovery::recover(&mut backing_io, &file, &mut active, Some(20_000))?;
     assert_eq!(fast.cache.snapshot().dirty_slots, 2);
     assert_eq!(fast.stats.tail_passes, 2);
+    assert_eq!(fast.stats.newly_mapped_blocks, 338);
     assert_eq!(fast.stats.records_scanned, 2);
     assert_eq!(fast.stats.snapshot_writes, 0);
     assert_eq!(fast.stats.index_bytes, 0);
@@ -55,6 +57,7 @@ fn bounded_recovery_matches_fast_path_and_preserves_its_replay_source() -> io::R
     assert_eq!(bounded.cache.snapshot().sizing.capacity, 1);
     assert_eq!(bounded.cache.snapshot().dirty_slots, 0);
     assert_eq!(bounded.stats.tail_passes, 3);
+    assert_eq!(bounded.stats.newly_mapped_blocks, 338);
     assert_eq!(bounded.stats.records_scanned, 3);
     assert_eq!(bounded.stats.page_reads, 0);
     assert_eq!(bounded.stats.snapshot_writes, 2);
@@ -86,10 +89,12 @@ fn bounded_recovery_matches_fast_path_and_preserves_its_replay_source() -> io::R
     plain.read_exact_at(&mut after, 4 * BLOCK_SIZE as u64)?;
     assert_eq!(after, before);
     drop(bounded);
-    let mut reopened = checkpoint_load::load(&mut backing_io, &file, 1024)?;
+    let (mut reopened, live_blocks) = checkpoint_load::load(&mut backing_io, &file, 1024)?;
+    assert_eq!(live_blocks, 338);
     assert_eq!(reopened.descriptor, active.descriptor);
     let unchanged = recovery::recover(&mut backing_io, &file, &mut reopened, Some(1))?;
     assert_eq!(unchanged.stats.tail_passes, 1);
+    assert_eq!(unchanged.stats.newly_mapped_blocks, 0);
     assert_eq!(unchanged.stats.snapshot_writes, 0);
     assert_eq!(unchanged.stats.index_bytes, 0);
     drop(unchanged);
@@ -97,6 +102,7 @@ fn bounded_recovery_matches_fast_path_and_preserves_its_replay_source() -> io::R
         super::format_v3_tail::write_zero_payload_record(&plain, reopened.descriptor, 1)?;
     let recovered = recovery::recover(&mut backing_io, &file, &mut reopened, Some(1))?;
     assert_eq!(recovered.stats.page_reads, 1);
+    assert_eq!(recovered.stats.newly_mapped_blocks, 0);
     let (_, page) = recovered.cache.dirty_pages().next().unwrap();
     let mut expected_page = expected[0].1.clone();
     expected_page.physical_addr[0] = overwrite.header.previous_boundary + 1;
@@ -141,10 +147,12 @@ fn bounded_recovery_rebuilds_an_older_root_after_snapshot_body_corruption() -> i
     plain.sync_all()?;
     let file = direct_writer(&backing)?;
     let mut backing_io = BackingIo::new(None)?;
-    let mut older = checkpoint_load::load(&mut backing_io, &file, 32)?;
+    let (mut older, live_blocks) = checkpoint_load::load(&mut backing_io, &file, 32)?;
+    assert_eq!(live_blocks, 0);
     assert_eq!(older.descriptor.generation, 0);
     let recovered = recovery::recover(&mut backing_io, &file, &mut older, Some(1))?;
     assert_eq!(recovered.tail.lsn, 5);
+    assert_eq!(recovered.stats.newly_mapped_blocks, 2);
     assert_eq!(recovered.stats.records_scanned, 9);
     assert_eq!(recovered.stats.snapshot_writes, 2);
     let mut bytes = AlignedBlock([0; BLOCK_SIZE]);

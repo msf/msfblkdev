@@ -77,15 +77,18 @@ impl Volume {
             geometry: self.mapping.checkpoint.descriptor.geometry()?,
             volume_id: self.mapping.checkpoint.descriptor.volume_id,
         };
-        let next = self.mapping.with_page(
+        let (next, newly_mapped) = self.mapping.with_page(
             &mut self.backing_io,
             backing,
             group.page_id,
             |mut page, tail, backing_io| {
                 let record = writer.append(backing_io, buffer, group, tail)?;
+                let mut newly_mapped = 0;
                 for index in 0..count {
+                    let entry = (record.lba_ids[index] % ENTRIES_PER_PAGE as u32) as usize;
+                    newly_mapped += u64::from(page.entries().physical_addr[entry] == 0);
                     page.update(
-                        (record.lba_ids[index] % ENTRIES_PER_PAGE as u32) as usize,
+                        entry,
                         tail.boundary + 1 + index as u32,
                         record.checksums[index],
                     )
@@ -93,13 +96,17 @@ impl Volume {
                 }
                 #[cfg(any(test, feature = "test-failpoints"))]
                 crate::pause_at_test_failpoint(crate::MAPPING_PUBLISHED_FAILPOINT)?;
-                Ok(LogPosition {
-                    lsn: record.header.lsn,
-                    boundary: record.header.boundary,
-                })
+                Ok((
+                    LogPosition {
+                        lsn: record.header.lsn,
+                        boundary: record.header.boundary,
+                    },
+                    newly_mapped,
+                ))
             },
         )?;
         self.mapping.tail = next;
+        self.live_blocks += newly_mapped;
         self.release_stats.record(count);
         Ok(())
     }

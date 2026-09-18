@@ -20,6 +20,7 @@ use std::{fs::File, io, ops::Range};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct RecoveryStats {
+    pub(crate) newly_mapped_blocks: u64,
     pub(crate) tail_passes: u64,
     pub(crate) records_scanned: u64,
     pub(crate) page_reads: u64,
@@ -225,12 +226,15 @@ impl Recovery<'_> {
                     return Err(invalid_data("recovery window exceeds cache capacity"));
                 }
             };
+            let entry = (lba % ENTRIES_PER_PAGE as u32) as usize;
+            let newly_mapped = page.entries().physical_addr[entry] == 0;
             page.update(
-                (lba % ENTRIES_PER_PAGE as u32) as usize,
+                entry,
                 data.header.previous_boundary + 1 + index as u32,
                 data.checksums[index],
             )
             .map_err(cache_error)?;
+            self.stats.newly_mapped_blocks += u64::from(newly_mapped);
         }
         Ok(())
     }

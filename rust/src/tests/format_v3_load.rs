@@ -99,6 +99,7 @@ fn load(backing: &TemporaryBacking) -> io::Result<Checkpoint> {
         &file,
         file.metadata()?.len() / BLOCK_SIZE as u64,
     )
+    .map(|(checkpoint, _)| checkpoint)
 }
 
 #[test]

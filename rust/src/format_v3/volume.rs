@@ -1,8 +1,8 @@
 use super::{checkpoint_load, mapping_state::MappingState, recovery, storage};
 mod write;
 use crate::{
-    AlignedBlock, BLOCK_SIZE, ReleaseIovecs, ReleaseStats, ReleaseTrigger, VolumeOpenOptions,
-    WriteBackBuffer,
+    AlignedBlock, BLOCK_SIZE, ReleaseIovecs, ReleaseStats, ReleaseTrigger, SpaceUsage,
+    VolumeOpenOptions, WriteBackBuffer,
     accounted_io::BackingIo,
     clamp_write_buffer_blocks, clear_stale_tail, invalid_data, invalid_input, io_accounting,
     mapping_cache::{ENTRIES_PER_PAGE, Snapshot},
@@ -11,7 +11,7 @@ use crate::{
 use std::{
     fs::{File, OpenOptions},
     io::{self, Seek, SeekFrom},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::Path,
 };
 
@@ -25,6 +25,7 @@ pub(crate) struct Volume {
     release_iovecs: ReleaseIovecs,
     release_stats: ReleaseStats,
     checkpoint_after_bytes: u64,
+    live_blocks: u64,
     failed: bool,
 }
 
@@ -45,7 +46,7 @@ pub(crate) fn open(
         return Err(invalid_input("backing size is not block aligned"));
     }
     let mut backing_io = BackingIo::new(accounting)?;
-    let mut checkpoint =
+    let (mut checkpoint, live_blocks) =
         checkpoint_load::load(&mut backing_io, &backing, bytes / BLOCK_SIZE as u64)?;
     let recovered = recovery::recover(&mut backing_io, &backing, &mut checkpoint, cache_budget)?;
     clear_stale_tail(
@@ -76,6 +77,7 @@ pub(crate) fn open(
         release_iovecs: ReleaseIovecs(Vec::with_capacity(ENTRIES_PER_PAGE + 1)),
         release_stats: ReleaseStats::default(),
         checkpoint_after_bytes: options.checkpoint_after_bytes,
+        live_blocks: live_blocks + recovered.stats.newly_mapped_blocks,
         failed: false,
     })
 }
@@ -87,6 +89,22 @@ impl Volume {
 
     pub(crate) fn release_stats(&self) -> ReleaseStats {
         self.release_stats
+    }
+
+    pub(crate) fn space_usage(&self) -> io::Result<SpaceUsage> {
+        let geometry = self.mapping.checkpoint.descriptor.geometry()?;
+        let metadata_blocks = u64::from(geometry.log_start);
+        let metadata = self.backing.metadata()?;
+        Ok(SpaceUsage {
+            volume_bytes: u64::from(geometry.volume_blocks) * BLOCK_SIZE as u64,
+            live_bytes: self.live_blocks * BLOCK_SIZE as u64,
+            backing_bytes: metadata.len(),
+            allocated_bytes: metadata.blocks() * 512,
+            metadata_bytes: metadata_blocks * BLOCK_SIZE as u64,
+            log_capacity_bytes: (geometry.backing_blocks - metadata_blocks) * BLOCK_SIZE as u64,
+            log_used_bytes: (u64::from(self.mapping.tail.boundary) + 1 - metadata_blocks)
+                * BLOCK_SIZE as u64,
+        })
     }
 
     pub(crate) fn cache_snapshot(&self) -> Snapshot {

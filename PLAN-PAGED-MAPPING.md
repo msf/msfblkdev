@@ -23,6 +23,8 @@ Foreground read evidence (2026-09-18): staged version-3 open/read integrates che
 
 Foreground write evidence (2026-09-18): staged writes coalesce payloads and release each mapping page as one group, acquiring cache capacity before append and updating mappings only after exact I/O completion. Five tests cover pressure, flush/reopen, snapshot reservation, allocation-free full-page release, and failed-I/O latching. All 289 repository gate commands passed. Space accounting, public metrics, and public activation remain pending.
 
+Space accounting evidence (2026-09-18): streaming checkpoint validation supplies the initial live-block count; replay and completed writes add only newly mapped entries. Tests verify exact live/log counts through pressure, buffering, overwrites, fallback, and smaller-cache recovery. All 290 repository gate commands passed. Public metrics and activation remain pending.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

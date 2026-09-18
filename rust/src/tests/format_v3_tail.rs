@@ -14,7 +14,8 @@ fn empty_image() -> io::Result<(TemporaryBacking, Checkpoint)> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(1024 * BLOCK_SIZE as u64)?;
     storage::format(&backing.0, 640 * BLOCK_SIZE as u64, None)?;
-    let checkpoint = checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, 1024)?;
+    let (checkpoint, _) =
+        checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, 1024)?;
     Ok((backing, checkpoint))
 }
 
@@ -152,7 +153,7 @@ fn older_root_replay_traverses_damaged_snapshot_to_later_flushed_data() -> io::R
     file.sync_all()?;
     let direct = backing.reopen()?;
     let mut backing_io = BackingIo::new(None)?;
-    let older = checkpoint_load::load(&mut backing_io, &direct, 32)?;
+    let (older, _) = checkpoint_load::load(&mut backing_io, &direct, 32)?;
     assert_eq!(older.descriptor.generation, 0);
     let mut position = LogPosition {
         lsn: older.descriptor.checkpoint_lsn,
@@ -222,7 +223,7 @@ fn tail_reader_rejects_unknown_records_and_detected_mapping_framing_damage() -> 
     file.read_exact_at(&mut bytes, u64::from(boundary) * BLOCK_SIZE as u64)?;
     bytes[3880] ^= 1;
     file.write_all_at(&bytes, u64::from(boundary) * BLOCK_SIZE as u64)?;
-    let older = checkpoint_load::load(&mut backing_io, &backing.reopen()?, 32)?;
+    let (older, _) = checkpoint_load::load(&mut backing_io, &backing.reopen()?, 32)?;
     let position = LogPosition {
         lsn: 1,
         boundary: boundary - 1,

@@ -14,7 +14,7 @@ pub(crate) fn load(
     backing_io: &mut BackingIo,
     backing: &File,
     backing_blocks: u64,
-) -> io::Result<Checkpoint> {
+) -> io::Result<(Checkpoint, u64)> {
     if !(2..=MAX_BACKING_BLOCKS).contains(&backing_blocks) {
         return Err(invalid_data("invalid checkpoint backing size"));
     }
@@ -52,7 +52,7 @@ fn load_candidate(
     backing: &File,
     descriptor: CheckpointDescriptor,
     bytes: &mut AlignedBlock,
-) -> io::Result<Checkpoint> {
+) -> io::Result<(Checkpoint, u64)> {
     let geometry = descriptor.geometry()?;
     let mut checkpoint = Checkpoint::empty(geometry, descriptor.volume_id)?;
     checkpoint.descriptor = descriptor;
@@ -70,12 +70,13 @@ fn load_candidate(
     if hasher.digest() != descriptor.index_checksum {
         return Err(invalid_data("checkpoint index checksum mismatch"));
     }
+    let mut live_blocks = 0;
     for (page_id, &boundary) in checkpoint.mapping_page_block.iter().enumerate() {
         if boundary == 0 {
             continue;
         }
         read_block_exact(backing_io, backing, boundary, bytes)?;
-        MappingPageRecord::decode(
+        let page = MappingPageRecord::decode(
             &bytes.0,
             &PageExpectation {
                 geometry,
@@ -85,6 +86,12 @@ fn load_candidate(
                 maximum_lsn: descriptor.checkpoint_lsn,
             },
         )?;
+        live_blocks += page
+            .entries
+            .physical_addr
+            .iter()
+            .filter(|&&address| address != 0)
+            .count() as u64;
     }
-    Ok(checkpoint)
+    Ok((checkpoint, live_blocks))
 }

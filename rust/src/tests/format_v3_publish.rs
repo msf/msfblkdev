@@ -117,7 +117,7 @@ fn checkpoint_publish_persists_dirty_page_and_reuses_unchanged_pointers() -> io:
         },
     )?;
     assert_eq!(mapping.entries, expected);
-    let selected = checkpoint_load::load(&mut backing_io, &file, 32)?;
+    let (selected, _) = checkpoint_load::load(&mut backing_io, &file, 32)?;
     assert_eq!(selected.descriptor, active.descriptor);
     assert_eq!(selected.mapping_page_block, active.mapping_page_block);
     let pointers = active.mapping_page_block.clone();

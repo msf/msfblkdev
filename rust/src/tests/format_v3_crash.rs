@@ -13,7 +13,7 @@ fn checkpoint_publication_survives_sigkill_at_each_boundary() -> io::Result<()> 
             .custom_flags(libc::O_DIRECT)
             .open(&backing.0)?;
         let mut backing_io = BackingIo::new(None)?;
-        let mut active = checkpoint_load::load(&mut backing_io, &file, 32)?;
+        let (mut active, _) = checkpoint_load::load(&mut backing_io, &file, 32)?;
         let (mut cache, tail) = super::format_v3_publish::pending_update(&backing, &active)?;
         crate::format_v3::storage::sync(&mut backing_io, &file)?;
         checkpoint_publish::publish(&mut backing_io, &file, &mut active, &mut cache, tail)?;
@@ -56,7 +56,7 @@ fn verify_surviving_root_and_tail(
 ) -> io::Result<()> {
     let file = backing.reopen()?;
     let mut backing_io = BackingIo::new(None)?;
-    let selected = checkpoint_load::load(&mut backing_io, &file, 32)?;
+    let (selected, _) = checkpoint_load::load(&mut backing_io, &file, 32)?;
     let old = original.descriptor;
     let geometry = old.geometry()?;
     assert_eq!(
@@ -119,7 +119,7 @@ fn bounded_recovery_survives_sigkill_at_each_publication_boundary() -> io::Resul
                 Some(failpoint),
             )?;
             let mut backing_io = BackingIo::new(None)?;
-            let selected = checkpoint_load::load(&mut backing_io, &backing.reopen()?, 1024)?;
+            let (selected, _) = checkpoint_load::load(&mut backing_io, &backing.reopen()?, 1024)?;
             assert_eq!(selected.descriptor.generation, u64::from(published));
             verify_complete_recovery(&backing, original)?;
         }
@@ -142,6 +142,7 @@ fn repeated_recovery_crashes_do_not_turn_staged_snapshots_into_writes() -> io::R
         )?;
         assert_eq!(
             checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, 1024)?
+                .0
                 .descriptor
                 .generation,
             0
@@ -160,7 +161,7 @@ fn recovery_child(path: &Path) -> io::Result<()> {
         .custom_flags(libc::O_DIRECT)
         .open(path)?;
     let mut backing_io = BackingIo::new(None)?;
-    let mut active = checkpoint_load::load(&mut backing_io, &file, 1024)?;
+    let (mut active, _) = checkpoint_load::load(&mut backing_io, &file, 1024)?;
     crate::format_v3::recovery::recover(&mut backing_io, &file, &mut active, Some(1))?;
     Err(io::Error::other("recovery failpoint did not pause child"))
 }
@@ -179,7 +180,7 @@ fn verify_complete_recovery(
         .custom_flags(libc::O_DIRECT)
         .open(&backing.0)?;
     let mut backing_io = BackingIo::new(None)?;
-    let mut active = checkpoint_load::load(&mut backing_io, &file, 1024)?;
+    let (mut active, _) = checkpoint_load::load(&mut backing_io, &file, 1024)?;
     let recovered = recovery::recover(&mut backing_io, &file, &mut active, Some(1))?;
     assert_eq!(active.descriptor.generation, 1);
     assert_eq!(recovered.cache.snapshot().dirty_slots, 0);

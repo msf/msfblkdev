@@ -9,6 +9,62 @@ fn fixture(logical: u64, blocks: u64) -> io::Result<TemporaryBacking> {
 }
 
 #[test]
+fn paged_space_usage_counts_unique_released_mappings_and_all_log_records() -> io::Result<()> {
+    for budget in [1, 20_000] {
+        let backing = fixture(641, 64)?;
+        let options = VolumeOpenOptions {
+            write_buffer_bytes: 4 * BLOCK_SIZE as u64,
+            ..VolumeOpenOptions::default()
+        };
+        let mut volume = volume::open(&backing.0, options, Some(budget), None)?;
+        let initial = volume.space_usage()?;
+        assert_eq!(initial.volume_bytes, 641 * 4096);
+        assert_eq!(initial.backing_bytes, 64 * 4096);
+        assert_eq!(initial.metadata_bytes, 4 * 4096);
+        assert_eq!(initial.log_capacity_bytes, 60 * 4096);
+        assert_eq!(initial.log_used_bytes, 0);
+        assert_eq!(initial.live_bytes, 0);
+        for lba in [0, 320, 640, 0] {
+            volume.write_block(lba, &[1; BLOCK_SIZE])?;
+        }
+        assert_eq!(volume.space_usage()?.live_bytes, 0);
+        volume.flush()?;
+        let released = volume.space_usage()?;
+        assert_eq!(released.live_bytes, 3 * 4096);
+        let expected_log_blocks = if budget == 1 { 8 } else { 6 };
+        assert_eq!(released.log_used_bytes, expected_log_blocks * 4096);
+        assert_eq!(released.log_free_bytes(), (60 - expected_log_blocks) * 4096);
+        assert_eq!(
+            released.allocated_bytes,
+            backing.reopen()?.metadata()?.blocks() * 512
+        );
+        volume.write_block(0, &[2; BLOCK_SIZE])?;
+        volume.write_block(0, &[3; BLOCK_SIZE])?;
+        volume.flush()?;
+        assert_eq!(volume.space_usage()?.live_bytes, 3 * 4096);
+        assert_eq!(
+            volume.space_usage()?.log_used_bytes,
+            if budget == 1 { 11 } else { 8 } * 4096
+        );
+        drop(volume);
+
+        // Reopening the larger dirty working set with one slot publishes recovery windows.
+        let reopened = volume::open(&backing.0, options, Some(1), None)?;
+        assert_eq!(reopened.space_usage()?.live_bytes, 3 * 4096);
+        assert_eq!(reopened.space_usage()?.log_used_bytes, 11 * 4096);
+        reopened.close()?;
+        let reopened = volume::open(&backing.0, options, Some(1), None)?;
+        assert_eq!(reopened.space_usage()?.live_bytes, 3 * 4096);
+        assert_eq!(
+            reopened.space_usage()?.log_used_bytes,
+            if budget == 1 { 12 } else { 11 } * 4096
+        );
+        reopened.close()?;
+    }
+    Ok(())
+}
+
+#[test]
 fn paged_buffer_groups_interleaved_writes_and_coalesces_before_pressure() -> io::Result<()> {
     let backing = fixture(961, 64)?;
     let options = VolumeOpenOptions {
@@ -106,7 +162,8 @@ fn paged_flush_retains_dirty_mapping_and_recovers_without_a_checkpoint() -> io::
     volume.write_block(7, &[0xac; BLOCK_SIZE])?;
     volume.flush()?;
     assert_eq!(volume.cache_snapshot().dirty_slots, 1);
-    let checkpoint = checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, 32)?;
+    let (checkpoint, _) =
+        checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, 32)?;
     assert_eq!(checkpoint.descriptor.generation, 0);
     assert_eq!(checkpoint.mapping_page_block.as_ref(), &[0]);
     drop(volume);

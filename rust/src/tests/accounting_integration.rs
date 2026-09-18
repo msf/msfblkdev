@@ -139,7 +139,7 @@ fn checkpoint_load_accounts_reads_and_skips_unmapped_pages() -> io::Result<()> {
     crate::format_v3::storage::format(&backing.0, 321 * 4096, None)?;
     let (accounting, reader) = AccountingFixture::new(1)?;
     let file = backing.reopen()?;
-    let checkpoint = crate::format_v3::checkpoint_load::load(
+    let (checkpoint, _) = crate::format_v3::checkpoint_load::load(
         &mut BackingIo::new(Some(accounting.writer()?))?,
         &file,
         file.metadata()?.len() / BLOCK_SIZE as u64,
@@ -175,7 +175,7 @@ fn checkpoint_publish_preserves_dirty_state_until_all_writes_succeed() -> io::Re
             &mut cache,
             tail,
         );
-        let selected = checkpoint_load::load(&mut BackingIo::new(None)?, &file, 32)?;
+        let (selected, _) = checkpoint_load::load(&mut BackingIo::new(None)?, &file, 32)?;
         if blocks < 3 {
             assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::ENOSPC));
             assert_eq!(active.descriptor, original.descriptor);
@@ -217,6 +217,7 @@ fn paged_record_io_failure_latches_before_mapping_publication() -> io::Result<()
         Some(libc::ENOSPC)
     );
     assert_eq!(volume.cache_snapshot().dirty_slots, 0);
+    assert_eq!(volume.space_usage()?.live_bytes, 0);
     assert_eq!(volume.release_stats().records, 0);
     assert_eq!(reader.snapshot()?.write_completed_bytes, 60 * 4096);
     let mut bytes = [0xee; BLOCK_SIZE];
