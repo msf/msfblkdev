@@ -21,6 +21,8 @@ Recovery crash evidence (2026-09-18): 180 interruptions across nine recovery bou
 
 Foreground read evidence (2026-09-18): staged version-3 open/read integrates checkpoint loading, bounded replay, tail sanitation, cache lookup, and pressure publication. Four tests verify exact retry counters, zero/partial pages, failed-volume behavior, and version-1 rejection before writes. All 284 repository gate commands passed. Buffered writes and the public switch remain pending.
 
+Foreground write evidence (2026-09-18): staged writes coalesce payloads and release each mapping page as one group, acquiring cache capacity before append and updating mappings only after exact I/O completion. Five tests cover pressure, flush/reopen, snapshot reservation, allocation-free full-page release, and failed-I/O latching. All 289 repository gate commands passed. Space accounting, public metrics, and public activation remain pending.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

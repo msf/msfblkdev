@@ -19,14 +19,15 @@ pub(crate) struct BufferedPages<'a> {
 }
 
 impl<'a> BufferedPages<'a> {
-    pub(crate) fn new(buffer: &'a WriteBackBuffer) -> Self {
+    pub(crate) fn new(buffer: &'a WriteBackBuffer, start: usize) -> Self {
         assert!(
             buffer.len() <= (MAXIMUM_WRITE_BUFFER_BYTES / BLOCK_SIZE as u64) as usize,
             "configured write-buffer limit"
         );
+        assert!(start <= buffer.len(), "group cursor is within the buffer");
         Self {
             lbas: &buffer.lbas,
-            cursor: 0,
+            cursor: start,
         }
     }
 }
@@ -72,12 +73,12 @@ mod tests {
     #[test]
     fn groups_interleaved_pages_once_and_preserves_coalesced_payloads() {
         let mut buffer = WriteBackBuffer::with_capacity(6);
-        assert!(BufferedPages::new(&buffer).next().is_none());
+        assert!(BufferedPages::new(&buffer, 0).next().is_none());
         for (index, lba) in [640, 0, 320, 641, 1, 319].into_iter().enumerate() {
             assert!(buffer.store(lba, &[index as u8; BLOCK_SIZE]));
         }
         assert!(!buffer.store(641, &[99; BLOCK_SIZE]));
-        let mut groups = BufferedPages::new(&buffer);
+        let mut groups = BufferedPages::new(&buffer, 0);
         for (page_id, expected) in [(2, &[0, 3][..]), (0, &[1, 4, 5]), (1, &[2])] {
             let group = groups.next().unwrap();
             assert_eq!(group.page_id, page_id);
@@ -91,7 +92,7 @@ mod tests {
         assert!(groups.next().is_none());
         buffer.clear();
         buffer.store(319, &[42; BLOCK_SIZE]);
-        let group = BufferedPages::new(&buffer).next().unwrap();
+        let group = BufferedPages::new(&buffer, 0).next().unwrap();
         assert_eq!(group.page_id, 0);
         assert_eq!(group.slots(), &[0]);
     }
@@ -113,7 +114,7 @@ mod tests {
                 let reservation = Reservation::buffered(&buffer.lbas, 0, None).unwrap();
                 let mut first_slots = Vec::new();
                 let mut payloads = 0;
-                for group in BufferedPages::new(&buffer) {
+                for group in BufferedPages::new(&buffer, 0) {
                     assert_eq!(group.slots(), reference.remove(&group.page_id).unwrap());
                     assert!((1..=320).contains(&group.slots().len()));
                     first_slots.push(group.slots()[0]);
@@ -136,7 +137,7 @@ mod tests {
         let ((groups, payloads), allocations) = measure(|| {
             let mut groups = 0;
             let mut payloads = 0;
-            for group in BufferedPages::new(&buffer) {
+            for group in BufferedPages::new(&buffer, 0) {
                 groups += 1;
                 payloads += group.slots().len();
                 assert_eq!(group.page_id, 0);

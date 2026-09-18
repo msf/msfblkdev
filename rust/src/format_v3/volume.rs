@@ -1,8 +1,10 @@
 use super::{checkpoint_load, mapping_state::MappingState, recovery, storage};
+mod write;
 use crate::{
-    AlignedBlock, BLOCK_SIZE, VolumeOpenOptions,
+    AlignedBlock, BLOCK_SIZE, ReleaseIovecs, ReleaseStats, ReleaseTrigger, VolumeOpenOptions,
+    WriteBackBuffer,
     accounted_io::BackingIo,
-    clear_stale_tail, invalid_data, invalid_input, io_accounting,
+    clamp_write_buffer_blocks, clear_stale_tail, invalid_data, invalid_input, io_accounting,
     mapping_cache::{ENTRIES_PER_PAGE, Snapshot},
     payload_checksum, read_block_exact,
 };
@@ -18,6 +20,11 @@ pub(crate) struct Volume {
     backing_io: BackingIo,
     mapping: MappingState,
     read_scratch: AlignedBlock,
+    write_buffer: WriteBackBuffer,
+    footer_scratch: AlignedBlock,
+    release_iovecs: ReleaseIovecs,
+    release_stats: ReleaseStats,
+    checkpoint_after_bytes: u64,
     failed: bool,
 }
 
@@ -47,6 +54,11 @@ pub(crate) fn open(
         u64::from(recovered.tail.boundary) + 1,
         checkpoint.descriptor.backing_blocks,
     )?;
+    let buffer_blocks = clamp_write_buffer_blocks(
+        options.write_buffer_bytes,
+        checkpoint.descriptor.backing_blocks,
+        checkpoint.descriptor.geometry()?.log_start,
+    );
     Ok(Volume {
         backing,
         backing_io,
@@ -59,6 +71,11 @@ pub(crate) fn open(
             checkpoint_failures: 0,
         },
         read_scratch: AlignedBlock([0; BLOCK_SIZE]),
+        write_buffer: WriteBackBuffer::with_capacity(buffer_blocks),
+        footer_scratch: AlignedBlock([0; BLOCK_SIZE]),
+        release_iovecs: ReleaseIovecs(Vec::with_capacity(ENTRIES_PER_PAGE + 1)),
+        release_stats: ReleaseStats::default(),
+        checkpoint_after_bytes: options.checkpoint_after_bytes,
         failed: false,
     })
 }
@@ -66,6 +83,10 @@ pub(crate) fn open(
 impl Volume {
     pub(crate) fn volume_blocks(&self) -> u32 {
         self.mapping.checkpoint.descriptor.volume_blocks
+    }
+
+    pub(crate) fn release_stats(&self) -> ReleaseStats {
+        self.release_stats
     }
 
     pub(crate) fn cache_snapshot(&self) -> Snapshot {
@@ -82,6 +103,10 @@ impl Volume {
         self.check_operational()?;
         if lba >= self.volume_blocks() {
             return Err(invalid_input("invalid logical block"));
+        }
+        if let Some(buffered) = self.write_buffer.get(lba) {
+            data.copy_from_slice(buffered);
+            return Ok(());
         }
         let page_id = lba / ENTRIES_PER_PAGE as u32;
         let entry = (lba % ENTRIES_PER_PAGE as u32) as usize;
@@ -123,6 +148,7 @@ impl Volume {
 
     pub(crate) fn flush(&mut self) -> io::Result<()> {
         self.check_operational()?;
+        self.release_records(ReleaseTrigger::Flush)?;
         let result = storage::sync(&mut self.backing_io, &self.backing);
         self.latch(result)?;
         #[cfg(any(test, feature = "test-failpoints"))]
@@ -132,6 +158,7 @@ impl Volume {
 
     pub(crate) fn close(mut self) -> io::Result<()> {
         self.check_operational()?;
+        self.release_records(ReleaseTrigger::Flush)?;
         if self.mapping.tail.lsn == self.mapping.checkpoint.descriptor.checkpoint_lsn {
             return self.flush();
         }

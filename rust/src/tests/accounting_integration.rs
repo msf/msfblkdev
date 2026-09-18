@@ -196,6 +196,39 @@ fn checkpoint_publish_preserves_dirty_state_until_all_writes_succeed() -> io::Re
 }
 
 #[test]
+fn paged_record_io_failure_latches_before_mapping_publication() -> io::Result<()> {
+    use crate::format_v3::{storage, volume};
+    let backing = TemporaryBacking::new()?;
+    backing.create_sized(64 * BLOCK_SIZE as u64)?;
+    storage::format(&backing.0, 4096, None)?;
+    // Open clears 60 blocks. The remaining block cannot pay for a two-block writev.
+    let (accounting, reader) = AccountingFixture::new(61 * 4096)?;
+    let mut volume = volume::open(
+        &backing.0,
+        VolumeOpenOptions::default(),
+        Some(1),
+        Some(accounting.writer()?),
+    )?;
+    assert_eq!(
+        volume
+            .write_block(0, &[0xaa; BLOCK_SIZE])
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOSPC)
+    );
+    assert_eq!(volume.cache_snapshot().dirty_slots, 0);
+    assert_eq!(volume.release_stats().records, 0);
+    assert_eq!(reader.snapshot()?.write_completed_bytes, 60 * 4096);
+    let mut bytes = [0xee; BLOCK_SIZE];
+    assert!(volume.read_block(0, &mut bytes).is_err());
+    assert_eq!(bytes, [0xee; BLOCK_SIZE]);
+    assert!(volume.write_block(0, &[0; BLOCK_SIZE]).is_err());
+    assert!(volume.flush().is_err());
+    assert!(volume.close().is_err());
+    Ok(())
+}
+
+#[test]
 fn exact_budget_exhaustion_rejects_write_before_backing_modification() -> io::Result<()> {
     let (backing, layout) = create_backing(1)?;
     format(&backing.0, BLOCK_SIZE as u64)?;
