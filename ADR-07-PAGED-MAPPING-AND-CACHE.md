@@ -257,7 +257,7 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 
 - [x] Implement typed shared framing. Evidence (2026-09-18): three `format_v3` tests verify exact bytes, independent checksums, malformed headers, all 1–338 payload lengths, physical bounds, and consecutive mixed-kind chains. `make lint test` passed all 237 commands.
 - [x] Implement mapping snapshots and fixed geometry. Evidence (2026-09-18): four additional isolated tests verify both arrays, padding, checksum coverage, partial pages, pointer/identity rejection, and geometry limits. All seven `format_v3` tests and all 241 repository gate commands passed.
-- [ ] Implement data footers; verify exact bytes and malformed-record rejection.
+- [x] Implement data footers. Evidence (2026-09-18): three additional tests verify all 338 payload counts, exact arrays and checksums, malformed entries, and complete mixed-kind record chains. All ten `format_v3` tests and all 244 repository gate commands passed.
 - [ ] Implement descriptor and index codecs, generation selection, geometry, and a test-only formatter.
 - [ ] Verify mixed record chains, partial pages, checksums, zero padding, overflow, and non-mutating unsupported-version rejection.
 - [ ] Document and test append reservation and bounded recovery publication ordering before engine integration.
