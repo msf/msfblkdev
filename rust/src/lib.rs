@@ -279,6 +279,25 @@ impl Default for VolumeOpenOptions {
     }
 }
 
+impl VolumeOpenOptions {
+    fn validate(self) -> io::Result<()> {
+        if !self
+            .checkpoint_after_bytes
+            .is_multiple_of(BLOCK_SIZE as u64)
+            || self.checkpoint_after_bytes < MAXIMUM_RECORD_BLOCKS * BLOCK_SIZE as u64
+        {
+            return Err(invalid_input("invalid checkpoint_after_bytes"));
+        }
+        if !self.write_buffer_bytes.is_multiple_of(BLOCK_SIZE as u64)
+            || self.write_buffer_bytes < MINIMUM_WRITE_BUFFER_BYTES
+            || self.write_buffer_bytes > MAXIMUM_WRITE_BUFFER_BYTES
+        {
+            return Err(invalid_input("invalid write_buffer_bytes"));
+        }
+        Ok(())
+    }
+}
+
 /// A preallocated, 4 KiB-aligned write-back buffer indexed by logical block address.
 struct WriteBackBuffer {
     arena: Vec<AlignedBlock>,
@@ -1014,19 +1033,7 @@ fn open_internal(
     options: VolumeOpenOptions,
     accounting: Option<io_accounting::Writer>,
 ) -> io::Result<Volume> {
-    if !options
-        .checkpoint_after_bytes
-        .is_multiple_of(BLOCK_SIZE as u64)
-        || options.checkpoint_after_bytes < MAXIMUM_RECORD_BLOCKS * BLOCK_SIZE as u64
-    {
-        return Err(invalid_input("invalid checkpoint_after_bytes"));
-    }
-    if !options.write_buffer_bytes.is_multiple_of(BLOCK_SIZE as u64)
-        || options.write_buffer_bytes < MINIMUM_WRITE_BUFFER_BYTES
-        || options.write_buffer_bytes > MAXIMUM_WRITE_BUFFER_BYTES
-    {
-        return Err(invalid_input("invalid write_buffer_bytes"));
-    }
+    options.validate()?;
 
     let mut backing = OpenOptions::new()
         .read(true)

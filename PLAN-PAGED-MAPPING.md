@@ -19,6 +19,8 @@ Bounded-recovery evidence (2026-09-18): isolated cache-window replay matches the
 
 Recovery crash evidence (2026-09-18): 180 interruptions across nine recovery boundaries and three consecutive interrupted recoveries of one image passed. All final mappings and payload checksums matched the original 338 writes. The combined publication/recovery matrix passed 343 crashes; `make lint test` passed all 280 commands. The next delivery integrates these verified components into foreground reads/writes and the public version-3 open/format path.
 
+Foreground read evidence (2026-09-18): staged version-3 open/read integrates checkpoint loading, bounded replay, tail sanitation, cache lookup, and pressure publication. Four tests verify exact retry counters, zero/partial pages, failed-volume behavior, and version-1 rejection before writes. All 284 repository gate commands passed. Buffered writes and the public switch remain pending.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

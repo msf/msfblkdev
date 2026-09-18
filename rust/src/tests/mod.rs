@@ -521,6 +521,7 @@ mod format_v3_publish;
 mod format_v3_recovery;
 mod format_v3_storage;
 mod format_v3_tail;
+mod format_v3_volume;
 mod io_uring;
 mod process_crash;
 mod stale_tail;
