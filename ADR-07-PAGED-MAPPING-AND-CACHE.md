@@ -253,7 +253,8 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 
 ### Delivery 2: version-3 codecs and checkpoint storage
 
-- [ ] Implement typed shared framing, data footers, and mapping snapshots; verify exact bytes and malformed-record rejection.
+- [x] Implement typed shared framing. Evidence (2026-09-18): three `format_v3` tests verify exact bytes, independent checksums, malformed headers, all 1–338 payload lengths, physical bounds, and consecutive mixed-kind chains. `make lint test` passed all 237 commands.
+- [ ] Implement data footers and mapping snapshots; verify exact bytes and malformed-record rejection.
 - [ ] Implement descriptor and index codecs, generation selection, geometry, and a test-only formatter.
 - [ ] Verify mixed record chains, partial pages, checksums, zero padding, overflow, and non-mutating unsupported-version rejection.
 - [ ] Document and test append reservation and bounded recovery publication ordering before engine integration.
