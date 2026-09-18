@@ -154,6 +154,8 @@ body bytes page_count * 4 .. index_blocks * 4096: zero padding
 
 Both index bodies always occupy their reserved space. The descriptor's slot identifies its body; no body pointer or variable body length is encoded. Every nonzero index pointer must be within the append log and at or before the checkpoint boundary. Every mapped payload address in a snapshot must precede that snapshot's record boundary and remain within the append log. Zero physical addresses require zero payload checksums.
 
+The minimum backing size is `log_start + 3` physical blocks: one payload, its data footer, and the mapping snapshot required to checkpoint that write. The existing maximums remain 2^31 logical blocks and 2^32 backing blocks. Physical addresses remain `u32`; byte offsets and the one-past-end backing count use `u64`.
+
 Generation, not logical write activity, orders checkpoints. Reject generation overflow and conflicting equal-generation checkpoints. Format writes both zero-filled index bodies and valid generation-zero descriptors, then persists them. The initial LSN is zero and boundary is `log_start - 1`. Unlike version 1, there is no special checksum-zero/absent-body encoding.
 
 Validate directory pointer bounds before reading pages. Validate all referenced mapping pages by streaming them before accepting a checkpoint candidate. This deliberately retains full candidate validation and fallback without loading all pages into RAM. Startup therefore reads populated mapping metadata; it is not constant-time.
@@ -254,7 +256,8 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 ### Delivery 2: version-3 codecs and checkpoint storage
 
 - [x] Implement typed shared framing. Evidence (2026-09-18): three `format_v3` tests verify exact bytes, independent checksums, malformed headers, all 1–338 payload lengths, physical bounds, and consecutive mixed-kind chains. `make lint test` passed all 237 commands.
-- [ ] Implement data footers and mapping snapshots; verify exact bytes and malformed-record rejection.
+- [x] Implement mapping snapshots and fixed geometry. Evidence (2026-09-18): four additional isolated tests verify both arrays, padding, checksum coverage, partial pages, pointer/identity rejection, and geometry limits. All seven `format_v3` tests and all 241 repository gate commands passed.
+- [ ] Implement data footers; verify exact bytes and malformed-record rejection.
 - [ ] Implement descriptor and index codecs, generation selection, geometry, and a test-only formatter.
 - [ ] Verify mixed record chains, partial pages, checksums, zero padding, overflow, and non-mutating unsupported-version rejection.
 - [ ] Document and test append reservation and bounded recovery publication ordering before engine integration.

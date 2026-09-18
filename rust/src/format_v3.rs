@@ -5,6 +5,9 @@ use crate::{BLOCK_SIZE, MAXIMUM_PAYLOAD_BLOCKS, invalid_data, read_u32, read_u64
 use std::io;
 use xxhash_rust::xxh3::Xxh3;
 
+pub(crate) mod geometry;
+pub(crate) mod mapping_page;
+
 // ADR-07 assigns version 3 and reserves the final u64 for the metadata checksum.
 pub(crate) const VERSION: u8 = 3;
 pub(crate) const CHECKSUM_OFFSET: usize = BLOCK_SIZE - size_of::<u64>();
