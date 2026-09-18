@@ -42,8 +42,8 @@ const DEFAULT_INFLIGHT_MEMORY_BYTES: u64 = 4 * 1024 * 1024;
 const DEFAULT_WRITE_BUFFER_BYTES: u64 = 4 * 1024 * 1024;
 // The engine caps the write-back buffer at 16 MiB (a release writes and fsyncs the whole buffer).
 const MAX_WRITE_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
-// A request that fits one log record keeps "one ublk request always fits in one log record";
-// the footer holds at most 338 payloads (MAXIMUM_PAYLOAD_BLOCKS in the engine).
+// Bound request buffers to the decoder's 338-payload limit. The paged engine may
+// split one request across mapping-page groups before releasing its data records.
 const MAX_REQUEST_BLOCKS: u32 = 338;
 const MIN_QUEUE_DEPTH: u16 = 1;
 // ublk_cmd.h caps queue depth at 4096 (UBLK_MAX_QUEUE_DEPTH).
@@ -216,6 +216,7 @@ struct ServeConfig {
     max_request_bytes: u32,
     inflight_memory_bytes: u64,
     write_buffer_bytes: u64,
+    mapping_cache_bytes: Option<u64>,
 }
 
 impl Default for ServeConfig {
@@ -224,6 +225,7 @@ impl Default for ServeConfig {
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             inflight_memory_bytes: DEFAULT_INFLIGHT_MEMORY_BYTES,
             write_buffer_bytes: DEFAULT_WRITE_BUFFER_BYTES,
+            mapping_cache_bytes: None,
         }
     }
 }
@@ -262,6 +264,7 @@ impl ServeConfig {
     fn volume_open_options(self) -> block_storage::VolumeOpenOptions {
         block_storage::VolumeOpenOptions {
             write_buffer_bytes: self.write_buffer_bytes,
+            cache_budget_bytes: self.mapping_cache_bytes,
             ..block_storage::VolumeOpenOptions::default()
         }
     }
@@ -303,7 +306,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N (or --size-bytes N --prealloc-bytes N)",
+                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N (or --size-bytes N --prealloc-bytes N)",
                 PathBuf::from(&program).display()
             ),
         )
@@ -394,6 +397,9 @@ fn parse_serve_config(
             }
             Some("--write-buffer-bytes") => {
                 config.write_buffer_bytes = parse_bytes(&value)?;
+            }
+            Some("--mapping-cache-bytes") => {
+                config.mapping_cache_bytes = Some(parse_bytes(&value)?);
             }
             _ => return Err(usage()),
         }
@@ -832,6 +838,10 @@ fn run_queue(
     }
     log_info!("event=request_totals {}", requests.totals().summary());
     log_info!("event=release_stats {}", volume.release_stats().summary());
+    log_info!(
+        "event=mapping_stats phase=before_close {}",
+        volume.mapping_stats().summary()
+    );
     match volume.space_usage() {
         Ok(usage) => log_info!("event=space phase=shutdown {}", usage.summary()),
         Err(error) => log_info!("event=space phase=shutdown error={error}"),
@@ -917,9 +927,14 @@ fn serve(
     }));
     if let Ok(guard) = state.lock()
         && let Some(volume) = guard.volume.as_ref()
-        && let Ok(usage) = volume.space_usage()
     {
-        log_info!("event=space phase=open {}", usage.summary());
+        log_info!(
+            "event=mapping_stats phase=open {}",
+            volume.mapping_stats().summary()
+        );
+        if let Ok(usage) = volume.space_usage() {
+            log_info!("event=space phase=open {}", usage.summary());
+        }
     }
     let target = {
         let state = state
@@ -1528,6 +1543,78 @@ mod tests {
             .ctrl_flags(CONTROL_FLAGS)
             .dev_flags(UblkFlags::UBLK_DEV_F_ADD_DEV);
         assert_eq!(controller_builder(4, config), expected);
+    }
+
+    #[test]
+    fn cache_budget_reaches_engine_and_fua_persists_across_page_groups() -> io::Result<()> {
+        let command = parse_args(
+            [
+                "daemon",
+                "serve",
+                "volume.img",
+                "-1",
+                "--mapping-cache-bytes",
+                "1",
+                "--write-buffer-bytes",
+                "32768",
+            ]
+            .map(OsString::from),
+        )?;
+        let CliCommand::Serve { config, .. } = command else {
+            panic!("serve command expected");
+        };
+        assert_eq!(config.volume_open_options().cache_budget_bytes, Some(1));
+        for invalid in ["-1", "1.5", "18446744073709551616"] {
+            assert!(
+                parse_args(
+                    [
+                        "daemon",
+                        "serve",
+                        "volume.img",
+                        "-1",
+                        "--mapping-cache-bytes",
+                        invalid
+                    ]
+                    .map(OsString::from)
+                )
+                .is_err()
+            );
+        }
+        let backing = TemporaryBacking::formatted(641)?;
+        let mut volume =
+            block_storage::open_with_options(&backing.0, config.volume_open_options())?;
+        let initial = volume.mapping_stats();
+        assert_eq!(initial.cache.sizing.requested_bytes, 1);
+        assert_eq!(initial.cache.sizing.capacity, 1);
+        let mut write = descriptor(
+            UBLK_IO_OP_WRITE,
+            319 * SECTORS_PER_BLOCK,
+            3 * SECTORS_PER_BLOCK as u32,
+        );
+        write.op_flags |= UBLK_IO_F_FUA;
+        let mut bytes = [0xa5; 3 * LOGICAL_BLOCK_USIZE];
+        assert_eq!(
+            handle_request(&mut volume, &write, &mut bytes),
+            RequestOutcome {
+                completion: bytes.len() as i32,
+                fatal: false
+            }
+        );
+        assert_eq!(volume.release_stats().records, 2);
+        assert_eq!(volume.mapping_stats().pressure_checkpoints, 1);
+        assert_eq!(volume.mapping_stats().cache.dirty_slots, 1);
+        drop(volume);
+        let mut reopened =
+            block_storage::open_with_options(&backing.0, config.volume_open_options())?;
+        let mut read = write;
+        read.op_flags = UBLK_IO_OP_READ;
+        bytes.fill(0);
+        assert_eq!(
+            handle_request(&mut reopened, &read, &mut bytes).completion,
+            bytes.len() as i32
+        );
+        assert_eq!(bytes, [0xa5; 3 * LOGICAL_BLOCK_USIZE]);
+        reopened.close()
     }
 
     #[test]

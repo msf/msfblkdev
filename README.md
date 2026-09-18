@@ -51,6 +51,7 @@ publish a checkpoint before loading another page. Publication appends dirty snap
 persists the inactive index, and then persists its descriptor before selecting the new root.
 
 `VolumeOpenOptions::cache_budget_bytes` overrides the requested byte budget.
+The daemon exposes the same override as `serve ... --mapping-cache-bytes N`.
 The default is `logical_bytes / 10_000`, with a one-slot minimum and a complete-map cap.
 Sizing includes slot padding, hash-map buckets/control bytes, and policy bits. Hash-map
 reservation is twice the slot count so the pinned implementation can rehash tombstones
@@ -65,6 +66,9 @@ metadata I/O, and checkpoint failures. A pressure retry retains its original loo
 Snapshot I/O counters include completed operations before a later failure; they do not
 imply successful publication. Tail-scan reads are counted separately. `summary()` formats
 these statistics for reporting outside timed work.
+At info level, the daemon emits `event=mapping_stats` at open and before close;
+the latter excludes checkpoint work performed by close. Existing lab evidence captures
+these records with daemon stderr.
 
 Buffered payloads are grouped by mapping page before append. A flush persists their data
 records; it does not require a checkpoint or clear dirty mapping flags. Recovery replays
