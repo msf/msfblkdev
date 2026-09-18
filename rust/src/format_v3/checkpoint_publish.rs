@@ -69,7 +69,7 @@ fn prepare(active: &Checkpoint, cache: &MappingCache, tail: LogPosition) -> io::
     Ok(candidate)
 }
 
-fn append_snapshots(
+pub(crate) fn append_snapshots(
     backing_io: &mut BackingIo,
     backing: &File,
     cache: &MappingCache,
@@ -104,7 +104,7 @@ fn append_snapshots(
     Ok(())
 }
 
-fn persist_root(
+pub(crate) fn persist_root(
     backing_io: &mut BackingIo,
     backing: &File,
     candidate: &mut Checkpoint,

@@ -237,6 +237,12 @@ The initial bounded fallback is multi-pass recovery. Once the complete valid tai
 
 This path trades repeated log reads for a strict RAM bound. Skip it when ordinary replay fits the cache. The implementation must define tail sanitation, partial snapshot handling, append reservation, and retry-after-crash ordering before wiring this path into `open`. Insufficient space fails open explicitly without destroying recoverable state. Do not silently allocate the complete map to avoid this case.
 
+The initial scan uses the candidate index itself to mark touched pages with the temporary value `1`. Valid disk pointers start at block 4 or later, so this marker is unambiguous and is never persisted. Reserve one appended snapshot per distinct touched page before any recovery write. If all touched pages fit, replay once into the cache and retain them dirty; the active checkpoint remains unchanged.
+
+Otherwise, each window contains at most the cache capacity in touched page IDs. Every pass stops at the original scanned tail, even after recovery appends snapshots. Replace planning markers with snapshot pointers as each window completes. Drop that window's cache only after exact snapshot-write completion, before allocating the next window's cache. Keep the active index and original replay source intact until the final descriptor fsync. Peak ownership is one cache, the active index, one candidate index, and fixed I/O/record buffers.
+
+An incomplete data footer ends the valid prefix as in ADR-01. A snapshot with valid independent framing can be traversed even if its body is partial or corrupt. Detected invalid snapshot framing or unsupported records fail open before recovery writes; they do not authorize tail clearing. After successful recovery, sanitation starts after the returned tail (including newly published snapshots), clears at most 339 blocks, and fsyncs before foreground operations begin.
+
 ### Compatibility and acceptance
 
 The new formatter emits version 3. The new engine rejects versions 1, 2, and unknown versions without modifying those images. Do not add in-place conversion or silently reformat on open. Historical version-1 support, if desired later, is a separate explicit path.
@@ -283,6 +289,7 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 ### Delivery 3: engine and frontend integration
 
 - [x] Implement isolated checkpoint publication. Evidence (2026-09-18): three file-backed tests verify dirty-snapshot persistence, unchanged-pointer reuse, preservation of the old root, pre-write tail/capacity/generation rejection, and write-budget failures at snapshot, index, and descriptor stages. Successful publication accounts for three fsyncs. All 268 repository gate commands passed. Crash interruption and engine failed-volume integration remain unverified.
+- [x] Implement isolated bounded recovery. Evidence (2026-09-18): three file-backed tests compare one-slot replay with the fitting-cache path over 338 mappings, verify fixed-source preservation and exact recovery lookup counts, load unchanged entries during overwrite, reopen the published root, recover through snapshot-body corruption, and reject insufficient append space without changing any backing byte. All 278 repository gate commands passed. Recovery interruption tests and public engine integration remain pending.
 - [ ] Replace dense maps with the resident page index and cache; acquire mapping capacity before data-record append.
 - [ ] Publish dirty snapshots and the candidate index in the specified fsync order; preserve flush/FUA semantics and failed-volume behavior.
 - [ ] Implement bounded recovery, older-checkpoint fallback, smaller-cache reopen, and explicit space-exhaustion handling.

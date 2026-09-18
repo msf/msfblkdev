@@ -518,6 +518,7 @@ mod format_geometry;
 mod format_v3_crash;
 mod format_v3_load;
 mod format_v3_publish;
+mod format_v3_recovery;
 mod format_v3_storage;
 mod format_v3_tail;
 mod io_uring;

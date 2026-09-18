@@ -13,6 +13,7 @@ pub(crate) mod data_record;
 pub(crate) mod geometry;
 pub(crate) mod index;
 pub(crate) mod mapping_page;
+pub(crate) mod recovery;
 pub(crate) mod reservation;
 pub(crate) mod storage;
 pub(crate) mod tail;

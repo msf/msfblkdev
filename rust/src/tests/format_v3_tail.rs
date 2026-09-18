@@ -18,7 +18,7 @@ fn empty_image() -> io::Result<(TemporaryBacking, Checkpoint)> {
     Ok((backing, checkpoint))
 }
 
-fn write_zero_payload_record(
+pub(super) fn write_zero_payload_record(
     file: &File,
     checkpoint: CheckpointDescriptor,
     count: usize,

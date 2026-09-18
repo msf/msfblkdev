@@ -15,6 +15,8 @@ Recovery framing decision (2026-09-18): ADR-07 now uses eight reserved snapshot 
 
 Tail-reader evidence (2026-09-18): four file-backed tests cover mixed records, record-size limits, partial data appends, malformed/unsupported framing, and older-root traversal through damaged snapshot contents to later flushed data. All 275 repository gate commands passed. Cache-window application and recovery publication remain pending.
 
+Bounded-recovery evidence (2026-09-18): isolated cache-window replay matches the fitting-cache path, preserves replay-source bytes, publishes one final root, and rejects insufficient space before writing. Recovery keeps at most one cache plus the active and candidate indexes. All 278 repository gate commands passed. Recovery crash tests, public engine activation, metrics, and final acceptance remain pending.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions
