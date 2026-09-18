@@ -7,6 +7,7 @@ use xxhash_rust::xxh3::Xxh3;
 
 pub(crate) mod buffered_pages;
 pub(crate) mod checkpoint;
+pub(crate) mod checkpoint_load;
 pub(crate) mod data_record;
 pub(crate) mod geometry;
 pub(crate) mod index;

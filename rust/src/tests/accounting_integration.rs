@@ -134,6 +134,27 @@ fn format_v3_accounts_both_index_bodies_descriptors_and_barriers() -> io::Result
 }
 
 #[test]
+fn checkpoint_load_accounts_reads_and_skips_unmapped_pages() -> io::Result<()> {
+    let (backing, _) = create_backing(321)?;
+    crate::format_v3::storage::format(&backing.0, 321 * 4096, None)?;
+    let (accounting, reader) = AccountingFixture::new(1)?;
+    let file = backing.reopen()?;
+    let checkpoint = crate::format_v3::checkpoint_load::load(
+        &mut BackingIo::new(Some(accounting.writer()?))?,
+        &file,
+        file.metadata()?.len() / BLOCK_SIZE as u64,
+    )?;
+    assert_eq!(checkpoint.mapping_page_block.as_ref(), &[0, 0]);
+    let snapshot = reader.snapshot()?;
+    assert_eq!(snapshot.read_completed_operations, 3);
+    assert_eq!(snapshot.read_completed_bytes, 3 * 4096);
+    assert_eq!(snapshot.write_reserved_bytes, 0);
+    assert_eq!(snapshot.write_completed_operations, 0);
+    assert_eq!(snapshot.flush_completed_operations, 0);
+    Ok(())
+}
+
+#[test]
 fn exact_budget_exhaustion_rejects_write_before_backing_modification() -> io::Result<()> {
     let (backing, layout) = create_backing(1)?;
     format(&backing.0, BLOCK_SIZE as u64)?;
