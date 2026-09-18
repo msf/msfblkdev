@@ -29,6 +29,8 @@ Mapping metrics evidence (2026-09-18): staged snapshots and report formatting ex
 
 Admission evidence (2026-09-18): a release-build probe exposed cubic work from recounting all distinct pages before each payload insertion. Retaining the pending page count reduces membership work to one scan per new payload. The 4,096-distinct-page probe fell from 3,749,600 to 6,740 microseconds; reference and allocation tests passed, as did all 292 repository gate commands. The timing excludes backing I/O.
 
+Staged engine acceptance evidence (2026-09-18): the complete open/write/flush/recovery path passed 240 SIGKILLs across ten foreground/pressure and two buffer/flush boundaries. Threshold tests cover two publications across reopen; integrity tests cover unchanged read output on corruption and zero overwrites. All 296 repository gate commands passed. Next: activate the public version-3 API, port existing version-1 regression fixtures and frontend assumptions, expose cache configuration/reporting, then run final memory and acceptance gates.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions

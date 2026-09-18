@@ -516,6 +516,8 @@ mod accounting_integration;
 mod checkpoint_replay;
 mod format_geometry;
 mod format_v3_crash;
+mod format_v3_engine;
+mod format_v3_engine_crash;
 mod format_v3_load;
 mod format_v3_publish;
 mod format_v3_recovery;
