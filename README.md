@@ -36,6 +36,32 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 
 ## Rust API
 
+### Isolated ADR-07 cache
+
+`rust/src/mapping_cache.rs` implements the mapping-page cache under `cfg(test)`.
+The engine still uses its existing mapping and format. Run the isolated tests with
+`cd rust && cargo test --lib mapping_cache`; they need no backing file or `io_uring`.
+
+The cache preallocates slots, a `hashbrown` 0.17.1 hash map, and CLOCK reference bits.
+It fills unused slots sequentially and reuses clean victims. Dirty pages remain resident
+until the caller reports successful checkpoint publication. Read-only `dirty_pages()`
+iteration supplies those pages to the future checkpoint path.
+
+The requested budget defaults to `logical_bytes / 10_000`, with a one-slot minimum
+and a complete-map cap. Sizing includes slot padding, hash-map buckets and control
+bytes, and policy bits. Hash-map reservation is twice the slot count so the pinned
+implementation can rehash deletion tombstones in place. Constructor sizing probes
+allocate temporary hash maps sequentially; cache operations allocate nothing afterward.
+The budget excludes the inline cache object, allocator overhead, and the future page index;
+it is not a process RSS limit. Dependency upgrades must recheck the allocation contract.
+
+Snapshots report foreground/recovery hits and misses, evictions, victim scans, pressure,
+resident/dirty slots, and requested/effective allocation bytes. A pressure retry retains
+its original lookup count. Unit tests cover exact counters, reference-model churn, and
+zero measured allocations after construction. Persistence ordering remains unimplemented.
+
+### Engine API
+
 The crate exposes:
 
 ```text

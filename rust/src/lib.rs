@@ -11,6 +11,8 @@ use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
 mod accounted_io;
 mod checkpoint;
+#[cfg(test)]
+mod mapping_cache;
 
 pub mod io_accounting;
 pub mod logging;
