@@ -15,6 +15,7 @@ pub(crate) mod index;
 pub(crate) mod mapping_page;
 pub(crate) mod reservation;
 pub(crate) mod storage;
+pub(crate) mod tail;
 
 // ADR-07 assigns version 3 and reserves the final u64 for the metadata checksum.
 pub(crate) const VERSION: u8 = 3;

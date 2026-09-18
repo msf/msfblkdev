@@ -13,6 +13,8 @@ Publication crash evidence (2026-09-18): the existing SIGKILL harness passed 160
 
 Recovery framing decision (2026-09-18): ADR-07 now uses eight reserved snapshot bytes for a checksum of the header and page ID. This lets replay traverse a damaged snapshot body while rejecting it as checkpoint mapping state. Byte-by-byte corruption and malformed-header tests passed; all 271 repository gate commands passed. The remaining prerequisite is bounded recovery ordering and integration.
 
+Tail-reader evidence (2026-09-18): four file-backed tests cover mixed records, record-size limits, partial data appends, malformed/unsupported framing, and older-root traversal through damaged snapshot contents to later flushed data. All 275 repository gate commands passed. Cache-window application and recovery publication remain pending.
+
 The ADR owns persistent encoding, durability, memory bounds, and compatibility. This plan owns delivery order and proof. Do not duplicate or quietly change the ADR's format contract in code.
 
 ## Agent instructions
