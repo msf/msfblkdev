@@ -1,6 +1,47 @@
 use super::*;
 
 #[test]
+fn public_cache_configuration_reports_requested_and_effective_capacity() -> io::Result<()> {
+    let backing = TemporaryBacking::new()?;
+    backing.create_sized(64 * BLOCK_SIZE as u64)?;
+    let logical_bytes = 641 * BLOCK_SIZE as u64;
+    format(&backing.0, logical_bytes)?;
+    for (budget, capacity, hits, misses) in
+        [(None, 1, 1, 4), (Some(1), 1, 1, 4), (Some(20_000), 3, 2, 3)]
+    {
+        let mut volume = open_with_options(
+            &backing.0,
+            VolumeOpenOptions {
+                cache_budget_bytes: budget,
+                ..VolumeOpenOptions::default()
+            },
+        )?;
+        let initial = volume.mapping_stats();
+        assert_eq!(
+            initial.cache.sizing.requested_bytes,
+            budget.unwrap_or(logical_bytes / 10_000)
+        );
+        assert_eq!(initial.cache.sizing.capacity, capacity);
+        assert_eq!(initial.index_bytes, 12);
+        assert!(initial.cache.sizing.allocated_bytes >= capacity * 3840);
+        assert_eq!(initial.cache.counters.foreground.hit_rate(), None);
+        let mut bytes = [0xff; BLOCK_SIZE];
+        for lba in [0, 0, 320, 640, 0] {
+            volume.read_block(lba, &mut bytes)?;
+            assert_eq!(bytes, [0; BLOCK_SIZE]);
+        }
+        let stats = volume.mapping_stats();
+        assert_eq!(stats.cache.counters.foreground.hits, hits);
+        assert_eq!(stats.cache.counters.foreground.misses, misses);
+        assert_eq!(stats.io.page_reads, 0);
+        assert_eq!(stats.io.page_writes, 0);
+        assert_eq!(stats.pressure_checkpoints, 0);
+        volume.close()?;
+    }
+    Ok(())
+}
+
+#[test]
 fn xxh3_matches_persistent_format_vectors() {
     assert_eq!(xxh3_64(b""), 0x2d06_8005_38d3_94c2);
     assert_eq!(xxh3_64(&[0; BLOCK_SIZE]), 0x93d7_6fe1_48c6_89ba);
@@ -21,12 +62,11 @@ fn format_validates_geometry_boundaries() -> io::Result<()> {
 
     let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
     assert_eq!(
-        backing_blocks_for(&layout, MAX_BACKING_BLOCKS * BLOCK_SIZE as u64)?,
+        Layout::new(1, MAX_BACKING_BLOCKS)?.backing_blocks,
         MAX_BACKING_BLOCKS
     );
-    assert!(backing_blocks_for(&layout, (MAX_BACKING_BLOCKS + 1) * BLOCK_SIZE as u64).is_err());
-    assert!(backing_blocks_for(&layout, u64::from(layout.log_start + 2) * 4096 - 1).is_err());
-    assert!(backing_blocks_for(&layout, u64::from(layout.log_start + 1) * 4096).is_err());
+    assert!(Layout::new(1, MAX_BACKING_BLOCKS + 1).is_err());
+    assert!(Layout::new(1, u64::from(layout.log_start) + 2).is_err());
 
     let missing = TemporaryBacking::new()?;
     assert_eq!(
@@ -63,24 +103,38 @@ fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()
     let blue_descriptor = descriptors[BLOCK_SIZE..].to_vec();
 
     let volume = open(&backing.0)?;
-    assert_eq!(volume.volume_id, volume_id);
-    assert_eq!(volume.volume_blocks, volume_blocks);
-    assert_eq!(volume.backing_blocks, backing_blocks);
-    assert!(volume.physical_blocks.iter().all(|block| *block == 0));
-    assert!(volume.checksums.iter().all(|checksum| *checksum == 0));
-    assert_eq!(volume.last_lsn, 0);
-    assert_eq!(volume.durable_lsn, 0);
-    assert_eq!(volume.checkpoint_lsn, 0);
-    assert_eq!(volume.last_footer_block, 11);
-    assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Blue);
-    assert_eq!(volume.log_bytes_since_checkpoint, 0);
+    assert_eq!(volume.mapping.checkpoint.descriptor.volume_id, volume_id);
+    assert_eq!(volume.volume_blocks(), volume_blocks);
+    assert_eq!(
+        volume.mapping.checkpoint.descriptor.backing_blocks,
+        backing_blocks
+    );
+    assert!(mapping_arrays(&volume)?.0.iter().all(|block| *block == 0));
+    assert!(
+        mapping_arrays(&volume)?
+            .1
+            .iter()
+            .all(|checksum| *checksum == 0)
+    );
+    assert_eq!(volume.mapping.tail.lsn, 0);
+
+    assert_eq!(volume.mapping.checkpoint.descriptor.checkpoint_lsn, 0);
+    assert_eq!(volume.mapping.tail.boundary, 3);
+    assert_eq!(
+        volume.mapping.checkpoint.descriptor.slot.other(),
+        CheckpointSlot::Blue
+    );
+    assert_eq!(log_bytes_since_checkpoint(&volume), 0);
     drop(volume);
 
     let green = &mut descriptors[..BLOCK_SIZE];
     green[0] ^= 1;
     file.write_all_at(green, 0)?;
     let volume = open(&backing.0)?;
-    assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Green);
+    assert_eq!(
+        volume.mapping.checkpoint.descriptor.slot.other(),
+        CheckpointSlot::Green
+    );
     drop(volume);
 
     green.copy_from_slice(&blue_descriptor);
@@ -128,8 +182,11 @@ fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
         assert_eq!(read_u32(descriptor, 20), volume_blocks);
         assert_eq!(read_u64(descriptor, 24), backing_blocks);
         assert_eq!(read_u64(descriptor, 32), 0);
-        assert_eq!(read_u32(descriptor, 40), 11);
-        assert_eq!(read_u64(descriptor, CHECKPOINT_BODY_CHECKSUM_OFFSET), 0);
+        assert_eq!(read_u32(descriptor, 40), 3);
+        assert_eq!(
+            read_u64(descriptor, CHECKPOINT_BODY_CHECKSUM_OFFSET),
+            xxh3_64(&[0; BLOCK_SIZE])
+        );
         assert!(
             descriptor[CHECKPOINT_BODY_CHECKSUM_OFFSET + 8..DESCRIPTOR_CHECKSUM_OFFSET]
                 .iter()
@@ -144,9 +201,12 @@ fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
 
     let mut preserved_bodies = vec![0; checkpoint_bodies.len()];
     file.read_exact_at(&mut preserved_bodies, 2 * BLOCK_SIZE as u64)?;
-    assert_eq!(preserved_bodies, checkpoint_bodies);
+    assert!(preserved_bodies.iter().all(|byte| *byte == 0));
     let volume = open(&backing.0)?;
-    assert_eq!(volume.next_checkpoint_slot, CheckpointSlot::Blue);
+    assert_eq!(
+        volume.mapping.checkpoint.descriptor.slot.other(),
+        CheckpointSlot::Blue
+    );
     drop(volume);
 
     let mut empty_log = [1; 2 * BLOCK_SIZE];

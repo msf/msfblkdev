@@ -1,8 +1,8 @@
-//! ADR-07's isolated cache. No backing I/O or persistence state lives here.
+//! ADR-07's bounded cache. No backing I/O or persistence state lives here.
 #![forbid(unsafe_code)]
 
 mod clock;
-mod sizing;
+pub(crate) mod sizing;
 #[cfg(test)]
 mod tests;
 
@@ -68,33 +68,33 @@ pub(super) enum Access {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct Lookups {
-    pub(super) hits: u64,
-    pub(super) misses: u64,
+pub struct Lookups {
+    pub hits: u64,
+    pub misses: u64,
 }
 
 impl Lookups {
-    pub(super) fn hit_rate(self) -> Option<f64> {
+    pub fn hit_rate(self) -> Option<f64> {
         let total = u128::from(self.hits) + u128::from(self.misses);
         (total != 0).then(|| self.hits as f64 / total as f64)
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct Counters {
-    pub(super) foreground: Lookups,
-    pub(super) recovery: Lookups,
-    pub(super) clean_evictions: u64,
-    pub(super) victim_slots_examined: u64,
-    pub(super) checkpoint_required: u64,
+pub struct Counters {
+    pub foreground: Lookups,
+    pub recovery: Lookups,
+    pub clean_evictions: u64,
+    pub victim_slots_examined: u64,
+    pub checkpoint_required: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Snapshot {
-    pub(super) counters: Counters,
-    pub(super) resident_slots: usize,
-    pub(super) dirty_slots: usize,
-    pub(super) sizing: Sizing,
+pub struct Snapshot {
+    pub counters: Counters,
+    pub resident_slots: usize,
+    pub dirty_slots: usize,
+    pub sizing: Sizing,
 }
 
 pub(super) struct MappingCache {

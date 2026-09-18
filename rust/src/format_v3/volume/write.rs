@@ -12,7 +12,7 @@ use io_uring::{opcode, types};
 use std::os::fd::AsRawFd;
 
 impl Volume {
-    pub(crate) fn write_block(&mut self, lba: u32, data: &[u8; BLOCK_SIZE]) -> io::Result<()> {
+    pub fn write_block(&mut self, lba: u32, data: &[u8; BLOCK_SIZE]) -> io::Result<()> {
         self.check_operational()?;
         if lba >= self.volume_blocks() {
             return Err(invalid_input("invalid logical block"));

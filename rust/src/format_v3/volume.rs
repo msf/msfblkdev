@@ -15,19 +15,19 @@ use std::{
     path::Path,
 };
 
-pub(crate) struct Volume {
-    backing: File,
+pub struct Volume {
+    pub(crate) backing: File,
     backing_io: BackingIo,
-    mapping: MappingState,
+    pub(crate) mapping: MappingState,
     read_scratch: AlignedBlock,
     write_buffer: WriteBackBuffer,
     buffered_pages: usize,
     footer_scratch: AlignedBlock,
     release_iovecs: ReleaseIovecs,
     release_stats: ReleaseStats,
-    checkpoint_after_bytes: u64,
+    pub(crate) checkpoint_after_bytes: u64,
     live_blocks: u64,
-    failed: bool,
+    pub(crate) failed: bool,
 }
 
 pub(crate) fn open(
@@ -85,15 +85,15 @@ pub(crate) fn open(
 }
 
 impl Volume {
-    pub(crate) fn volume_blocks(&self) -> u32 {
+    pub fn volume_blocks(&self) -> u32 {
         self.mapping.checkpoint.descriptor.volume_blocks
     }
 
-    pub(crate) fn release_stats(&self) -> ReleaseStats {
+    pub fn release_stats(&self) -> ReleaseStats {
         self.release_stats
     }
 
-    pub(crate) fn mapping_stats(&self) -> super::metrics::MappingStats {
+    pub fn mapping_stats(&self) -> super::metrics::MappingStats {
         super::metrics::MappingStats {
             cache: self.cache_snapshot(),
             io: self.backing_io.mapping_io,
@@ -104,7 +104,7 @@ impl Volume {
         }
     }
 
-    pub(crate) fn space_usage(&self) -> io::Result<SpaceUsage> {
+    pub fn space_usage(&self) -> io::Result<SpaceUsage> {
         let geometry = self.mapping.checkpoint.descriptor.geometry()?;
         let metadata_blocks = u64::from(geometry.log_start);
         let metadata = self.backing.metadata()?;
@@ -126,11 +126,7 @@ impl Volume {
         snapshot
     }
 
-    pub(crate) fn pressure_checkpoints(&self) -> u64 {
-        self.mapping.pressure_checkpoints
-    }
-
-    pub(crate) fn read_block(&mut self, lba: u32, data: &mut [u8; BLOCK_SIZE]) -> io::Result<()> {
+    pub fn read_block(&mut self, lba: u32, data: &mut [u8; BLOCK_SIZE]) -> io::Result<()> {
         self.check_operational()?;
         if lba >= self.volume_blocks() {
             return Err(invalid_input("invalid logical block"));
@@ -177,7 +173,7 @@ impl Volume {
         Ok(())
     }
 
-    pub(crate) fn flush(&mut self) -> io::Result<()> {
+    pub fn flush(&mut self) -> io::Result<()> {
         self.check_operational()?;
         self.release_records(ReleaseTrigger::Flush)?;
         let result = storage::sync(&mut self.backing_io, &self.backing);
@@ -187,7 +183,7 @@ impl Volume {
         Ok(())
     }
 
-    pub(crate) fn close(mut self) -> io::Result<()> {
+    pub fn close(mut self) -> io::Result<()> {
         self.check_operational()?;
         self.release_records(ReleaseTrigger::Flush)?;
         if self.mapping.tail.lsn == self.mapping.checkpoint.descriptor.checkpoint_lsn {

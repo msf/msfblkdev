@@ -18,7 +18,7 @@ fn recover_one_flushed_write_after_sigkill_without_close() -> io::Result<()> {
     repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
         let backing = TemporaryBacking::new()?;
         let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-        backing.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64)?;
+        backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
         format(&backing.0, BLOCK_SIZE as u64)?;
 
         sigkill_child_at_handshake(
@@ -263,7 +263,7 @@ fn recover_after_write_crash(
 
     let backing = TemporaryBacking::new()?;
     let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 6) * BLOCK_SIZE as u64)?;
+    backing.create_sized(u64::from(layout.log_start + 8) * BLOCK_SIZE as u64)?;
     format(&backing.0, BLOCK_SIZE as u64)?;
     let mut volume = open(&backing.0)?;
     volume.write_block(0, &old)?;
@@ -335,9 +335,9 @@ fn recover_after_checkpoint_crash(
     }
 
     let backing = TemporaryBacking::new()?;
-    let volume_blocks = 1025_u32;
+    let volume_blocks = 320_u32 * 1024 + 1;
     let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    assert!(layout.physical_map_blocks + layout.checksum_map_blocks > 1);
+    assert!(layout.index_blocks > 1);
     backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
     format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
     let mut volume = open(&backing.0)?;
@@ -348,8 +348,11 @@ fn recover_after_checkpoint_crash(
 
     let expected = [[0x5a; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
     let mut volume = open(&backing.0)?;
-    assert_eq!(volume.checkpoint_lsn, expected_checkpoint_lsn);
-    assert_eq!(volume.last_lsn, 5);
+    assert_eq!(
+        volume.mapping.checkpoint.descriptor.checkpoint_lsn,
+        expected_checkpoint_lsn
+    );
+    assert_eq!(volume.mapping.tail.lsn, 7);
     for (lba, expected) in expected.iter().enumerate() {
         let mut actual = [0; BLOCK_SIZE];
         volume.read_block(lba as u32, &mut actual)?;
@@ -389,8 +392,8 @@ fn crash_test_modes_select_smoke_and_exhaustive_work() -> io::Result<()> {
 
 #[test]
 fn recover_after_each_checkpoint_body_block_boundary() -> io::Result<()> {
-    let (_, layout) = layout_for(1025 * BLOCK_SIZE as u64)?;
-    let body_blocks = layout.physical_map_blocks + layout.checksum_map_blocks;
+    let (_, layout) = layout_for((320 * 1024 + 1) * BLOCK_SIZE as u64)?;
+    let body_blocks = layout.index_blocks;
     let plan = configured_crash_test_plan(u64::from(body_blocks))?;
     for block_index in plan.boundary_indices {
         let failpoint = format!("{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{block_index}");
@@ -398,7 +401,7 @@ fn recover_after_each_checkpoint_body_block_boundary() -> io::Result<()> {
             recover_after_checkpoint_crash(
                 "tests::process_crash::recover_after_each_checkpoint_body_block_boundary",
                 &failpoint,
-                1,
+                2,
             )?;
         }
     }
@@ -411,7 +414,7 @@ fn recover_after_checkpoint_body_fsync_boundary() -> io::Result<()> {
         recover_after_checkpoint_crash(
             "tests::process_crash::recover_after_checkpoint_body_fsync_boundary",
             CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT,
-            1,
+            2,
         )?;
     }
     Ok(())
@@ -423,7 +426,7 @@ fn recover_after_descriptor_write_boundary() -> io::Result<()> {
         recover_after_checkpoint_crash(
             "tests::process_crash::recover_after_descriptor_write_boundary",
             DESCRIPTOR_WRITE_COMPLETE_FAILPOINT,
-            5,
+            7,
         )?;
     }
     Ok(())
@@ -435,7 +438,7 @@ fn recover_after_descriptor_fsync_boundary() -> io::Result<()> {
         recover_after_checkpoint_crash(
             "tests::process_crash::recover_after_descriptor_fsync_boundary",
             DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT,
-            5,
+            7,
         )?;
     }
     Ok(())

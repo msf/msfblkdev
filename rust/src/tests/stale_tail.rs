@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn recovery_accepts_every_format_one_payload_count() -> io::Result<()> {
+fn recovery_accepts_every_format_three_payload_count() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     let volume_blocks = MAXIMUM_PAYLOAD_BLOCKS as u32;
     let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
@@ -31,11 +31,17 @@ fn recovery_accepts_every_format_one_payload_count() -> io::Result<()> {
     file.sync_all()?;
     drop(file);
 
-    let mut volume = open(&backing.0)?;
-    assert_eq!(volume.last_lsn, MAXIMUM_PAYLOAD_BLOCKS as u64);
-    assert_eq!(volume.last_footer_block, previous_footer_block);
+    let mut volume = open_with_options(
+        &backing.0,
+        VolumeOpenOptions {
+            cache_budget_bytes: Some(20_000),
+            ..VolumeOpenOptions::default()
+        },
+    )?;
+    assert_eq!(volume.mapping.tail.lsn, MAXIMUM_PAYLOAD_BLOCKS as u64);
+    assert_eq!(volume.mapping.tail.boundary, previous_footer_block);
     assert_eq!(
-        volume.log_bytes_since_checkpoint,
+        log_bytes_since_checkpoint(&volume),
         record_blocks * BLOCK_SIZE as u64
     );
     for lba in 0..volume_blocks {
@@ -58,19 +64,16 @@ fn rejects_invalid_footer_with_zero_payloads() -> io::Result<()> {
         &vec![0x7e; MAXIMUM_RECORD_BLOCKS as usize * BLOCK_SIZE],
         u64::from(clear_start) * BLOCK_SIZE as u64,
     )?;
-    let mut footer = raw_footer(volume_id, 2, layout.log_start + 1, clear_start);
+    let footer = raw_footer(volume_id, 2, layout.log_start + 1, clear_start);
     assert_raw_footer_checksum_valid(&footer);
-    let replay_cursor = Checkpoint {
-        slot: CheckpointSlot::Green,
-        volume_id,
-        volume_blocks: 4,
-        backing_blocks,
-        checkpoint_lsn: 1,
-        last_footer_block: layout.log_start + 1,
-        layout,
-        body_checksum: 0,
-    };
-    assert!(decode_write_tail_footer(&mut footer, replay_cursor, clear_start).is_none());
+    assert!(
+        crate::format_v3::data_record::DataRecord::decode(
+            &footer,
+            Layout::new(4, backing_blocks)?,
+            volume_id
+        )
+        .is_err()
+    );
     file.write_all_at(&footer, u64::from(clear_start) * BLOCK_SIZE as u64)?;
     let preserved_block = clear_start + MAXIMUM_RECORD_BLOCKS as u32;
     file.write_all_at(
@@ -104,19 +107,16 @@ fn rejects_invalid_footer_above_maximum_payloads() -> io::Result<()> {
         &vec![0x7e; MAXIMUM_RECORD_BLOCKS as usize * BLOCK_SIZE],
         u64::from(clear_start) * BLOCK_SIZE as u64,
     )?;
-    let mut footer = raw_footer(volume_id, 2, layout.log_start + 1, invalid_footer_block);
+    let footer = raw_footer(volume_id, 2, layout.log_start + 1, invalid_footer_block);
     assert_raw_footer_checksum_valid(&footer);
-    let replay_cursor = Checkpoint {
-        slot: CheckpointSlot::Green,
-        volume_id,
-        volume_blocks: 4,
-        backing_blocks,
-        checkpoint_lsn: 1,
-        last_footer_block: layout.log_start + 1,
-        layout,
-        body_checksum: 0,
-    };
-    assert!(decode_write_tail_footer(&mut footer, replay_cursor, invalid_footer_block).is_none());
+    assert!(
+        crate::format_v3::data_record::DataRecord::decode(
+            &footer,
+            Layout::new(4, backing_blocks)?,
+            volume_id
+        )
+        .is_err()
+    );
     file.write_all_at(&footer, u64::from(invalid_footer_block) * BLOCK_SIZE as u64)?;
     file.sync_all()?;
     drop(file);
@@ -289,7 +289,7 @@ fn stale_tail_clear_stops_at_backing_eof() -> io::Result<()> {
     drop(file);
 
     let volume = open(&backing.0)?;
-    assert_eq!(volume.last_lsn, 1);
+    assert_eq!(volume.mapping.tail.lsn, 1);
     drop(volume);
     let file = OpenOptions::new().read(true).open(&backing.0)?;
     assert_eq!(file.metadata()?.len(), backing_bytes);

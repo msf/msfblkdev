@@ -1853,8 +1853,7 @@ mod tests {
         );
 
         let raw = OpenOptions::new().write(true).open(&backing.0)?;
-        // A one-block volume has two one-block maps in each checkpoint slot, so its log starts at block 6.
-        raw.write_all_at(&[0x5a], 6 * u64::from(LOGICAL_BLOCK_BYTES))?;
+        raw.write_all_at(&[0x5a], volume.space_usage()?.metadata_bytes)?;
         raw.sync_all()?;
         buffer.fill(0);
         let failure = handle_request(&mut volume, &read, &mut buffer);

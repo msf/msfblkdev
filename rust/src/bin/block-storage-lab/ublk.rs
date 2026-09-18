@@ -89,15 +89,16 @@ pub struct Geometry {
 
 impl Geometry {
     pub fn expected() -> Self {
-        let physical_blocks = VOLUME_BLOCKS.div_ceil(1024);
-        let checksum_blocks = VOLUME_BLOCKS.div_ceil(512);
-        let log_start_blocks = 2 + 2 * physical_blocks + 2 * checksum_blocks;
+        // ADR-07: 320 mappings per page and 1024 page pointers per index block.
+        let index_blocks = VOLUME_BLOCKS.div_ceil(320).div_ceil(1024);
+        let log_start_blocks = 2 + 2 * index_blocks;
         Self {
             block_bytes: BLOCK_BYTES,
             volume_blocks: VOLUME_BLOCKS,
             record_capacity: RECORD_CAPACITY,
             log_start_blocks,
-            backing_blocks: log_start_blocks + 2 * RECORD_CAPACITY,
+            // Admission reserves the existing and pending snapshots separately.
+            backing_blocks: log_start_blocks + 2 * RECORD_CAPACITY + 2,
         }
     }
 
@@ -514,7 +515,7 @@ mod tests {
     #[test]
     fn expected_geometry_matches_the_ublk_acceptance_shape() {
         let geometry = Geometry::expected();
-        assert_eq!(geometry.log_start_blocks, 6);
+        assert_eq!(geometry.log_start_blocks, 4);
         assert_eq!(geometry.backing_blocks, 70);
         assert_eq!(geometry.volume_bytes(), 262_144);
         assert_eq!(geometry.backing_bytes(), 286_720);

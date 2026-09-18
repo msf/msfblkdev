@@ -45,7 +45,7 @@ fn batch_boundary(payloads: u32) -> io::Result<()> {
 
 #[test]
 fn releases_at_record_boundaries_and_replays_multi_record_windows() -> io::Result<()> {
-    for payloads in [1, 2, 337, 338, 339, 676] {
+    for payloads in [1, 2, 319, 320, 321, 337, 338, 339, 676] {
         batch_boundary(payloads)?;
     }
     Ok(())
@@ -61,11 +61,11 @@ fn release_stats_report_batch_occupancy_and_footer_ratio() -> io::Result<()> {
     }
     volume.flush()?;
     let stats = volume.release_stats();
-    // 340 payloads split into 338 + 2 across two records; footer overhead is tiny.
+    // Page grouping splits 340 payloads into 320 + 20.
     assert_eq!(stats.payloads, u64::from(payloads));
     assert_eq!(stats.records, 2);
-    assert_eq!(stats.payload_histogram[6], 1, "one 338-payload record");
-    assert_eq!(stats.payload_histogram[1], 1, "one 2-payload record");
+    assert_eq!(stats.payload_histogram[5], 1, "one 320-payload record");
+    assert_eq!(stats.payload_histogram[3], 1, "one 20-payload record");
     let ratio = (stats.footer_bytes + stats.payload_bytes) as f64 / stats.payload_bytes as f64;
     assert!(
         ratio < 1.01,
@@ -80,15 +80,15 @@ fn duplicate_lba_in_one_window_coalesces_to_the_latest_value() -> io::Result<()>
     let (backing, options, _) = buffered_volume(8)?;
     let mut volume = open_with_options(&backing.0, options)?;
 
-    let footer_before = volume.last_footer_block;
+    let footer_before = volume.mapping.tail.boundary;
     for byte in [0xa5, 0x5a, 0xc3] {
         volume.write_block(0, &[byte; BLOCK_SIZE])?;
     }
     // The three same-address writes stayed coalesced in one slot; nothing reached the log yet.
-    assert_eq!(volume.last_footer_block, footer_before);
+    assert_eq!(volume.mapping.tail.boundary, footer_before);
     volume.flush()?;
     // One record with one payload was written (payload + footer = two blocks).
-    assert_eq!(volume.last_footer_block, footer_before + 2);
+    assert_eq!(volume.mapping.tail.boundary, footer_before + 2);
     volume.close()?;
 
     let mut volume = open_with_options(&backing.0, options)?;
@@ -116,14 +116,11 @@ fn read_after_write_without_flush_returns_the_buffered_value() -> io::Result<()>
 
 /// A 64-block log, exactly the ublk/fio scenario 7 shape.
 ///
-/// Capacity depends on how footers amortise, because the log is charged for what
-/// a release really consumes. Write-through spends one payload plus one footer on
-/// every write, so it fits 64/2 = 32. Batching spends one footer per record, so
-/// the same log fits 60: three full 16-payload releases cost 17 blocks each, and
-/// the remaining 13 blocks hold 12 payloads plus their footer.
+/// Admission also reserves existing and pending snapshots. Write-through admits
+/// 31 writes; batching admits three 16-payload groups and a final ten-payload group.
 #[test]
 fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<()> {
-    for (write_buffer_bytes, capacity) in [(BLOCK_SIZE as u64, 32_u32), (4 * 1024 * 1024, 60)] {
+    for (write_buffer_bytes, capacity) in [(BLOCK_SIZE as u64, 31_u32), (4 * 1024 * 1024, 58)] {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 64_u32;
         let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
@@ -160,17 +157,16 @@ fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<(
 }
 
 #[test]
-fn checkpoint_body_round_trips_across_the_128kib_chunk_boundary() -> io::Result<()> {
-    // 16384 blocks => 16 physical-map + 32 checksum-map = 48 body blocks per slot, spanning two
-    // 128 KiB (32-block) chunks, so persist and load both cross a chunk boundary.
+fn checkpoint_index_round_trips_across_block_boundaries() -> io::Result<()> {
+    // More than 1024 mapping pages requires a second index block.
     let backing = TemporaryBacking::new()?;
-    let volume_blocks = 16_384_u32;
+    let volume_blocks = 320 * 1024 + 1;
     let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    assert!(layout.physical_map_blocks + layout.checksum_map_blocks > 32);
+    assert!(layout.index_blocks > 1);
     backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
     format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
 
-    let writes = [(0_u32, 0xa5_u8), (1000, 0x5a), (16_383, 0xc3)];
+    let writes = [(0_u32, 0xa5_u8), (1000, 0x5a), (volume_blocks - 1, 0xc3)];
     let mut volume = open(&backing.0)?;
     for (lba, byte) in writes {
         volume.write_block(lba, &[byte; BLOCK_SIZE])?;
@@ -183,7 +179,7 @@ fn checkpoint_body_round_trips_across_the_128kib_chunk_boundary() -> io::Result<
         volume.read_block(lba, &mut actual)?;
         assert_eq!(
             actual, [byte; BLOCK_SIZE],
-            "lba {lba} after chunked checkpoint"
+            "lba {lba} after streamed checkpoint"
         );
     }
     volume.read_block(500, &mut actual)?;
@@ -201,8 +197,8 @@ fn short_backing_write_fails_the_release_without_publishing() -> io::Result<()> 
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     let error = volume.flush().unwrap_err();
     assert_eq!(error.raw_os_error(), Some(libc::EBADF));
-    assert_eq!(volume.physical_blocks[0], 0);
-    assert_eq!(volume.last_lsn, 0);
+    assert_eq!(mapping_arrays(&volume)?.0[0], 0);
+    assert_eq!(volume.mapping.tail.lsn, 0);
     assert_eq!(
         volume
             .write_block(0, &[0; BLOCK_SIZE])

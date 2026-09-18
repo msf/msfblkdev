@@ -84,7 +84,7 @@ fn paged_buffer_groups_interleaved_writes_and_coalesces_before_pressure() -> io:
     volume.flush()?;
     assert_eq!(volume.release_stats().records, 3);
     assert_eq!(volume.release_stats().payloads, 5);
-    assert_eq!(volume.pressure_checkpoints(), 2);
+    assert_eq!(volume.mapping_stats().pressure_checkpoints, 2);
     assert_eq!(volume.cache_snapshot().dirty_slots, 1);
     drop(volume);
     let mut reopened = volume::open(&backing.0, options, Some(1), None)?;

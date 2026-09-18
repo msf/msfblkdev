@@ -2,28 +2,28 @@ use crate::mapping_cache::Snapshot;
 
 /// Completed metadata I/O, including work performed before a later operation fails.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct MappingIo {
+pub struct MappingIo {
     /// Reads through checkpoint pointers, including rejected checkpoint candidates.
-    pub(crate) page_reads: u64,
-    pub(crate) page_writes: u64,
+    pub page_reads: u64,
+    pub page_writes: u64,
     /// Complete index blocks written, including padding but excluding descriptors.
-    pub(crate) index_bytes_written: u64,
+    pub index_bytes_written: u64,
     /// All blocks read while scanning the tail, counted separately from page lookups.
-    pub(crate) tail_blocks_read: u64,
+    pub tail_blocks_read: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct MappingStats {
-    pub(crate) cache: Snapshot,
-    pub(crate) io: MappingIo,
-    pub(crate) index_bytes: usize,
-    pub(crate) pressure_checkpoints: u64,
-    pub(crate) checkpoint_failures: u64,
-    pub(crate) recovery_passes: u64,
+pub struct MappingStats {
+    pub cache: Snapshot,
+    pub io: MappingIo,
+    pub index_bytes: usize,
+    pub pressure_checkpoints: u64,
+    pub checkpoint_failures: u64,
+    pub recovery_passes: u64,
 }
 
 impl MappingStats {
-    pub(crate) fn summary(self) -> String {
+    pub fn summary(self) -> String {
         let cache = self.cache;
         let counters = cache.counters;
         format!(

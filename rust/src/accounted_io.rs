@@ -5,7 +5,6 @@ use std::io;
 pub(super) struct BackingIo {
     pub(super) ring: Option<IoUring>,
     accounting: Option<Writer>,
-    #[cfg(test)]
     pub(super) mapping_io: crate::format_v3::metrics::MappingIo,
 }
 
@@ -14,7 +13,6 @@ impl BackingIo {
         Ok(Self {
             ring: Some(IoUring::new(2)?),
             accounting,
-            #[cfg(test)]
             mapping_io: crate::format_v3::metrics::MappingIo::default(),
         })
     }

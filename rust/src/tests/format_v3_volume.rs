@@ -85,7 +85,7 @@ fn paged_reads_checkpoint_dirty_pressure_and_retry_without_double_counting() -> 
     );
     assert_eq!(snapshot.counters.clean_evictions, 2);
     assert_eq!(snapshot.counters.checkpoint_required, 1);
-    assert_eq!(volume.pressure_checkpoints(), 1);
+    assert_eq!(volume.mapping_stats().pressure_checkpoints, 1);
     assert_eq!(snapshot.dirty_slots, 0);
     volume.flush()?;
     volume.close()?;
@@ -114,7 +114,7 @@ fn paged_zero_reads_cover_eviction_and_the_final_partial_page() -> io::Result<()
     let snapshot = volume.cache_snapshot();
     assert_eq!(snapshot.counters.foreground.misses, 4);
     assert_eq!(snapshot.counters.clean_evictions, 3);
-    assert_eq!(volume.pressure_checkpoints(), 0);
+    assert_eq!(volume.mapping_stats().pressure_checkpoints, 0);
     volume.close()
 }
 
@@ -156,9 +156,7 @@ fn paged_open_rejects_version_one_before_tail_sanitation() -> io::Result<()> {
     let mut original = vec![0xa5; 32 * BLOCK_SIZE];
     original[..2 * BLOCK_SIZE].copy_from_slice(include_bytes!("fixtures/v1-empty-roots.bin"));
     file.write_all_at(&original, 0)?;
-    let error = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)
-        .err()
-        .unwrap();
+    let error = open(&backing.0).err().unwrap();
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     let mut after = vec![0; original.len()];
     file.read_exact_at(&mut after, 0)?;

@@ -58,12 +58,12 @@ fn public_accounting_apis_count_format_open_write_checkpoint_and_close() -> io::
         reader.snapshot()?,
         Snapshot {
             write_limit_bytes: unlimited,
-            write_reserved_bytes: 2 * BLOCK_SIZE as u64,
-            write_completed_bytes: 2 * BLOCK_SIZE as u64,
+            write_reserved_bytes: 4 * BLOCK_SIZE as u64,
+            write_completed_bytes: 4 * BLOCK_SIZE as u64,
             read_completed_bytes: 0,
             read_completed_operations: 0,
-            write_completed_operations: 1,
-            flush_completed_operations: 1,
+            write_completed_operations: 4,
+            flush_completed_operations: 2,
             pending_operations: 0,
             errors: 0,
             completed_totals_incomplete: false,
@@ -93,24 +93,23 @@ fn public_accounting_apis_count_format_open_write_checkpoint_and_close() -> io::
     let snapshot = reader.snapshot()?;
     assert_eq!(
         snapshot.write_completed_bytes,
-        2 * block_bytes + 2 * MAXIMUM_RECORD_BLOCKS * block_bytes + 5 * block_bytes
+        4 * block_bytes + 2 * MAXIMUM_RECORD_BLOCKS * block_bytes + 5 * block_bytes
     );
     assert_eq!(
         snapshot.write_reserved_bytes,
         snapshot.write_completed_bytes
     );
-    // format descriptor (1) + two stale-tail clears + one record writev + one batched checkpoint
-    // body chunk + one checkpoint descriptor. The body block writes collapse into one 128 KiB chunk.
+    // Four format blocks, two tail clears, one data writev, snapshot, index, and descriptor.
     assert_eq!(
         snapshot.write_completed_operations,
-        1 + 2 * MAXIMUM_RECORD_BLOCKS + 3
+        4 + 2 * MAXIMUM_RECORD_BLOCKS + 4
     );
     assert_eq!(
         snapshot.read_completed_bytes,
-        2 * (2 + 338) * block_bytes + block_bytes
+        2 * (3 + 339) * block_bytes + block_bytes
     );
-    assert_eq!(snapshot.read_completed_operations, 2 * 339 + 1);
-    assert_eq!(snapshot.flush_completed_operations, 7);
+    assert_eq!(snapshot.read_completed_operations, 2 * 342 + 1);
+    assert_eq!(snapshot.flush_completed_operations, 8);
     assert_eq!(snapshot.pending_operations, 0);
     assert_eq!(snapshot.errors, 0);
     assert!(!snapshot.completed_totals_incomplete);
@@ -277,14 +276,14 @@ fn exact_budget_exhaustion_rejects_write_before_backing_modification() -> io::Re
     volume.write_block(0, &expected)?;
     volume.close()?;
 
-    let budget = MAXIMUM_RECORD_BLOCKS * BLOCK_SIZE as u64;
+    let budget = (MAXIMUM_RECORD_BLOCKS - 1) * BLOCK_SIZE as u64;
     let (accounting, reader) = AccountingFixture::new(budget)?;
     let mut metered = open_with_accounting(
         &backing.0,
         VolumeOpenOptions::default(),
         accounting.writer()?,
     )?;
-    let append_offset = u64::from(layout.log_start + 2) * BLOCK_SIZE as u64;
+    let append_offset = u64::from(layout.log_start + 3) * BLOCK_SIZE as u64;
     let file = File::open(&backing.0)?;
     let mut before = [0; 2 * BLOCK_SIZE];
     file.read_exact_at(&mut before, append_offset)?;

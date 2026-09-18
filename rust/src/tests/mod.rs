@@ -1,4 +1,66 @@
 use super::*;
+use crate::format_v3::{
+    checkpoint::{CheckpointDescriptor, CheckpointSlot},
+    geometry::Geometry as Layout,
+};
+use std::fs::OpenOptions;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use xxhash_rust::xxh3::xxh3_64;
+const FORMAT_VERSION: u8 = crate::format_v3::VERSION;
+const FOOTER_MAGIC: &[u8; 4] = b"VBLF";
+const RECORD_KIND_WRITE: u8 = 1;
+const FOOTER_LBA_OFFSET: usize = 32;
+const FOOTER_PAYLOAD_CHECKSUM_OFFSET: usize = 1384;
+const FOOTER_CHECKSUM_OFFSET: usize = BLOCK_SIZE - 8;
+const CHECKPOINT_MAGIC: &[u8; 4] = b"VBLC";
+const CHECKPOINT_BODY_CHECKSUM_OFFSET: usize = 44;
+const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - 8;
+const CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT: &str = "checkpoint-body-block-complete";
+
+fn layout_for(bytes: u64) -> io::Result<(u32, Layout)> {
+    if bytes == 0
+        || !bytes.is_multiple_of(BLOCK_SIZE as u64)
+        || bytes / BLOCK_SIZE as u64 > MAX_VOLUME_BLOCKS
+    {
+        return Err(invalid_input("invalid test volume size"));
+    }
+    let blocks = (bytes / BLOCK_SIZE as u64) as u32;
+    Ok((blocks, Layout::new(blocks, MAX_BACKING_BLOCKS)?))
+}
+
+fn log_bytes_since_checkpoint(volume: &Volume) -> u64 {
+    u64::from(
+        volume.mapping.tail.boundary - volume.mapping.checkpoint.descriptor.last_record_boundary,
+    ) * BLOCK_SIZE as u64
+}
+
+fn mapping_arrays(volume: &Volume) -> io::Result<(Vec<u32>, Vec<u64>)> {
+    let checkpoint = &volume.mapping.checkpoint;
+    let mut physical = Vec::new();
+    let mut checksums = Vec::new();
+    let mut backing_io = BackingIo::new(None)?;
+    for page_id in 0..checkpoint.mapping_page_block.len() as u32 {
+        let entries = match volume
+            .mapping
+            .cache
+            .dirty_pages()
+            .find(|(id, _)| *id == page_id)
+        {
+            Some((_, entries)) => entries.clone(),
+            None => crate::format_v3::mapping_state::read_page(
+                &mut backing_io,
+                &volume.backing,
+                checkpoint,
+                page_id,
+            )?,
+        };
+        let count = checkpoint.descriptor.geometry()?.page_entries(page_id)?;
+        physical.extend_from_slice(&entries.physical_addr[..count]);
+        checksums.extend_from_slice(&entries.payload_checksum[..count]);
+    }
+    Ok((physical, checksums))
+}
+
 use std::ffi::OsStr;
 use std::fs::remove_file;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -349,12 +411,12 @@ fn verify_recovery_stops_before_invalid_footer(
     let opened = std::panic::catch_unwind(|| open(&backing.0))
         .map_err(|_| io::Error::other("public open panicked on invalid footer"))?;
     let mut volume = opened?;
-    assert_eq!(volume.last_lsn, 1);
-    assert_eq!(volume.durable_lsn, 1);
-    assert_eq!(volume.last_footer_block + 1, clear_start);
-    assert_eq!(volume.log_bytes_since_checkpoint, (2 * BLOCK_SIZE) as u64);
-    assert_eq!(volume.physical_blocks, [clear_start - 2, 0, 0, 0]);
-    assert_eq!(volume.checksums[1..], [0, 0, 0]);
+    assert_eq!(volume.mapping.tail.lsn, 1);
+
+    assert_eq!(volume.mapping.tail.boundary + 1, clear_start);
+    assert_eq!(log_bytes_since_checkpoint(&volume), (2 * BLOCK_SIZE) as u64);
+    assert_eq!(mapping_arrays(&volume)?.0, [clear_start - 2, 0, 0, 0]);
+    assert_eq!(mapping_arrays(&volume)?.1[1..], [0, 0, 0]);
 
     let mut actual = [0; BLOCK_SIZE];
     volume.read_block(0, &mut actual)?;
@@ -506,8 +568,8 @@ fn verify_invalid_gap_recovery(fixture: &InvalidGapFixture) -> io::Result<()> {
     assert_eq!(actual, [0xa5; BLOCK_SIZE]);
     volume.read_block(1, &mut actual)?;
     assert_eq!(actual, [0; BLOCK_SIZE]);
-    assert_eq!(volume.last_lsn, 1);
-    assert_eq!(volume.last_footer_block + 1, fixture.clear_start);
+    assert_eq!(volume.mapping.tail.lsn, 1);
+    assert_eq!(volume.mapping.tail.boundary + 1, fixture.clear_start);
     drop(volume);
     verify_cleared_window(fixture)
 }

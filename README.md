@@ -36,29 +36,45 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 
 ## Rust API
 
-### Isolated ADR-07 cache
+### Paged mapping and CLOCK cache
 
-`rust/src/mapping_cache.rs` implements the mapping-page cache under `cfg(test)`.
-The engine still uses its existing mapping and format. Run the isolated tests with
-`cd rust && cargo test --lib mapping_cache`; they need no backing file or `io_uring`.
+The Rust engine now formats and opens ADR-07 version 3. Version-1, version-2,
+and unknown-format images are rejected before recovery writes. There is no migration
+path. The public engine uses a resident page-pointer index and a bounded mapping cache;
+it no longer allocates dense per-LBA address and checksum arrays. Final ADR-07 acceptance
+and the completion tag remain pending.
 
 The cache preallocates slots, a `hashbrown` 0.17.1 hash map, and CLOCK reference bits.
-It fills unused slots sequentially and reuses clean victims. Dirty pages remain resident
-until the caller reports successful checkpoint publication. Read-only `dirty_pages()`
-iteration supplies those pages to the future checkpoint path.
+It fills unused slots sequentially and reuses clean victims. Dirty mapping pages remain
+resident until successful checkpoint publication. Cache pressure can cause a read to
+publish a checkpoint before loading another page. Publication appends dirty snapshots,
+persists the inactive index, and then persists its descriptor before selecting the new root.
 
-The requested budget defaults to `logical_bytes / 10_000`, with a one-slot minimum
-and a complete-map cap. Sizing includes slot padding, hash-map buckets and control
-bytes, and policy bits. Hash-map reservation is twice the slot count so the pinned
-implementation can rehash deletion tombstones in place. Constructor sizing probes
-allocate temporary hash maps sequentially; cache operations allocate nothing afterward.
-The budget excludes the inline cache object, allocator overhead, and the future page index;
-it is not a process RSS limit. Dependency upgrades must recheck the allocation contract.
+`VolumeOpenOptions::cache_budget_bytes` overrides the requested byte budget.
+The default is `logical_bytes / 10_000`, with a one-slot minimum and a complete-map cap.
+Sizing includes slot padding, hash-map buckets/control bytes, and policy bits. Hash-map
+reservation is twice the slot count so the pinned implementation can rehash tombstones
+in place. Cache operations allocate nothing after construction. Checkpoint publication
+and bounded recovery can allocate a candidate index or replace a recovery-window cache.
+The budget excludes the resident index, candidate index, I/O and payload buffers,
+allocator overhead, and inline objects; it is not a process RSS limit.
 
-Snapshots report foreground/recovery hits and misses, evictions, victim scans, pressure,
-resident/dirty slots, and requested/effective allocation bytes. A pressure retry retains
-its original lookup count. Unit tests cover exact counters, reference-model churn, and
-zero measured allocations after construction. Persistence ordering remains unimplemented.
+`Volume::mapping_stats()` reports foreground/recovery hits and misses, evictions,
+victim scans, pressure, resident/dirty slots, requested/effective cache bytes, index bytes,
+metadata I/O, and checkpoint failures. A pressure retry retains its original lookup count.
+Snapshot I/O counters include completed operations before a later failure; they do not
+imply successful publication. Tail-scan reads are counted separately. `summary()` formats
+these statistics for reporting outside timed work.
+
+Buffered payloads are grouped by mapping page before append. A flush persists their data
+records; it does not require a checkpoint or clear dirty mapping flags. Recovery replays
+those records, using bounded cache windows when the dirty working set exceeds capacity.
+Admission reserves data records and mapping snapshots before accepting a new buffered LBA.
+The log remains finite, with no reclaim or wraparound.
+
+Run cache-only tests with `cd rust && cargo test --lib mapping_cache`; these need no
+backing file or `io_uring`. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md) records the exact
+persistent schema, delivery steps, and executed validation.
 
 ### Engine API
 
@@ -322,4 +338,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, one 4 KiB payload per log record, a finite log, and no compaction or wraparound. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 clean-restart matrix. Medium-write faults, compaction and wraparound remain outside ADR-03.
+The engine has one serialized writer, 4 KiB payloads, a finite log, and no compaction or wraparound. Version 3 groups up to 320 buffered payloads from one mapping page per data record; its decoder accepts the format limit of 338 payloads. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 clean-restart matrix. Medium-write faults, compaction and wraparound remain outside ADR-03.

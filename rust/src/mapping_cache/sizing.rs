@@ -5,14 +5,14 @@ use std::hash::RandomState;
 pub(super) type Lookup = HashMap<u32, u32, RandomState>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Sizing {
-    pub(crate) requested_bytes: u64,
-    pub(crate) page_count: u32,
-    pub(crate) capacity: usize,
-    pub(crate) slot_bytes: usize,
-    pub(crate) lookup_bytes: usize,
-    pub(crate) policy_bytes: usize,
-    pub(crate) allocated_bytes: usize,
+pub struct Sizing {
+    pub requested_bytes: u64,
+    pub page_count: u32,
+    pub capacity: usize,
+    pub slot_bytes: usize,
+    pub lookup_bytes: usize,
+    pub policy_bytes: usize,
+    pub allocated_bytes: usize,
 }
 
 impl Sizing {
