@@ -8,6 +8,7 @@ use xxhash_rust::xxh3::Xxh3;
 pub(crate) mod checkpoint;
 pub(crate) mod data_record;
 pub(crate) mod geometry;
+pub(crate) mod index;
 pub(crate) mod mapping_page;
 
 // ADR-07 assigns version 3 and reserves the final u64 for the metadata checksum.
