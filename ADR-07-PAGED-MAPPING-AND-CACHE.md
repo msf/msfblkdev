@@ -216,6 +216,12 @@ Unchanged pointers are reused. The old checkpoint and its pages remain untouched
 
 Reserve enough append space for all resulting dirty-page snapshots before admitting each foreground record. Include the new dirty page and framing in the calculation. Reserved checkpoint bodies need no append space. Return a capacity error before accepting a write that would consume the space needed to checkpoint its mapping. There is still no reclaim or wraparound.
 
+For the existing payload write buffer, release each distinct mapping page's buffered LBAs together and visit that page only once per release. The buffer coalesces repeated writes to an LBA, so a group contains at most 320 payloads and fits one data record. This permits a one-slot cache without pinning multiple pages across an append. The disk decoder continues to accept all 1–338 payload counts.
+
+Before accepting a new buffered LBA, let `N` be the resulting buffered payload count, `P` its distinct mapping-page count, and `D` the current dirty-cache page count. Reserve `N + P + D + P` physical blocks: payloads, data footers, existing dirty snapshots, and snapshots for the pending page updates. Count the existing and pending page sets separately even when they overlap. A pressure checkpoint may persist an old dirty page before the release reaches that page's pending update.
+
+The bound holds across intermediate checkpoints: each initially dirty page needs at most one snapshot before its pending update; each pending page is updated in exactly one release group and then needs at most one further snapshot. Checkpointing a clean page writes no snapshot. The engine must preserve this grouping rule when integrating the reservation helper. A buffered overwrite of an existing LBA adds no reservation. Capacity rejection occurs before modifying the buffer or issuing backing I/O.
+
 ### How does bounded recovery work?
 
 First select and validate a checkpoint and determine the valid replay tail using volume identity, record chaining, strictly consecutive LSNs, bounded record lengths, and checksums. Mapping records participate in traversal but never apply logical updates. Data records update mappings. Unknown versions or kinds are not silently skipped.
@@ -262,7 +268,8 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 - [x] Implement the complete checkpoint with its owned pointer array and streamed index codec. Evidence (2026-09-18): three additional tests verify multi-block bodies, padded checksums, invalid-pointer rejection without candidate mutation, and zero allocations during streaming. All 16 codec tests and all 250 repository gate commands passed.
 - [x] Implement a test-only formatter. Evidence (2026-09-18): three file-backed tests verify both persisted bodies and descriptors, untouched log bytes, non-mutating geometry rejection, and exact write/fsync accounting. All 19 version-3 tests and all 253 repository gate commands passed. The public formatter still emits version 1.
 - [ ] Verify mixed record chains, partial pages, checksums, zero padding, overflow, and non-mutating unsupported-version rejection.
-- [ ] Document and test append reservation and bounded recovery publication ordering before engine integration.
+- [x] Document and test foreground append reservation. Evidence (2026-09-18): three isolated tests cover exact charges, capacity/overflow limits, and exhaustive small dirty-set/pressure schedules. All 256 repository gate commands passed. Engine integration must still enforce the tested page-grouping premise.
+- [ ] Resolve corrupted-snapshot traversal and prove bounded recovery publication ordering before engine integration.
 
 ### Delivery 3: engine and frontend integration
 
