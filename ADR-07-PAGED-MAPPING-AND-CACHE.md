@@ -1,7 +1,7 @@
 # ADR-07 Paged mapping and bounded cache
 
 Status: complete; all engine, memory, and live acceptance gates passed (2026-09-19)
-Latest release: v1.2.2; v1.2.3 refinement and validation in progress. v1.2.1 contains the packed-data correction; v1.2 preserves the original release.
+Latest release: v1.2.3, with 336-entry pages, sorted snapshots, and sequential-trigger prefetch. Earlier tags preserve their implementations.
 On-disk format: 3
 Updates: ADR-01 and ADR-03 for newly formatted version-3 images only
 Related: [research proposal](papers/README.md#ideas-to-improve-the-design), [delivery plan](PLAN-PAGED-MAPPING.md)
@@ -184,7 +184,7 @@ The base cache budget is `floor(logical_bytes / 10_000)`: 0.01%, not 1%. The aut
 
 Permit an explicit byte-budget override. Select the largest whole-slot capacity that fits, cap it at `page_count`, and retain the cache's one-slot allocation minimum. Reject an explicit configuration whose resulting slot capacity is below the write-buffer requirement. Validate it after reading checkpoint geometry but before recovery or tail sanitation can write. Report the required slots and minimum bytes in the error; do not silently enlarge an explicit cache budget.
 
-Cache allocations include entry arrays, slot metadata, replacement-policy state, page-ID-to-slot lookup capacity, and allocation padding visible to the implementation. There must be no unbounded per-access allocations or hidden fallback map. Report allocator/RSS overhead separately rather than claiming the byte budget bounds process RSS.
+Cache allocations include entry arrays, slot metadata, replacement-policy state, page-ID-to-slot lookup capacity, a preallocated `u32` sorting scratch entry per slot, and allocation padding visible to the implementation. There must be no unbounded per-access allocations or hidden fallback map. Report allocator/RSS overhead separately rather than claiming the byte budget bounds process RSS.
 
 The resident disk-location index is outside this cache budget:
 
@@ -204,17 +204,39 @@ Implement a mapping-page-specific cache, not a generic caching framework. Keep e
 
 CLOCK keeps one referenced bit per slot and a cursor. Access sets the bit. Victim search clears referenced bits and selects an unreferenced clean slot. Search is bounded to two full passes. Dirty pages are never eviction victims during normal operation. When no victim exists, return a typed checkpoint-required outcome; the cache performs no I/O. The engine checkpoints and retries. Invalid capacity and inconsistent slot transitions must have explicit errors or internal invariant checks.
 
-Before appending a buffered group, ensure that cache capacity covers its mapping pages and all existing dirty pages. Publish a checkpoint first if needed. After exact data-record completion, acquire each required mapping page, update its entries, and mark it dirty. The configuration minimum and preflight guarantee slot availability throughout the group without pinning clean pages in advance. A mapping read or validation failure still latches the volume as failed.
+Before appending a buffered group, ensure that cache capacity covers its mapping pages and all existing dirty pages. Publish a checkpoint first if needed. After exact data-record completion, acquire each required mapping page, update its entries, and mark it dirty. The configuration minimum and preflight guarantee slot availability throughout the group without pinning clean pages in advance. A demanded mapping read or validation failure still latches the volume as failed.
 
 Dirty means that an update has changed the cached mapping since the last successful checkpoint publication. The payload write buffer contains application data, not mapping pages. Buffering a payload alone does not update its physical mapping. Releasing its data record updates the mapping after exact completion and marks the page dirty. A successful data flush leaves the page dirty; only successful checkpoint publication marks it clean. Loading a page from the active checkpoint, or constructing an implicitly unmapped page from a zero index pointer, produces a clean page. Replay updates produce dirty pages as well.
 
+### How does adjacent-page prefetch work?
+
+When a foreground read miss advances to the next page ID after the preceding read,
+read the demanded MappingPage and up to three following
+page IDs in one positional io_uring read when their current checkpoint pointers are
+consecutive nonzero physical blocks. Stop at the first resident page, pointer gap,
+or end of the index. Physical adjacency in the log alone is insufficient: old snapshots
+may be obsolete. Writes and recovery retain demand-only mapping reads.
+
+Admit speculative pages only into unused slots or clean, unreferenced CLOCK slots.
+Scan at most 32 CLOCK positions to find cold candidates without clearing reference
+bits. Count available slots before reading. A demand acquisition can perform its normal
+CLOCK scan or pressure checkpoint; speculation cannot cause a checkpoint or overwrite
+resident/dirty pages. Insert prefetched pages with their reference bit clear. The first
+subsequent demand marks the page referenced and counts it as useful once.
+
+Validate each snapshot independently. A corrupt speculative page is discarded and
+counted; it must still fail validation if later demanded. An I/O failure or short batch
+read latches the volume before installing any page or changing the caller's output.
+Use fixed 16 KiB aligned read scratch outside the cache budget; there are no per-miss
+heap allocations. Existing payload checksum verification remains unchanged.
+
 ### What must metrics report?
 
-Maintain counters for foreground hits and misses, recovery hits and misses, clean evictions, victim slots examined, and checkpoint-required outcomes. The engine separately counts completed cache-pressure checkpoints, mapping-page reads, mapping-page writes, index bytes written, and checkpoint failures. Report resident slots, dirty slots, slot capacity, cache allocated bytes, and index bytes.
+Maintain counters for foreground hits and misses, recovery hits and misses, clean evictions, victim slots examined, and checkpoint-required outcomes. The engine separately counts completed cache-pressure checkpoints, mapping-page reads, mapping-page writes, index bytes written, and checkpoint failures. Also count foreground mapping read submissions, admitted prefetched pages, first demand uses, unused prefetch evictions, and rejected speculative pages. Report resident slots, dirty slots, slot capacity, cache allocated bytes, and index bytes.
 
 Count one hit or miss per requested page acquisition, before internal retry. A zero-index page absent from the cache is a miss but needs no metadata read. Internal checkpoint work does not inflate foreground hit rate. Hit rate is `hits / (hits + misses)` and is unavailable before any lookup. Keep counters available through a snapshot API and expose them in existing daemon/lab reporting; no metrics-server dependency is required.
 
-Mapping-page I/O counters count exact completed operations through checkpoint pointers or snapshot appends, including work before a later validation or publication failure. Index bytes written include each completed padded index block and exclude descriptors. Count all tail-scan block reads separately: scans read payloads and metadata while locating record boundaries. These I/O counters do not imply durability or successful publication.
+Mapping-page I/O counters count pages in exactly completed operations through checkpoint pointers or snapshot appends, including work before a later validation or publication failure. Index bytes written include each completed padded index block and exclude descriptors. Count all tail-scan block reads separately: scans read payloads and metadata while locating record boundaries. These I/O counters do not imply durability or successful publication.
 
 Dedicated isolated unit tests must check exact counters as well as cache behavior. Metrics are part of the cache contract, not an optional later delivery.
 
@@ -236,7 +258,7 @@ append dirty mapping-page records and update a candidate index
 
 Unchanged pointers are reused. The old checkpoint and its pages remain untouched. Do not mark pages clean or expose the candidate index as committed before descriptor persistence succeeds. An uncertain backing I/O failure enters the existing failed-volume state; it must not authorize eviction or continued writes.
 
-Checkpoint pressure publishes all current dirty pages. Starting with v1.2.2, the writer batches consecutive mapping snapshots and index-body blocks into writes of at most 32 blocks (128 KiB), using bounded aligned scratch storage. Each snapshot retains its own framing, consecutive LSN, and checksums. Require exact completion of each batched write before counting its pages as written. A short or failed write fails the publication and latches the volume; never retry an uncertain append or clear dirty flags. Preserve the existing three publication barriers. Batching changes I/O submission size, not the disk format or the checkpoint's atomic publication boundary.
+Checkpoint pressure publishes all current dirty pages. Sort their page IDs before encoding snapshots, using the preallocated scratch array without changing cache-slot or CLOCK order. Starting with v1.2.2, the writer batches consecutive mapping snapshots and index-body blocks into writes of at most 32 blocks (128 KiB), using bounded aligned scratch storage. Each snapshot retains its own framing, consecutive LSN, and checksums. Require exact completion of each batched write before counting its pages as written. A short or failed write fails the publication and latches the volume; never retry an uncertain append or clear dirty flags. Preserve the existing three publication barriers. Batching changes I/O submission size, not the disk format or the checkpoint's atomic publication boundary.
 
 A batch is not an atomic disk write. A crash can leave complete records, missing blocks, or torn metadata. Recovery may traverse a valid consecutive prefix of snapshot records without adopting their entries. Invalid recognizable snapshot framing remains a fail-closed error under the existing format contract. Do not publish an index pointing into a batch until all required writes and barriers succeed.
 
@@ -359,6 +381,12 @@ The checkpoint writer groups at most 32 contiguous snapshot or index blocks into
 `make lint test test-acceptance` passed all 305 commands in both bounded and exhaustive modes. New tests verify 1/2/31/32/33/65 dirty pages, 1/32/33 index blocks, exact completed write counts and bytes, consecutive snapshot LSNs, failed-publication latching after a successful earlier batch, and replay with holes before later snapshot records. Eight batched-publication boundaries passed 20 SIGKILL repetitions each in exhaustive mode. A further short-write test verifies that a sub-page write missing the independent header checksum leaves the old root valid and reopening fails closed without changing the backing. Focused tests and lint passed again after adding that case.
 
 The existing authorized live ublk/fio, ext4, XFS, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#checkpoint-batching-validation-2026-09-19) records the evidence. The [performance rerun](ADR-07-PERF-RESULTS.md#v122-checkpoint-batching-2026-09-19) passed 105 engine, 60 fio, and 25 I/O-accounting cases. Automatic-cache scattered writes improved 52% in the engine and 46% through fio versus v1.2.1. Full-cache close fell from 58.06 ms to 11.66 ms, with 76 backing writes instead of 2,363 and unchanged bytes/barriers. Released as v1.2.2; the measured Rust sources match the release.
+
+### Packing and prefetch refinement (2026-09-19)
+
+Refined format 3 to 336 entries per page without changing its version number, as explicitly authorized for this prototype. Snapshot publication sorts dirty page IDs using accounted preallocated scratch. Sequential read misses can load up to four adjacent current snapshots into unused or cold clean slots. Unconditional prefetch was rejected after it regressed random reads by 22–27%; the released policy requires sequential mapping-page demand.
+
+The [combined experiment](ADR-07-PERF-RESULTS.md#v123-336-entry-pages-and-adjacent-page-prefetch-2026-09-19) passed 48 cases against fresh v1.2.2 baselines. Sequential mapping-page scans improve 45–51%, with about 76% fewer metadata read submissions. Random throughput stays within 0.5% of baseline; ordinary sequential payload results are mixed. The [validation record](PLAN-PAGED-MAPPING.md#packing-and-prefetch-validation-2026-09-19) retains isolated packing/sorting checks, all 311 bounded and exhaustive commands, live ublk/fio, ext4, XFS, and all 87 SQLite cases. Released as v1.2.3. These measurements do not establish general workload or power-loss guarantees.
 
 ## FUTURE WORK
 

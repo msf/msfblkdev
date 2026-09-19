@@ -1,0 +1,1077 @@
+filesystem: ext4
+limits: repetitions=3 per_command_s=60 suite_s=600 volume_bytes=134217728 backing_bytes=1073741824
+repetition: 1/3
+fixture: /tmp/my-block-storage-ublk.3632325.0 identity=52:569418
+command commit at_ms=0: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/001-commit.stdout bytes=41 ---
+ec052e44e8ac644e54d02d5da1ab54474669a75c
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/001-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=10: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/002-worktree.stdout bytes=1791 ---
+ M .gitignore
+MM ADR-07-PAGED-MAPPING-AND-CACHE.md
+ M ADR-07-PERF-RESULTS.md
+M  rust/examples/mapping_cache_profile.rs
+ M rust/src/accounted_io.rs
+M  rust/src/bin/block-storage-lab/ublk.rs
+M  rust/src/bin/block-storage-ublk.rs
+ M rust/src/format_v3.rs
+MM rust/src/format_v3/checkpoint_publish.rs
+M  rust/src/format_v3/geometry.rs
+M  rust/src/format_v3/index.rs
+M  rust/src/format_v3/mapping_page.rs
+ M rust/src/format_v3/mapping_state.rs
+ M rust/src/format_v3/metrics.rs
+ M rust/src/format_v3/recovery.rs
+M  rust/src/format_v3/reservation.rs
+ M rust/src/format_v3/volume.rs
+MM rust/src/mapping_cache.rs
+ M rust/src/mapping_cache/clock.rs
+ M rust/src/mapping_cache/sizing.rs
+MM rust/src/mapping_cache/tests.rs
+M  rust/src/tests/accounting_integration.rs
+MM rust/src/tests/checkpoint_batches.rs
+M  rust/src/tests/checkpoint_replay.rs
+M  rust/src/tests/format_geometry.rs
+M  rust/src/tests/format_v3_crash.rs
+M  rust/src/tests/format_v3_engine_crash.rs
+M  rust/src/tests/format_v3_load.rs
+M  rust/src/tests/format_v3_publish.rs
+M  rust/src/tests/format_v3_recovery.rs
+M  rust/src/tests/format_v3_storage.rs
+M  rust/src/tests/format_v3_tail.rs
+M  rust/src/tests/format_v3_volume.rs
+M  rust/src/tests/format_v3_write.rs
+ M rust/src/tests/mod.rs
+M  rust/src/tests/packed_writes.rs
+M  rust/src/tests/process_crash.rs
+M  rust/src/tests/write_buffer.rs
+ M tools/mapping-bench/run.py
+?? .obsidian/
+?? evidence/mapping-prefetch-336-2026-09-19.jsonl
+?? evidence/mapping-prefetch-336-sequential-2026-09-19.jsonl
+?? manual-test-ext4.txt
+?? rust/src/format_v3/page_read.rs
+?? rust/src/tests/mapping_prefetch.rs
+?? tools/mapping-bench/__pycache__/
+?? tools/mapping-bench/prefetch-baseline.rs
+?? tools/mapping-bench/prefetch-candidate.rs
+?? tools/mapping-bench/prefetch.py
+?? tools/mapping-bench/prefetch.rs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/002-worktree.stderr bytes=0 ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=21: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/003-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/003-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=32: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.3632325.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/004-backing-filesystem.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/004-backing-filesystem.stderr bytes=0 ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab bytes=26380792 xxh3=c60c19a9ed021b3e
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk bytes=22846456 xxh3=87caab3e55e9886c
+command mkfs-version at_ms=363: "mkfs.ext4" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/005-mkfs-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/005-mkfs-version.stderr bytes=64 ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command e2fsck-version at_ms=374: "e2fsck" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/006-e2fsck-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/006-e2fsck-version.stderr bytes=76 ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+binary: /usr/local/libexec/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+helper binary match: PASS
+command helper-preflight at_ms=601: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/007-helper-preflight.stdout bytes=91 ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/007-helper-preflight.stderr bytes=0 ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=616: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.3632325.0/backing.img", "--prealloc-bytes", "1073741824", "--size-bytes", "134217728"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/008-format.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/008-format.stderr bytes=226 ---
+info event=format volume_mib=128.0 live_mib=0.0 backing_declared_mib=1024.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=1024.0 log_capacity_mib=1024.0 log_used_percent=0.0 allocated_per_live=0.000
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=627: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3632325.0/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3632339
+device: /dev/ublkb0 number=(259, 4) class=25:870321 node=7:26871
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Mkfs
+command Mkfs at_ms=688: "mkfs.ext4" ["/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/010-Mkfs.stdout bytes=310 ---
+Creating filesystem with 32768 4k blocks and 32768 inodes
+
+Allocating group tables: 0/1   done                            
+Writing inode tables: 0/1   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/1   done
+
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/010-Mkfs.stderr bytes=27 ---
+mke2fs 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=141 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=830: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/011-Check(1).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 12/32768 files (8.3% non-contiguous), 6201/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/011-Check(1).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=841: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.3632325.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/012-mount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/012-mount.stderr bytes=0 ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=21 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3632325.0/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Populate
+command workload at_ms=865: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-populate"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/013-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/013-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=60 cleanup=Ok(())
+step: Verify
+command workload at_ms=936: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/014-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/014-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=963: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.3632325.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/015-unmount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/015-unmount.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=984: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/016-Check(2).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/016-Check(2).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 360        0    10600       54      210      108    36744     2109        0      179     2191        0        0        0        0       49       26
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3632325.0/009-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3632325.0/009-daemon.stderr bytes=3239 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=open volume_mib=128.0 live_mib=0.0 backing_declared_mib=1024.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=1024.0 log_capacity_mib=1024.0 log_used_percent=0.0 allocated_per_live=0.000
+request-count op_flags=0x0 count=2 before_ready=0 errors=0 cancelled=0 sectors=16
+request-count op_flags=0x1 count=154 before_ready=0 errors=0 cancelled=0 sectors=35992
+request-count op_flags=0x2 count=49 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=321 before_ready=0 errors=0 cancelled=0 sectors=10288
+request-count op_flags=0x800 count=36 before_ready=0 errors=0 cancelled=0 sectors=288
+request-count op_flags=0x801 count=40 before_ready=0 errors=0 cancelled=0 sectors=752
+request-count op_flags=0xf00 count=1 before_ready=0 errors=0 cancelled=0 sectors=8
+request-count-end combinations=7 total=603 complete=true
+info event=request_totals reads=360 writes=194 flushes=49 other=0 read_sectors=10600 write_sectors=36744 read_bytes=5427200 write_bytes=18812928
+info event=release_stats records=51 payloads=4593 payloads_per_record=90.059 backing_over_payload=1.011 footer_bytes=208896 payload_bytes=18812928 full_releases=4 flush_releases=35 histogram=[22, 1, 8, 5, 2, 1, 12]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1381 mapping_foreground_misses=19 mapping_foreground_hit_rate=0.986429 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=19 mapping_dirty_slots=16 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=shutdown volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=18.2 metadata_mib=0.0 log_used_mib=18.1 log_free_mib=1005.8 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.034
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=1045: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3632325.0/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3632390
+device: /dev/ublkb0 number=(259, 4) class=25:870544 node=7:26887
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Check(3)
+command Check(3) at_ms=1117: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/018-Check(3).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/018-Check(3).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=1128: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.3632325.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/019-mount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/019-mount.stderr bytes=0 ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3632325.0/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Verify
+command workload at_ms=1150: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/020-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/020-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=1175: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.3632325.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/021-unmount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/021-unmount.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=1197: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.0/022-Check(4).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.0/022-Check(4).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 326        0     9936       51       14        1       72        1        0       23       53        0        0        0        0       13        1
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3632325.0/017-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3632325.0/017-daemon.stderr bytes=3127 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=16 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=open volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=19.5 metadata_mib=0.0 log_used_mib=18.2 log_free_mib=1005.8 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.113
+request-count op_flags=0x0 count=1 before_ready=0 errors=0 cancelled=0 sectors=8
+request-count op_flags=0x1 count=1 before_ready=0 errors=0 cancelled=0 sectors=8
+request-count op_flags=0x2 count=13 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=287 before_ready=0 errors=0 cancelled=0 sectors=9624
+request-count op_flags=0x800 count=38 before_ready=0 errors=0 cancelled=0 sectors=304
+request-count op_flags=0x801 count=7 before_ready=0 errors=0 cancelled=0 sectors=64
+request-count-end combinations=6 total=347 complete=true
+info event=request_totals reads=326 writes=8 flushes=13 other=0 read_sectors=9936 write_sectors=72 read_bytes=5087232 write_bytes=36864
+info event=release_stats records=7 payloads=9 payloads_per_record=1.286 backing_over_payload=1.778 footer_bytes=28672 payload_bytes=36864 full_releases=0 flush_releases=7 histogram=[6, 0, 1, 0, 0, 0, 0]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1243 mapping_foreground_misses=7 mapping_foreground_hit_rate=0.994400 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=20 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=7 mapping_dirty_slots=2 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=4 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=shutdown volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=19.5 metadata_mib=0.0 log_used_mib=18.3 log_free_mib=1005.7 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.113
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 1: PASS; all owned resources removed
+repetition: 2/3
+fixture: /tmp/my-block-storage-ublk.3632325.1 identity=52:569466
+command commit at_ms=1250: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/001-commit.stdout bytes=41 ---
+ec052e44e8ac644e54d02d5da1ab54474669a75c
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/001-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=1260: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/002-worktree.stdout bytes=1791 ---
+ M .gitignore
+MM ADR-07-PAGED-MAPPING-AND-CACHE.md
+ M ADR-07-PERF-RESULTS.md
+M  rust/examples/mapping_cache_profile.rs
+ M rust/src/accounted_io.rs
+M  rust/src/bin/block-storage-lab/ublk.rs
+M  rust/src/bin/block-storage-ublk.rs
+ M rust/src/format_v3.rs
+MM rust/src/format_v3/checkpoint_publish.rs
+M  rust/src/format_v3/geometry.rs
+M  rust/src/format_v3/index.rs
+M  rust/src/format_v3/mapping_page.rs
+ M rust/src/format_v3/mapping_state.rs
+ M rust/src/format_v3/metrics.rs
+ M rust/src/format_v3/recovery.rs
+M  rust/src/format_v3/reservation.rs
+ M rust/src/format_v3/volume.rs
+MM rust/src/mapping_cache.rs
+ M rust/src/mapping_cache/clock.rs
+ M rust/src/mapping_cache/sizing.rs
+MM rust/src/mapping_cache/tests.rs
+M  rust/src/tests/accounting_integration.rs
+MM rust/src/tests/checkpoint_batches.rs
+M  rust/src/tests/checkpoint_replay.rs
+M  rust/src/tests/format_geometry.rs
+M  rust/src/tests/format_v3_crash.rs
+M  rust/src/tests/format_v3_engine_crash.rs
+M  rust/src/tests/format_v3_load.rs
+M  rust/src/tests/format_v3_publish.rs
+M  rust/src/tests/format_v3_recovery.rs
+M  rust/src/tests/format_v3_storage.rs
+M  rust/src/tests/format_v3_tail.rs
+M  rust/src/tests/format_v3_volume.rs
+M  rust/src/tests/format_v3_write.rs
+ M rust/src/tests/mod.rs
+M  rust/src/tests/packed_writes.rs
+M  rust/src/tests/process_crash.rs
+M  rust/src/tests/write_buffer.rs
+ M tools/mapping-bench/run.py
+?? .obsidian/
+?? evidence/mapping-prefetch-336-2026-09-19.jsonl
+?? evidence/mapping-prefetch-336-sequential-2026-09-19.jsonl
+?? manual-test-ext4.txt
+?? rust/src/format_v3/page_read.rs
+?? rust/src/tests/mapping_prefetch.rs
+?? tools/mapping-bench/__pycache__/
+?? tools/mapping-bench/prefetch-baseline.rs
+?? tools/mapping-bench/prefetch-candidate.rs
+?? tools/mapping-bench/prefetch.py
+?? tools/mapping-bench/prefetch.rs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/002-worktree.stderr bytes=0 ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=1271: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/003-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/003-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=1281: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.3632325.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/004-backing-filesystem.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/004-backing-filesystem.stderr bytes=0 ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab bytes=26380792 xxh3=c60c19a9ed021b3e
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk bytes=22846456 xxh3=87caab3e55e9886c
+command mkfs-version at_ms=1592: "mkfs.ext4" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/005-mkfs-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/005-mkfs-version.stderr bytes=64 ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command e2fsck-version at_ms=1603: "e2fsck" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/006-e2fsck-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/006-e2fsck-version.stderr bytes=76 ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+binary: /usr/local/libexec/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+helper binary match: PASS
+command helper-preflight at_ms=1840: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/007-helper-preflight.stdout bytes=91 ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/007-helper-preflight.stderr bytes=0 ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=1856: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.3632325.1/backing.img", "--prealloc-bytes", "1073741824", "--size-bytes", "134217728"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/008-format.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/008-format.stderr bytes=226 ---
+info event=format volume_mib=128.0 live_mib=0.0 backing_declared_mib=1024.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=1024.0 log_capacity_mib=1024.0 log_used_percent=0.0 allocated_per_live=0.000
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=1866: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3632325.1/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3632459
+device: /dev/ublkb0 number=(259, 4) class=25:870767 node=7:26901
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Mkfs
+command Mkfs at_ms=1918: "mkfs.ext4" ["/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/010-Mkfs.stdout bytes=310 ---
+Creating filesystem with 32768 4k blocks and 32768 inodes
+
+Allocating group tables: 0/1   done                            
+Writing inode tables: 0/1   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/1   done
+
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/010-Mkfs.stderr bytes=27 ---
+mke2fs 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=151 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=2070: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/011-Check(1).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 12/32768 files (8.3% non-contiguous), 6201/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/011-Check(1).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=2081: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.3632325.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/012-mount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/012-mount.stderr bytes=0 ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3632325.1/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Populate
+command workload at_ms=2102: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-populate"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/013-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/013-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=60 cleanup=Ok(())
+step: Verify
+command workload at_ms=2168: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/014-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/014-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=2193: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.3632325.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/015-unmount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/015-unmount.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=2214: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/016-Check(2).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/016-Check(2).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 416        0    11864       39      207      108    36728     2532        1      177     2585        0        0        0        0       47       13
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3632325.1/009-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3632325.1/009-daemon.stderr bytes=3372 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=open volume_mib=128.0 live_mib=0.0 backing_declared_mib=1024.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=1024.0 log_capacity_mib=1024.0 log_used_percent=0.0 allocated_per_live=0.000
+first negative completion: op_flags=0x700 errno=-108 cancelled=true
+first negative completion: op_flags=0x0 errno=-108 cancelled=true
+request-count op_flags=0x0 count=2 before_ready=0 errors=0 cancelled=1 sectors=8
+request-count op_flags=0x1 count=154 before_ready=0 errors=0 cancelled=0 sectors=35992
+request-count op_flags=0x2 count=47 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=380 before_ready=0 errors=0 cancelled=1 sectors=11568
+request-count op_flags=0x800 count=36 before_ready=0 errors=0 cancelled=0 sectors=288
+request-count op_flags=0x801 count=38 before_ready=0 errors=0 cancelled=0 sectors=736
+request-count op_flags=0xf00 count=1 before_ready=0 errors=0 cancelled=0 sectors=8
+request-count-end combinations=7 total=658 complete=true
+info event=request_totals reads=417 writes=192 flushes=47 other=0 read_sectors=11872 write_sectors=36728 read_bytes=6078464 write_bytes=18804736
+info event=release_stats records=50 payloads=4591 payloads_per_record=91.820 backing_over_payload=1.011 footer_bytes=204800 payload_bytes=18804736 full_releases=4 flush_releases=34 histogram=[21, 1, 8, 5, 2, 1, 12]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1538 mapping_foreground_misses=19 mapping_foreground_hit_rate=0.987797 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=19 mapping_dirty_slots=16 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=shutdown volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=18.1 metadata_mib=0.0 log_used_mib=18.1 log_free_mib=1005.9 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.034
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=2275: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3632325.1/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3632515
+device: /dev/ublkb0 number=(259, 4) class=25:870990 node=7:26918
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Check(3)
+command Check(3) at_ms=2347: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/018-Check(3).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/018-Check(3).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=2358: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.3632325.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/019-mount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/019-mount.stderr bytes=0 ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3632325.1/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Verify
+command workload at_ms=2379: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/020-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/020-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=2414: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.3632325.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/021-unmount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/021-unmount.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=2436: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.1/022-Check(4).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.1/022-Check(4).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 280        0     8888       52       14        1       72        1        0       28       55        0        0        0        0       13        1
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3632325.1/017-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3632325.1/017-daemon.stderr bytes=3127 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=16 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=open volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=19.5 metadata_mib=0.0 log_used_mib=18.2 log_free_mib=1005.8 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.113
+request-count op_flags=0x0 count=1 before_ready=0 errors=0 cancelled=0 sectors=8
+request-count op_flags=0x1 count=1 before_ready=0 errors=0 cancelled=0 sectors=8
+request-count op_flags=0x2 count=13 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=241 before_ready=0 errors=0 cancelled=0 sectors=8576
+request-count op_flags=0x800 count=38 before_ready=0 errors=0 cancelled=0 sectors=304
+request-count op_flags=0x801 count=7 before_ready=0 errors=0 cancelled=0 sectors=64
+request-count-end combinations=6 total=301 complete=true
+info event=request_totals reads=280 writes=8 flushes=13 other=0 read_sectors=8888 write_sectors=72 read_bytes=4550656 write_bytes=36864
+info event=release_stats records=7 payloads=9 payloads_per_record=1.286 backing_over_payload=1.778 footer_bytes=28672 payload_bytes=36864 full_releases=0 flush_releases=7 histogram=[6, 0, 1, 0, 0, 0, 0]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1112 mapping_foreground_misses=7 mapping_foreground_hit_rate=0.993744 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=20 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=7 mapping_dirty_slots=2 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=4 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=shutdown volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=19.5 metadata_mib=0.0 log_used_mib=18.3 log_free_mib=1005.7 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.113
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 2: PASS; all owned resources removed
+repetition: 3/3
+fixture: /tmp/my-block-storage-ublk.3632325.2 identity=52:569514
+command commit at_ms=2509: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/001-commit.stdout bytes=41 ---
+ec052e44e8ac644e54d02d5da1ab54474669a75c
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/001-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=2520: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/002-worktree.stdout bytes=1791 ---
+ M .gitignore
+MM ADR-07-PAGED-MAPPING-AND-CACHE.md
+ M ADR-07-PERF-RESULTS.md
+M  rust/examples/mapping_cache_profile.rs
+ M rust/src/accounted_io.rs
+M  rust/src/bin/block-storage-lab/ublk.rs
+M  rust/src/bin/block-storage-ublk.rs
+ M rust/src/format_v3.rs
+MM rust/src/format_v3/checkpoint_publish.rs
+M  rust/src/format_v3/geometry.rs
+M  rust/src/format_v3/index.rs
+M  rust/src/format_v3/mapping_page.rs
+ M rust/src/format_v3/mapping_state.rs
+ M rust/src/format_v3/metrics.rs
+ M rust/src/format_v3/recovery.rs
+M  rust/src/format_v3/reservation.rs
+ M rust/src/format_v3/volume.rs
+MM rust/src/mapping_cache.rs
+ M rust/src/mapping_cache/clock.rs
+ M rust/src/mapping_cache/sizing.rs
+MM rust/src/mapping_cache/tests.rs
+M  rust/src/tests/accounting_integration.rs
+MM rust/src/tests/checkpoint_batches.rs
+M  rust/src/tests/checkpoint_replay.rs
+M  rust/src/tests/format_geometry.rs
+M  rust/src/tests/format_v3_crash.rs
+M  rust/src/tests/format_v3_engine_crash.rs
+M  rust/src/tests/format_v3_load.rs
+M  rust/src/tests/format_v3_publish.rs
+M  rust/src/tests/format_v3_recovery.rs
+M  rust/src/tests/format_v3_storage.rs
+M  rust/src/tests/format_v3_tail.rs
+M  rust/src/tests/format_v3_volume.rs
+M  rust/src/tests/format_v3_write.rs
+ M rust/src/tests/mod.rs
+M  rust/src/tests/packed_writes.rs
+M  rust/src/tests/process_crash.rs
+M  rust/src/tests/write_buffer.rs
+ M tools/mapping-bench/run.py
+?? .obsidian/
+?? evidence/mapping-prefetch-336-2026-09-19.jsonl
+?? evidence/mapping-prefetch-336-sequential-2026-09-19.jsonl
+?? manual-test-ext4.txt
+?? rust/src/format_v3/page_read.rs
+?? rust/src/tests/mapping_prefetch.rs
+?? tools/mapping-bench/__pycache__/
+?? tools/mapping-bench/prefetch-baseline.rs
+?? tools/mapping-bench/prefetch-candidate.rs
+?? tools/mapping-bench/prefetch.py
+?? tools/mapping-bench/prefetch.rs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/002-worktree.stderr bytes=0 ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=2530: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/003-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/003-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=2541: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.3632325.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/004-backing-filesystem.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/004-backing-filesystem.stderr bytes=0 ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab bytes=26380792 xxh3=c60c19a9ed021b3e
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk bytes=22846456 xxh3=87caab3e55e9886c
+command mkfs-version at_ms=2833: "mkfs.ext4" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/005-mkfs-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/005-mkfs-version.stderr bytes=64 ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command e2fsck-version at_ms=2844: "e2fsck" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/006-e2fsck-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/006-e2fsck-version.stderr bytes=76 ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+binary: /usr/local/libexec/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+helper binary match: PASS
+command helper-preflight at_ms=3056: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/007-helper-preflight.stdout bytes=91 ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/007-helper-preflight.stderr bytes=0 ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=3071: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.3632325.2/backing.img", "--prealloc-bytes", "1073741824", "--size-bytes", "134217728"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/008-format.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/008-format.stderr bytes=226 ---
+info event=format volume_mib=128.0 live_mib=0.0 backing_declared_mib=1024.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=1024.0 log_capacity_mib=1024.0 log_used_percent=0.0 allocated_per_live=0.000
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=3081: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3632325.2/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3632582
+device: /dev/ublkb0 number=(259, 4) class=25:871213 node=7:26932
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Mkfs
+command Mkfs at_ms=3143: "mkfs.ext4" ["/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/010-Mkfs.stdout bytes=310 ---
+Creating filesystem with 32768 4k blocks and 32768 inodes
+
+Allocating group tables: 0/1   done                            
+Writing inode tables: 0/1   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/1   done
+
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/010-Mkfs.stderr bytes=27 ---
+mke2fs 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=141 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=3285: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/011-Check(1).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 12/32768 files (8.3% non-contiguous), 6201/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/011-Check(1).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=3297: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.3632325.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/012-mount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/012-mount.stderr bytes=0 ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3632325.2/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Populate
+command workload at_ms=3319: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-populate"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/013-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/013-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=50 cleanup=Ok(())
+step: Verify
+command workload at_ms=3374: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/014-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/014-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=3400: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.3632325.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/015-unmount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/015-unmount.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=3422: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/016-Check(2).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/016-Check(2).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 355        0    10648       35      207      108    36728     2092        0      165     2141        0        0        0        0       47       14
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3632325.2/009-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3632325.2/009-daemon.stderr bytes=3074 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=open volume_mib=128.0 live_mib=0.0 backing_declared_mib=1024.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=1024.0 log_capacity_mib=1024.0 log_used_percent=0.0 allocated_per_live=0.000
+request-count op_flags=0x1 count=154 before_ready=0 errors=0 cancelled=0 sectors=35992
+request-count op_flags=0x2 count=47 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=323 before_ready=0 errors=0 cancelled=0 sectors=10392
+request-count op_flags=0x800 count=32 before_ready=0 errors=0 cancelled=0 sectors=256
+request-count op_flags=0x801 count=38 before_ready=0 errors=0 cancelled=0 sectors=736
+request-count-end combinations=5 total=594 complete=true
+info event=request_totals reads=355 writes=192 flushes=47 other=0 read_sectors=10648 write_sectors=36728 read_bytes=5451776 write_bytes=18804736
+info event=release_stats records=50 payloads=4591 payloads_per_record=91.820 backing_over_payload=1.011 footer_bytes=204800 payload_bytes=18804736 full_releases=4 flush_releases=34 histogram=[21, 1, 8, 5, 2, 1, 12]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1386 mapping_foreground_misses=19 mapping_foreground_hit_rate=0.986477 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=19 mapping_dirty_slots=16 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=shutdown volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=18.1 metadata_mib=0.0 log_used_mib=18.1 log_free_mib=1005.9 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.034
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=3483: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3632325.2/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3632630
+device: /dev/ublkb0 number=(259, 4) class=25:871436 node=7:26950
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Check(3)
+command Check(3) at_ms=3555: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/018-Check(3).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/018-Check(3).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Mount
+command mount at_ms=3567: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount", "0", "my-block-storage-ublk.3632325.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/019-mount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/019-mount.stderr bytes=0 ---
+
+--- end stderr ---
+command mount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3632325.2/mount filesystem=ext4 mount_options=rw,nosuid,nodev,relatime super_options=rw
+step: Verify
+command workload at_ms=3588: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["ext4-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/020-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/020-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount at_ms=3613: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount", "0", "my-block-storage-ublk.3632325.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/021-unmount.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/021-unmount.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=3634: "e2fsck" ["-f", "-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3632325.2/022-Check(4).stdout bytes=266 ---
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/ublkb0: 17/32768 files (5.9% non-contiguous), 6283/32768 blocks
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3632325.2/022-Check(4).stderr bytes=27 ---
+e2fsck 1.47.2 (1-Jan-2025)
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 283        0     8088       34       14        1       72        1        4       23       36        0        0        0        0       13        0
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3632325.2/017-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3632325.2/017-daemon.stderr bytes=3261 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=16 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=0 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=open volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=19.5 metadata_mib=0.0 log_used_mib=18.2 log_free_mib=1005.8 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.113
+first negative completion: op_flags=0x700 errno=-108 cancelled=true
+first negative completion: op_flags=0x0 errno=-108 cancelled=true
+request-count op_flags=0x0 count=4 before_ready=0 errors=0 cancelled=4 sectors=0
+request-count op_flags=0x1 count=1 before_ready=0 errors=0 cancelled=0 sectors=8
+request-count op_flags=0x2 count=13 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=258 before_ready=0 errors=0 cancelled=7 sectors=7992
+request-count op_flags=0x800 count=35 before_ready=0 errors=0 cancelled=0 sectors=280
+request-count op_flags=0x801 count=7 before_ready=0 errors=0 cancelled=0 sectors=64
+request-count-end combinations=6 total=318 complete=true
+info event=request_totals reads=286 writes=8 flushes=13 other=0 read_sectors=8272 write_sectors=72 read_bytes=4235264 write_bytes=36864
+info event=release_stats records=7 payloads=9 payloads_per_record=1.286 backing_over_payload=1.778 footer_bytes=28672 payload_bytes=36864 full_releases=0 flush_releases=7 histogram=[6, 0, 1, 0, 0, 0, 0]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1035 mapping_foreground_misses=7 mapping_foreground_hit_rate=0.993282 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=20 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=7 mapping_dirty_slots=2 mapping_slot_capacity=98 mapping_cache_requested_bytes=398648 mapping_cache_allocated_bytes=398648 mapping_index_bytes=392 mapping_demand_read_ops=4 mapping_prefetched_pages=0 mapping_prefetch_hits=0 mapping_prefetch_unused_evictions=0 mapping_prefetch_rejected=0
+info event=space phase=shutdown volume_mib=128.0 live_mib=17.6 backing_declared_mib=1024.0 backing_allocated_mib=19.5 metadata_mib=0.0 log_used_mib=18.3 log_free_mib=1005.7 log_capacity_mib=1024.0 log_used_percent=1.8 allocated_per_live=1.113
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 3: PASS; all owned resources removed
+elapsed_ms: 3698
+result: PASS

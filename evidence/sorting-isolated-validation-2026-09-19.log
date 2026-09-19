@@ -1,0 +1,182 @@
+Commands: cargo clippy --all-targets --features lab -- -D warnings; cargo test --lib -- --test-threads=1 (exported packing+sorting index)
+
+    Checking block-storage v0.0.0 (/tmp/msfblkdev-sort-only/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.71s
+   Compiling block-storage v0.0.0 (/tmp/msfblkdev-sort-only/rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.85s
+     Running unittests src/lib.rs (rust/target/debug/deps/block_storage-b817b885176a8fc6)
+
+running 164 tests
+test format_v3::checkpoint::tests::descriptor_fields_have_exact_offsets_and_checksum ... ok
+test format_v3::checkpoint::tests::descriptor_rejects_malformed_geometry_sequence_padding_and_versions ... ok
+test format_v3::checkpoint::tests::generations_allow_equivalent_slots_and_reject_conflicts_and_overflow ... ok
+test format_v3::data_record::tests::complete_data_and_mapping_records_chain_in_both_orders ... ok
+test format_v3::data_record::tests::every_payload_count_round_trips_with_exact_footer_arrays ... ok
+test format_v3::data_record::tests::rejects_duplicate_out_of_range_and_unused_entries ... ok
+test format_v3::geometry::tests::geometry_is_bounded_and_rounds_index_bodies_once ... ok
+test format_v3::index::tests::complete_checkpoint_owns_and_streams_padded_pointer_array ... ok
+test format_v3::index::tests::invalid_index_blocks_do_not_mutate_the_candidate ... ok
+test format_v3::index::tests::streamed_index_work_allocates_nothing ... ok
+test format_v3::mapping_page::tests::all_entries_and_empty_pages_round_trip ... ok
+test format_v3::mapping_page::tests::mapping_framing_checks_fields_after_header_checksum ... ok
+test format_v3::mapping_page::tests::mapping_framing_survives_only_snapshot_body_damage ... ok
+test format_v3::mapping_page::tests::mapping_snapshot_has_exact_arrays_padding_and_checksum ... ok
+test format_v3::mapping_page::tests::rejects_malformed_mapping_snapshots_without_panic_or_mutation ... ok
+test format_v3::reservation::tests::capacity_errors_precede_append_and_preserve_u32_endpoints ... ok
+test format_v3::reservation::tests::reservation_counts_packed_records_and_checkpoint_debt ... ok
+test format_v3::reservation::tests::reservation_covers_all_small_dirty_sets_and_pressure_schedules ... ok
+test format_v3::tests::rejects_versions_kinds_padding_truncation_and_corruption_without_mutation ... ok
+test format_v3::tests::shared_header_has_exact_bytes_and_checksum ... ok
+test format_v3::tests::validates_record_lengths_identity_and_chain_in_both_orders ... ok
+test io_accounting::tests::budget_is_reserved_before_io_and_never_refunded ... ok
+test io_accounting::tests::create_rejects_zero_budget_and_existing_path ... ok
+test io_accounting::tests::dropped_guard_marks_unknown_completion_incomplete ... ok
+test io_accounting::tests::exact_budget_ceiling_is_admitted ... ok
+test io_accounting::tests::new_writer_refuses_abandoned_pending_work_without_repair ... ok
+test io_accounting::tests::new_writer_refuses_odd_epoch_without_repair ... ok
+test io_accounting::tests::only_one_writer_holds_the_lease ... ok
+test io_accounting::tests::readers_see_pending_and_exact_completions ... ok
+test io_accounting::tests::reservation_and_completion_overflow_are_fail_closed ... ok
+test io_accounting::tests::subprocess_reader_sees_updates ... 
+running 1 test
+test io_accounting::tests::subprocess_reader_sees_updates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 163 filtered out; finished in 0.00s
+
+ok
+test io_accounting::tests::zero_length_io_is_rejected ... ok
+test logging::tests::each_level_permits_exactly_the_records_at_or_below_it ... ok
+test logging::tests::level_names_round_trip_through_parsing ... ok
+test mapping_cache::clock::tests::dirty_slots_are_skipped_and_scan_is_bounded ... ok
+test mapping_cache::clock::tests::one_slot_and_bitset_word_boundaries ... ok
+test mapping_cache::clock::tests::rejects_inconsistent_slot_event - should panic ... ok
+test mapping_cache::clock::tests::rejects_zero_capacity ... ok
+test mapping_cache::clock::tests::second_chances_access_and_cursor_wrap ... ok
+test mapping_cache::tests::budget_rounding_minimum_and_page_cap ... ok
+test mapping_cache::tests::cancelled_miss_does_not_evict_or_consume_a_slot ... ok
+test mapping_cache::tests::default_budgets_choose_largest_fitting_capacity ... ok
+test mapping_cache::tests::deterministic_churn_matches_reference_mapping_without_allocation_growth ... ok
+test mapping_cache::tests::dirty_protection_publication_and_retry_have_exact_counters ... ok
+test mapping_cache::tests::dirty_updates_pressure_retry_iteration_and_snapshots_do_not_allocate ... ok
+test mapping_cache::tests::hashmap_churn_stays_preallocated_across_capacity_boundaries ... ok
+test mapping_cache::tests::invalid_updates_and_loads_preserve_contents_and_dirty_state ... ok
+test mapping_cache::tests::mapping_layout_and_empty_cache ... ok
+test mapping_cache::tests::rejects_invalid_geometry_capacity_and_size_overflow ... ok
+test mapping_cache::tests::sorted_dirty_pages_are_bounded_and_allocation_free ... ok
+test mapping_cache::tests::synthetic_zero_page_is_a_clean_miss_then_a_hit ... ok
+test tests::accounting_integration::actual_short_backing_read_marks_accounting_incomplete ... ok
+test tests::accounting_integration::checkpoint_load_accounts_reads_and_skips_unmapped_pages ... ok
+test tests::accounting_integration::checkpoint_publish_preserves_dirty_state_until_all_writes_succeed ... ok
+test tests::accounting_integration::exact_budget_exhaustion_rejects_write_before_backing_modification ... ok
+test tests::accounting_integration::format_v3_accounts_both_index_bodies_descriptors_and_barriers ... ok
+test tests::accounting_integration::paged_failed_pressure_counts_completed_io_without_counting_publication ... ok
+test tests::accounting_integration::paged_record_io_failure_latches_before_mapping_publication ... ok
+test tests::accounting_integration::public_accounting_apis_count_format_open_write_checkpoint_and_close ... ok
+test tests::accounting_integration::unknown_accounted_opcode_is_rejected_and_marks_totals_incomplete ... ok
+test tests::allocations::detects_allocations ... ok
+test tests::checkpoint_batches::batched_checkpoint_survives_sigkill_before_root_publication ... ok
+test tests::checkpoint_batches::checkpoint_batches_preserve_records_and_exact_io_at_chunk_boundaries ... ok
+test tests::checkpoint_batches::missing_snapshot_blocks_do_not_publish_later_out_of_order_records ... ok
+test tests::checkpoint_batches::short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages ... ok
+test tests::checkpoint_replay::checkpoints_before_buffered_group_exceeding_replay_bound ... ok
+test tests::checkpoint_replay::clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum ... ok
+test tests::checkpoint_replay::close_persists_snapshot_index_and_descriptor ... ok
+test tests::checkpoint_replay::close_without_mapping_changes_does_not_publish_checkpoint ... ok
+test tests::checkpoint_replay::equal_generation_checkpoints_require_equivalent_mapping ... ok
+test tests::checkpoint_replay::falls_back_from_corrupted_newest_checkpoint_body_and_replays_tail ... ok
+test tests::checkpoint_replay::falls_back_from_corrupted_newest_descriptor_and_replays_tail ... ok
+test tests::checkpoint_replay::flush_persists_data_without_advancing_checkpoint ... ok
+test tests::checkpoint_replay::log_full_write_does_not_publish_live_checkpoint ... ok
+test tests::checkpoint_replay::reconstructs_every_recovery_cursor_from_replayed_state ... ok
+test tests::checkpoint_replay::rejects_invalid_checkpoint_after_bytes_before_touching_backing ... ok
+test tests::checkpoint_replay::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation ... ok
+test tests::format_geometry::format_validates_geometry_boundaries ... ok
+test tests::format_geometry::format_writes_valid_empty_checkpoint_roots ... ok
+test tests::format_geometry::open_reconstructs_empty_volume_and_requires_matching_roots ... ok
+test tests::format_geometry::public_cache_configuration_reports_requested_and_effective_capacity ... ok
+test tests::format_geometry::xxh3_matches_persistent_format_vectors ... ok
+test tests::format_v3_crash::bounded_recovery_survives_sigkill_at_each_publication_boundary ... ok
+test tests::format_v3_crash::checkpoint_publication_survives_sigkill_at_each_boundary ... ok
+test tests::format_v3_crash::repeated_recovery_crashes_do_not_turn_staged_snapshots_into_writes ... ok
+test tests::format_v3_engine::paged_payload_corruption_preserves_output_and_zero_overwrite_is_mapped ... ok
+test tests::format_v3_engine::paged_threshold_checkpoints_before_exceeding_the_replay_bound ... ok
+test tests::format_v3_engine_crash::paged_buffer_is_volatile_and_flushed_groups_survive_sigkill ... ok
+test tests::format_v3_engine_crash::paged_grouped_release_survives_foreground_and_pressure_crashes ... ok
+test tests::format_v3_load::checkpoint_load_falls_back_after_referenced_page_corruption ... ok
+test tests::format_v3_load::checkpoint_load_propagates_failed_reads_without_selecting_an_older_root ... ok
+test tests::format_v3_load::checkpoint_load_rejects_invalid_bodies_and_conflicting_roots ... ok
+test tests::format_v3_load::checkpoint_load_rejects_old_and_unknown_formats_without_writing ... ok
+test tests::format_v3_load::checkpoint_load_validates_multiblock_index_and_last_partial_page ... ok
+test tests::format_v3_publish::checkpoint_publish_persists_dirty_page_and_reuses_unchanged_pointers ... ok
+test tests::format_v3_publish::checkpoint_publish_rejects_exhausted_space_and_generation_before_writing ... ok
+test tests::format_v3_recovery::bounded_recovery_matches_fast_path_and_preserves_its_replay_source ... ok
+test tests::format_v3_recovery::bounded_recovery_rebuilds_an_older_root_after_snapshot_body_corruption ... ok
+test tests::format_v3_recovery::recovery_space_exhaustion_leaves_every_backing_byte_and_root_unchanged ... ok
+test tests::format_v3_storage::format_v3_persists_both_full_index_bodies_and_roots ... ok
+test tests::format_v3_storage::format_v3_rejects_invalid_geometry_without_writing ... ok
+test tests::format_v3_tail::older_root_replay_traverses_damaged_snapshot_to_later_flushed_data ... ok
+test tests::format_v3_tail::tail_reader_checks_cursor_bounds_and_metadata_like_payloads ... ok
+test tests::format_v3_tail::tail_reader_handles_record_bounds_and_partial_append ... ok
+test tests::format_v3_tail::tail_reader_rejects_unknown_records_and_detected_mapping_framing_damage ... ok
+test tests::format_v3_volume::paged_metadata_failure_preserves_output_and_latches_the_volume ... ok
+test tests::format_v3_volume::paged_metrics_distinguish_cache_lookups_snapshot_io_and_tail_scans ... ok
+test tests::format_v3_volume::paged_open_rejects_version_one_before_tail_sanitation ... ok
+test tests::format_v3_volume::paged_reads_checkpoint_dirty_pressure_and_retry_without_double_counting ... ok
+test tests::format_v3_volume::paged_zero_reads_cover_eviction_and_the_final_partial_page ... ok
+test tests::format_v3_write::paged_admission_preserves_snapshot_space_and_rejects_before_buffering ... ok
+test tests::format_v3_write::paged_buffer_packs_interleaved_pages_and_coalesces_before_flush ... ok
+test tests::format_v3_write::paged_flush_retains_dirty_mapping_and_recovers_without_a_checkpoint ... ok
+test tests::format_v3_write::paged_full_page_release_is_one_record_without_runtime_allocations ... ok
+test tests::format_v3_write::paged_space_usage_counts_unique_released_mappings_and_all_log_records ... ok
+test tests::io_uring::destroys_ring_before_returning_permanent_wait_error ... ok
+test tests::io_uring::direct_io_uring_write_survives_fsync_and_reopen ... ok
+test tests::io_uring::waits_when_submission_succeeds_before_completion_exists ... ok
+test tests::packed_writes::incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes ... ok
+test tests::packed_writes::packed_buffers_cross_record_boundaries_with_one_log_flush ... ok
+test tests::packed_writes::packed_record_recovers_all_mappings_after_a_partial_in_memory_update ... ok
+test tests::packed_writes::preflight_checkpoint_crashes_preserve_the_previous_complete_group ... ok
+test tests::packed_writes::pressure_is_resolved_before_a_group_and_overlapping_dirty_pages_need_no_checkpoint ... ok
+test tests::packed_writes::sorting_buffer_preserves_payload_locations_and_coalesced_values_without_allocating ... ok
+test tests::process_crash::buffered_write_is_volatile_until_flush_across_sigkill ... ok
+test tests::process_crash::crash_test_modes_select_smoke_and_exhaustive_work ... ok
+test tests::process_crash::recover_after_checkpoint_body_fsync_boundary ... ok
+test tests::process_crash::recover_after_descriptor_fsync_boundary ... ok
+test tests::process_crash::recover_after_descriptor_write_boundary ... ok
+test tests::process_crash::recover_after_each_checkpoint_body_block_boundary ... ok
+test tests::process_crash::recover_after_kill_at_log_fsync_boundary ... ok
+test tests::process_crash::recover_after_kill_at_mapping_publication_boundary ... ok
+test tests::process_crash::recover_after_kill_at_record_write_boundary ... ok
+test tests::process_crash::recover_after_uncaught_unwinding_panic_without_close ... ok
+test tests::process_crash::recover_multiple_flushed_writes_and_overwrites_after_sigkill ... ok
+test tests::process_crash::recover_one_flushed_write_after_sigkill_without_close ... ok
+test tests::stale_tail::invalid_gap_stops_replay_and_clears_only_bounded_window ... ok
+test tests::stale_tail::recover_after_each_stale_tail_clear_block_boundary ... ok
+test tests::stale_tail::recover_after_stale_tail_fsync_boundary ... ok
+test tests::stale_tail::recovery_accepts_every_format_three_payload_count ... ok
+test tests::stale_tail::rejects_invalid_footer_above_maximum_payloads ... ok
+test tests::stale_tail::rejects_invalid_footer_declaring_position_beyond_backing ... ok
+test tests::stale_tail::rejects_invalid_footer_with_duplicate_lbas ... ok
+test tests::stale_tail::rejects_invalid_footer_with_nonzero_unused_checksum ... ok
+test tests::stale_tail::rejects_invalid_footer_with_nonzero_unused_lba ... ok
+test tests::stale_tail::rejects_invalid_footer_with_out_of_range_lba ... ok
+test tests::stale_tail::rejects_invalid_footer_with_zero_payloads ... ok
+test tests::stale_tail::stale_tail_clear_stops_at_backing_eof ... ok
+test tests::volume_write::failed_write_is_not_published ... ok
+test tests::volume_write::log_full_write_leaves_last_successful_value_readable_after_reopen ... ok
+test tests::volume_write::multiple_lbas_read_correctly_before_and_after_reopen ... ok
+test tests::volume_write::out_of_range_write_leaves_mapping_and_cursors_unchanged ... ok
+test tests::volume_write::overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen ... ok
+test tests::volume_write::public_operations_complete_v0_4_acceptance ... ok
+test tests::volume_write::raw_footer_linkage_and_lsns_are_contiguous ... ok
+test tests::volume_write::repeated_overwrite_returns_only_latest_value ... ok
+test tests::volume_write::write_block_appends_complete_raw_record_and_publishes_mapping ... ok
+test tests::write_buffer::checkpoint_index_round_trips_across_block_boundaries ... ok
+test tests::write_buffer::duplicate_lba_in_one_window_coalesces_to_the_latest_value ... ok
+test tests::write_buffer::enospc_is_returned_by_the_offending_write_not_a_later_flush ... ok
+test tests::write_buffer::read_after_write_without_flush_returns_the_buffered_value ... ok
+test tests::write_buffer::release_stats_report_batch_occupancy_and_footer_ratio ... ok
+test tests::write_buffer::releases_at_record_boundaries_and_replays_multi_record_windows ... ok
+test tests::write_buffer::short_backing_write_fails_the_release_without_publishing ... ok
+
+test result: ok. 164 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.89s
+

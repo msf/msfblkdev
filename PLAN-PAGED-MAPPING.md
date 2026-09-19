@@ -1,7 +1,7 @@
 # Delivery plan: paged mapping and bounded cache
 
 Status: Deliveries 1–4 complete; all required engine, memory, and live gates passed (2026-09-19)
-Latest release: v1.2.2, including checkpoint batching; v1.2 and v1.2.1 remain unchanged.
+Latest release: v1.2.3, including 336-entry packing and sequential-trigger prefetch; earlier tags remain unchanged.
 Contract: [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 
 Progress entries are chronological. Pending work in an earlier entry describes that step;
@@ -238,3 +238,16 @@ pages. Keep direct/indirect checkpoint indexes as future work linked to unimplem
 - `make test-ublk-fio`: [passed 21 cases](evidence/ublk-fio-1789817805570145515-4c8037aa1b0a869274a908a57ad82f3c8d5336d1.log).
 - `make test-ext4 test-xfs test-sqlite-ext4`: passed [ext4](evidence/ext4-1789817831939395107.log), [XFS](evidence/xfs-1789817835692201163.log), and [all 87 SQLite cases](evidence/sqlite-1789817841449423719/summary.json) in 122.224 seconds with zero failures. The installed mount helper matched the build.
 - Performance validation: passed 105 engine, 60 fio, and 25 accounting cases against fresh v1.1/v1.2.1 baselines. The single [ADR-07 performance report](ADR-07-PERF-RESULTS.md) records 52% higher engine and 46% higher fio scattered-write throughput with the automatic cache. Full-cache close takes 11.66 ms versus 58.06 ms, with 76 rather than 2,363 writes, identical bytes, and three fsyncs. All measured Rust/Cargo files match the release; raw `working` rows identify v1.2.2. Cleanup left no benchmark backing, test device, or mount. Released as v1.2.2 with disk format 3 unchanged.
+
+## Packing and prefetch validation (2026-09-19)
+
+Released as v1.2.3. Keep format number 3 under the explicitly authorized prototype
+refinement policy. Pack 336 mappings per page, sort dirty snapshot IDs with bounded
+preallocated scratch, and read up to four adjacent current snapshots after sequential
+mapping-page demand. Prefetch uses unused or cold clean slots and never initiates a
+checkpoint. The read experiment compares these changes together against v1.2.2.
+
+- [Packing in isolation](evidence/packing-isolated-validation-2026-09-19.log): lint and all 163 library tests passed. [Packing plus sorting](evidence/sorting-isolated-validation-2026-09-19.log): lint and all 164 library tests passed. These exported staged trees verify the logical commit boundaries independently.
+- [Final repository gates](evidence/prefetch-final-gates-2026-09-19.log): `make lint test test-acceptance` passed all 311 commands in both bounded and exhaustive modes. [Crash evidence](evidence/engine-crash-1789842676015319597-ec052e44e8ac644e54d02d5da1ab54474669a75c.log) covers the retained packed-write, checkpoint-publication, replay, and stale-tail matrices. New tests verify sorted snapshot IDs, exact backing read submissions/bytes, cold/full cache admission, dirty protection, independent speculative validation, short reads, sequential triggering, and zero cache-operation allocations.
+- Live regression gates passed [21 ublk/fio cases](evidence/ublk-fio-1789842792785815464-ec052e44e8ac644e54d02d5da1ab54474669a75c.log), [ext4](evidence/ext4-1789842819195806713.log), [XFS](evidence/xfs-1789842822897468117.log), and [all 87 SQLite/ext4 selections](evidence/sqlite-1789842828904195271/summary.json), with zero failures. SQLite completed in 123.081 seconds. The installed mount helper matched; no replacement was needed. Cleanup left no fixture, test process, device, or mount.
+- The single [ADR-07 performance report](ADR-07-PERF-RESULTS.md#v123-336-entry-pages-and-adjacent-page-prefetch-2026-09-19) retains both 48-case trials. Unconditional prefetch regressed random reads and was replaced by a sequential trigger. Final page-scan throughput improves 45–51%; random throughput stays within 0.5% of baseline. Ordinary sequential payload results are mixed. All 85 Rust/Cargo files and the driver/adapter match the final measured build. Evidence filenames identify pre-commit base `ec052e4`; final `working` rows identify v1.2.3.

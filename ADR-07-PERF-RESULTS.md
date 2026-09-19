@@ -1,5 +1,160 @@
 # ADR-07 performance results
 
+## v1.2.3: 336-entry pages and adjacent-page prefetch (2026-09-19)
+
+The combined change improves sequential scans across mapping pages by **45–51%**
+against v1.2.2 at equal cache byte budgets. Metadata read submissions fall about **76%**.
+Random-read throughput remains within 0.5% of baseline after adding a sequential-access
+trigger. Ordinary sequential payload reads show mixed results; this is not a general
+read-throughput or tail-latency improvement claim.
+
+Format **3** now contains 336 entries per MappingPage. The user explicitly permits
+incompatible prototype refinements within the same version. Images from earlier
+320-entry releases are not supported or migrated; this experiment formats fresh images.
+The earlier release tags and their historical measurements remain unchanged.
+
+### What did we test before accepting the change?
+
+The predeclared primary test was a sequential scan crossing mapping-page boundaries
+with a cache smaller than the working set, measured both after reopen and after filling
+the cache. Seeded random reads were the regression control; ordinary sequential reads
+checked how the change affected a workload dominated by payload I/O. The initial review
+trigger was a >10% random-read throughput or P99 regression.
+
+Both versions run the same driver and identical LBAs. Each fresh fixture has a 4 GiB
+logical volume, 1 GiB backing, a 256 KiB write buffer, and a 64 MiB checkpoint interval.
+Population writes one payload every 320 LBAs across the volume, in shuffled order, then
+a contiguous 64 MiB payload range. The fixed 320-LBA stride is deliberate: changing it
+with the format would compare different logical workloads. All payloads are verified
+in full, including during timed reads. No workload depends on space reclamation.
+
+| Workload | Timed operations | Initial mapping-cache state |
+| --- | ---: | --- |
+| `page-cold` | 3,277 ascending reads at 320-LBA intervals | Empty after reopen |
+| `page-steady` | Three ascending passes, 9,831 reads | Filled by one preceding ascending pass |
+| `random` | 32,768 seeded random reads from that same address set | Filled by one ascending pass |
+| `seq-blocks` | 16,384 consecutive payload reads (64 MiB) | Empty after reopen |
+
+The final sweep contains **48 cases**: two versions, two cache budgets, four workloads,
+and three interleaved repetitions. Engine processes run on CPU 0 with O_DIRECT and
+private Btrfs backings using `chattr +C`. Host filesystem caches remain warm; “cold”
+refers to our mapping cache. Format, population, open, and close are excluded from read
+timing. Maximum backing allocation was 96,694,272 bytes (92.21 MiB).
+
+The host is the same Ryzen AI 9 HX 370 / Linux 7.0.0-31-generic / Rust 1.97.1 system
+as the earlier experiments. Frequency and background activity remain uncontrolled.
+Performance measurements ran separately from correctness gates.
+
+### What improved at equal cache budgets?
+
+Medians of three runs. kIOPS means thousands of 4 KiB payload operations per second.
+P99 is the median of each run's operation P99, including payload verification.
+
+| Cache request | Workload | v1.2.2 kIOPS | v1.2.3 kIOPS | Change | v1.2.2 P99, µs | v1.2.3 P99, µs |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 512 KiB | Cold page scan | 9.69 | 14.14 | +46.0% | 186.99 | 161.72 |
+| 512 KiB | Full-cache page scan | 9.48 | 14.33 | +51.2% | 158.02 | 159.15 |
+| 512 KiB | Random reads | 9.43 | 9.38 | −0.5% | 152.22 | 154.06 |
+| 512 KiB | Sequential payloads | 41.00 | 43.53 | +6.2% | 77.27 | 43.92 |
+| 4 MiB | Cold page scan | 9.36 | 14.13 | +50.9% | 205.14 | 158.49 |
+| 4 MiB | Full-cache page scan | 9.75 | 14.11 | +44.8% | 152.15 | 155.39 |
+| 4 MiB | Random reads | 10.98 | 11.02 | +0.4% | 145.33 | 148.25 |
+| 4 MiB | Sequential payloads | 43.05 | 41.35 | −3.9% | 41.65 | 59.00 |
+
+“Full-cache page scan” means the cache has filled, not that it holds the whole map.
+The steady scan's throughput improvement does not imply lower P99: triggering requests
+still wait for a larger metadata read. The benefit comes from subsequent cache hits.
+Random-read P99 rises 1.2% and 2.0%, respectively, below the predeclared review trigger.
+
+Sequential payload results are mixed. At 4 MiB the candidate's P99 spans 36.55–75.03 µs
+and baseline spans 38.54–43.27 µs; their throughput ranges overlap. At 512 KiB the direction
+reverses. These short runs do not establish an ordinary sequential-read improvement,
+and the 4 MiB tail result remains a reason for a longer controlled latency test.
+
+| Requested cache | v1.2.2 allocated bytes / slots | v1.2.3 allocated bytes / slots |
+| --- | ---: | ---: |
+| 512 KiB | 524,128 / 135 | 522,272 / 128 |
+| 4 MiB | 4,192,856 / 1,080 | 4,194,248 / 1,028 |
+
+The candidate uses larger entry arrays and an accounted four-byte sorting scratch entry
+per slot. It therefore holds fewer pages at the same budget. The resident index shrinks
+from 13,108 to 12,484 bytes. Fixed 16 KiB read scratch lies outside the cache budget.
+Sampled RSS is similar: random reads at 4 MiB use 7.29 versus 7.31 MiB. RSS is not a peak.
+
+### Do the I/O counters support the hypothesis?
+
+Counts are identical across repetitions. These are foreground mapping reads, excluding
+open-time checkpoint validation and payload reads.
+
+| Workload / budget | v1.2.2 submissions / pages | v1.2.3 submissions / pages | Prefetched / used / evicted unused |
+| --- | ---: | ---: | ---: |
+| Cold page scan, either budget | 3,277 / 3,277 | 783 / 3,121 | 2,338 / 2,338 / 0 |
+| Full-cache page scan, either budget | 9,831 / 9,831 | 2,348 / 9,363 | 7,015 / 7,015 / 0 |
+| Random, 512 KiB | 31,339 / 31,339 | 31,305 / 31,335 | 30 / 1 / 29 |
+| Random, 4 MiB | 21,852 / 21,852 | 21,563 / 21,574 | 11 / 3 / 8 |
+| Sequential payloads, either budget | 52 / 52 | 14 / 49 | 35 / 35 / 0 |
+
+Each mapping page contributes 4,096 metadata bytes. Packing reduces page-scan bytes
+by about 4.8%; batching reduces submissions by about 76%. Every admitted prefetch page
+is subsequently used in the sequential traces. Accidental sequential pairs in the random
+trace cause only 30 and 11 extra pages to be read. The random control therefore avoids
+the large read amplification seen in the first policy.
+
+Open time also falls in this fixture: across the four workloads, median open is about
+190–192 ms before and 89 ms after. Foreground prefetch runs after open, so it cannot
+explain that difference. Open still validates snapshots individually; this observation
+combines changed snapshot order and page count, without isolating their contributions.
+No checkpoint-write speedup is claimed from this read experiment.
+
+### Why require sequential demand before prefetch?
+
+The first 48-case trial prefetched on every eligible miss. It improved page-scan
+throughput, but random throughput fell **22% at 4 MiB and 27% at 512 KiB**. At 4 MiB,
+metadata reads grew from 21,852 to 61,105 pages, and only 2,932 of 39,340 admitted
+prefetch pages were used. That failed the predeclared random-read regression trigger.
+
+The final policy starts prefetch only when a read advances to the next mapping page
+ID after the preceding read. It reads at most four pages whose current index pointers
+are physically consecutive. Admission uses unused slots or clean, unreferenced CLOCK
+entries, with a bounded 32-position probe. Speculation does not age hot pages, replace
+resident or dirty pages, or initiate a pressure checkpoint. First use marks the page
+referenced. Writes and recovery do not prefetch.
+
+The 336-entry layout, sorted snapshot publication, and bounded read policy are measured
+together. This experiment does not separately quantify the packing and sorting gains.
+
+### Evidence and reproduction
+
+Both sweeps passed all 48 expected cases and full-payload verification. The five engine
+prefetch tests cover independent I/O accounting in cold and full caches, sorted snapshots
+across write-batch boundaries, resident/dirty protection, pointer gaps, speculative
+corruption, short reads, and nonsequential demand. Cache tests verify cold admission,
+use/eviction counters, sorted iteration, and zero allocations. The 336-entry codec tests
+verify all entries, exact offsets, checksums, and geometry boundaries.
+The [release validation record](PLAN-PAGED-MAPPING.md#packing-and-prefetch-validation-2026-09-19)
+links all 311 bounded/exhaustive commands and the passing live device/filesystem/SQLite gates.
+
+- [Final sequential-trigger results](evidence/mapping-prefetch-336-sequential-2026-09-19.jsonl): SHA-256 `e4337c8ff26ded9f1925299d87f995f7143b3f0ce3f8803c85e3aece507bddcc`; candidate source SHA-256 `17f595f9fa41a74b00f3af51e2aaf3d1c46ec9347463db9508329eb5601523ff`.
+- [Initial unconditional-prefetch trial](evidence/mapping-prefetch-336-2026-09-19.jsonl): SHA-256 `f3d00905f8e4e42a0390d5323c7b172e39c3b0cfb55638142798bb1710925a0d`; source SHA-256 `5608f0833aefd81f901c9bb97f3a73a3e8c1ab956a5a362186acb29550e232f7`. This is not the released policy. The [rejected-policy patch](evidence/mapping-prefetch-unconditional-2026-09-19.patch) reconstructs it from the final sources.
+
+Raw `working` rows in the final sweep identify v1.2.3. Source digests hash sorted relative
+paths and contents of the copied Rust tree, including the common driver and adapter;
+metadata also retains driver/binary hashes and the pre-commit base `ec052e4`.
+The implementation commits are `1dfb4ba` (packing), `39f2d59` (sorting), and `c4466e7`
+(prefetch). All 85 Rust/Cargo files match the measured candidate. Benchmark tools are `a6e8821`.
+The runner copies current sources and archives v1.2.2 into private build trees. To repeat
+v1.2.3 exactly, run it from that tag's checkout with fresh build/output paths:
+
+```sh
+uv run --quiet python tools/mapping-bench/prefetch.py \
+  --build-dir /tmp/msfblkdev-prefetch-next \
+  --output evidence/mapping-prefetch-next.jsonl
+uv run --quiet python tools/mapping-bench/summarize.py evidence/mapping-prefetch-next.jsonl
+```
+
+The next useful measurements are longer latency controls and fragmented or mixed access
+patterns. These are engine read results, not fio or database throughput measurements.
+
 ## v1.2.2: checkpoint batching (2026-09-19)
 
 Batching checkpoint writes fixes the measured submission regression. Against v1.2.1,
@@ -7,8 +162,8 @@ the automatic cache gains **46% fio scattered-write throughput** and **52% engin
 throughput**. Full-cache final close falls from **58.06 ms to 11.66 ms**. The checkpoint
 writes the same bytes with the same three fsync barriers.
 
-This is the single performance report for ADR-07. This section contains the latest
-comparison: fresh v1.1 and v1.2.1 baselines against v1.2.2. Historical sections retain
+This checkpoint-batching experiment compares fresh v1.1 and v1.2.1 baselines against
+v1.2.2. The v1.2.3 experiment is recorded separately at the start of this report. Historical sections retain
 the packed-data correction and original v1.2 measurements as separate experiments.
 
 | Release | Behavior | Label in this experiment's raw evidence |
@@ -243,7 +398,7 @@ Sequential writes also vary: the fixed automatic-cache runs span 56.50–91.02k 
 The earlier report's 24% read-p99 regression with a full cache did not recur even in
 the unchanged v1.2 baseline. Do not attribute that difference to the batching patch.
 The host's frequency policy and background activity are uncontrolled, and three short
-repetitions do not establish statistical equivalence. The current flush-p99 difference
+repetitions do not establish statistical equivalence. The observed flush-p99 difference
 also needs a longer, targeted experiment before assigning a cause.
 
 The automatic-cache fio comparison improves from v1.2's 7.21k to the fixed implementation's 16.13k scattered-write
@@ -436,7 +591,7 @@ This isolates the record-grouping cost from cache pressure.
 
 ### Historical evidence and reproduction
 
-The common driver and release tags are the same as in the main comparison. The original
+The common driver and release tags are the same as in the v1.2.1 packed-data experiment. The original
 report's complete prose and tables remain in Git at v1.2.1 under
 `RESULTS-PERF-PAGED-MAPPING.md`; this consolidated report replaces both report paths.
 

@@ -1,0 +1,126 @@
+fixture: /tmp/my-block-storage-ublk.3635957.0 identity=52:569706
+command commit at_ms=0: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3635957.0/001-commit.stdout bytes=41 ---
+ec052e44e8ac644e54d02d5da1ab54474669a75c
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3635957.0/001-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=10: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3635957.0/002-worktree.stdout bytes=1791 ---
+ M .gitignore
+MM ADR-07-PAGED-MAPPING-AND-CACHE.md
+ M ADR-07-PERF-RESULTS.md
+M  rust/examples/mapping_cache_profile.rs
+ M rust/src/accounted_io.rs
+M  rust/src/bin/block-storage-lab/ublk.rs
+M  rust/src/bin/block-storage-ublk.rs
+ M rust/src/format_v3.rs
+MM rust/src/format_v3/checkpoint_publish.rs
+M  rust/src/format_v3/geometry.rs
+M  rust/src/format_v3/index.rs
+M  rust/src/format_v3/mapping_page.rs
+ M rust/src/format_v3/mapping_state.rs
+ M rust/src/format_v3/metrics.rs
+ M rust/src/format_v3/recovery.rs
+M  rust/src/format_v3/reservation.rs
+ M rust/src/format_v3/volume.rs
+MM rust/src/mapping_cache.rs
+ M rust/src/mapping_cache/clock.rs
+ M rust/src/mapping_cache/sizing.rs
+MM rust/src/mapping_cache/tests.rs
+M  rust/src/tests/accounting_integration.rs
+MM rust/src/tests/checkpoint_batches.rs
+M  rust/src/tests/checkpoint_replay.rs
+M  rust/src/tests/format_geometry.rs
+M  rust/src/tests/format_v3_crash.rs
+M  rust/src/tests/format_v3_engine_crash.rs
+M  rust/src/tests/format_v3_load.rs
+M  rust/src/tests/format_v3_publish.rs
+M  rust/src/tests/format_v3_recovery.rs
+M  rust/src/tests/format_v3_storage.rs
+M  rust/src/tests/format_v3_tail.rs
+M  rust/src/tests/format_v3_volume.rs
+M  rust/src/tests/format_v3_write.rs
+ M rust/src/tests/mod.rs
+M  rust/src/tests/packed_writes.rs
+M  rust/src/tests/process_crash.rs
+M  rust/src/tests/write_buffer.rs
+ M tools/mapping-bench/run.py
+?? .obsidian/
+?? evidence/mapping-prefetch-336-2026-09-19.jsonl
+?? evidence/mapping-prefetch-336-sequential-2026-09-19.jsonl
+?? manual-test-ext4.txt
+?? rust/src/format_v3/page_read.rs
+?? rust/src/tests/mapping_prefetch.rs
+?? tools/mapping-bench/__pycache__/
+?? tools/mapping-bench/prefetch-baseline.rs
+?? tools/mapping-bench/prefetch-candidate.rs
+?? tools/mapping-bench/prefetch.py
+?? tools/mapping-bench/prefetch.rs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3635957.0/002-worktree.stderr bytes=0 ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=21: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3635957.0/003-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3635957.0/003-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=31: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.3635957.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3635957.0/004-backing-filesystem.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3635957.0/004-backing-filesystem.stderr bytes=0 ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab bytes=26380792 xxh3=c60c19a9ed021b3e
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk bytes=22846456 xxh3=87caab3e55e9886c
+command mkfs-version at_ms=340: "mkfs.ext4" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3635957.0/005-mkfs-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3635957.0/005-mkfs-version.stderr bytes=64 ---
+mke2fs 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=11 cleanup=Ok(())
+command e2fsck-version at_ms=351: "e2fsck" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3635957.0/006-e2fsck-version.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3635957.0/006-e2fsck-version.stderr bytes=76 ---
+e2fsck 1.47.2 (1-Jan-2025)
+	Using EXT2FS Library version 1.47.2, 1-Jan-2025
+
+--- end stderr ---
+command e2fsck-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+binary: /usr/local/libexec/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+helper binary match: PASS
+command helper-preflight at_ms=557: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3635957.0/007-helper-preflight.stdout bytes=91 ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3635957.0/007-helper-preflight.stderr bytes=0 ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+preflight: PASS; no device created or mounted

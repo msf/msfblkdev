@@ -10,16 +10,18 @@ ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem
 
 The SQLite/ext4 portion of Delivery 3 passed 87 fresh runs across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. All 348 filesystem checks and 174 logical validations passed. [SQLITE-EXT4.md](SQLITE-EXT4.md) records the suite and selected initial baseline. SQLite on XFS and RocksDB remain unimplemented.
 
-ADR-07 is complete. The latest release is **v1.2.2**, with batched checkpoint writes.
-v1.2.1 introduced corrected packed data writes; v1.2.2 retains that behavior.
+ADR-07 is complete. The latest release is **v1.2.3**, with 336-entry mapping pages,
+sorted snapshot publication, and adjacent-page prefetch after sequential demand.
+v1.2.1 introduced packed data writes; v1.2.2 added batched checkpoint writes.
 The original **v1.2** tag retains the earlier one-record-per-mapping-page implementation.
 The version-3 engine uses paged mappings and a bounded CLOCK cache.
 Engine/crash tests, memory/access measurements, live ublk/fio, ext4, XFS, and the full
 87-case SQLite/ext4 regression matrix passed. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 records the schema, compatibility rules, isolated deliveries, and validation evidence.
-[The ADR-07 performance results](ADR-07-PERF-RESULTS.md) compare v1.1, v1.2.1, and v1.2.2.
-Checkpoint batching improves automatic-cache scattered-write throughput by 46% through fio
-and reduces full-cache close from 58.06 ms to 11.66 ms versus v1.2.1 in the bounded rerun.
+[The ADR-07 performance results](ADR-07-PERF-RESULTS.md) retain comparisons through v1.2.3.
+The combined packing/prefetch experiment improves sequential mapping-page scan throughput
+by 45–51% versus v1.2.2 at equal cache budgets. Random throughput stays within 0.5%;
+ordinary sequential payload results are mixed.
 The same report retains historical results and separates throughput, tails, memory, and close cost.
 
 [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
@@ -53,7 +55,9 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 
 The Rust engine now formats and opens ADR-07 version 3. Version-1, version-2,
 and unknown-format images are rejected before recovery writes. There is no migration
-path. The public engine uses a resident page-pointer index and a bounded mapping cache;
+path. During prototype refinement, format 3 now uses 336 entries per page; earlier
+320-entry images are not supported or migrated. Use freshly formatted disposable images.
+The public engine uses a resident page-pointer index and a bounded mapping cache;
 it no longer allocates dense per-LBA address and checksum arrays. ADR-07 acceptance
 passed on 2026-09-19.
 
@@ -65,6 +69,13 @@ persists the inactive index, and then persists its descriptor before selecting t
 Snapshot and index-body writes group up to 32 contiguous blocks (128 KiB) per io_uring
 submission. Each batch must complete exactly; publication retains its three fsync barriers.
 A failed batch latches the volume and leaves its dirty pages protected.
+Dirty page IDs are sorted before snapshot encoding with preallocated scratch included
+in the cache budget. When a read advances to the next mapping page, a miss can load up
+to four current snapshots if their physical blocks are consecutive. Speculative pages
+use unused or cold clean slots and never cause a checkpoint or overwrite resident pages.
+Each page is validated separately; rejected speculative pages do not fail a valid demand
+read. Short/failed I/O still latches the volume. Prefetch use and unused evictions are
+reported through the existing mapping statistics.
 
 `VolumeOpenOptions::cache_budget_bytes` overrides the requested byte budget.
 The daemon exposes the same override as `serve ... --mapping-cache-bytes N`.
@@ -105,7 +116,7 @@ Run cache-only tests with `cd rust && cargo test --lib mapping_cache`; these nee
 backing file or `io_uring`. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md) records the exact
 persistent schema, delivery steps, and executed validation.
 
-The [memory and access report](evidence/adr7-mapping-profile-2026-09-18.md) includes
+The [memory and access report](evidence/adr7-mapping-profile-2026-09-18.md) contains historical 320-entry measurements and
 reproduction commands for `mapping_cache_profile`, default allocation measurements,
 separate process RSS snapshots, and exact hit rates for four deterministic read sequences.
 
