@@ -1,6 +1,7 @@
 # ADR-07 Paged mapping and bounded cache
 
 Status: complete; all engine, memory, and live acceptance gates passed (2026-09-19)
+Latest release: v1.2.1, including the packed-write correction. The v1.2 tag preserves the original release.
 On-disk format: 3
 Updates: ADR-01 and ADR-03 for newly formatted version-3 images only
 Related: [research proposal](papers/README.md#ideas-to-improve-the-design), [delivery plan](PLAN-PAGED-MAPPING.md)
@@ -107,7 +108,7 @@ Every data footer and mapping-page record starts with this exact header:
 | 24 | 4 | Previous record boundary, little-endian `u32` |
 | 28 | 4 | This record boundary, little-endian `u32` |
 
-Data records use kind 1, with the same payload/footer layout and 1–338 payload bound as ADR-01. Payload count is `this_boundary - previous_boundary - 1`. Preserve the unique-LBA rule within a data record. This change does not require implementing batching.
+Data records use kind 1, with the same payload/footer layout and 1–338 payload bound as ADR-01. Payload count is `this_boundary - previous_boundary - 1`. Preserve the unique-LBA rule within a data record. Records can contain LBAs from multiple mapping pages. The writer packs records after sorting the complete write buffer by LBA; the decoder also accepts existing unsorted records.
 
 The data footer stores 338 little-endian `u32` LBA IDs at bytes 32–1383, 338 little-endian `u64` payload checksums at bytes 1384–4087, and its metadata checksum at bytes 4088–4095. Entries after the derived payload count must be zero. Payload `i` is at physical block `previous_boundary + 1 + i`. Its checksum remains XXH3-64 seeded by the volume ID over the little-endian LBA and physical block followed by the 4096 payload bytes.
 
@@ -173,13 +174,15 @@ Validate directory pointer bounds before reading pages. Validate all referenced 
 
 ### What does the RAM budget include?
 
-Default requested cache budget is `floor(logical_bytes / 10_000)`: 0.01%, not 1%. This is an unmeasured starting policy intended to exercise eviction. Permit an explicit byte-budget override for experiments and tiny-cache tests. Select the largest whole-slot capacity that fits, cap it at `page_count`, and allow a minimum one-slot allocation even when it exceeds the requested budget. Report requested and effective bytes.
+The base cache budget is `floor(logical_bytes / 10_000)`: 0.01%, not 1%. The automatic budget is the larger of that base and the allocation needed for `min(effective_write_buffer_slots, page_count)` mapping pages. The effective buffer capacity includes the backing-size clamp. This minimum covers the worst case where every buffered payload belongs to a different mapping page. It is a configuration bound, not a prediction of locality.
+
+Permit an explicit byte-budget override. Select the largest whole-slot capacity that fits, cap it at `page_count`, and retain the cache's one-slot allocation minimum. Reject an explicit configuration whose resulting slot capacity is below the write-buffer requirement. Validate it after reading checkpoint geometry but before recovery or tail sanitation can write. Report the required slots and minimum bytes in the error; do not silently enlarge an explicit cache budget.
 
 Cache allocations include entry arrays, slot metadata, replacement-policy state, page-ID-to-slot lookup capacity, and allocation padding visible to the implementation. There must be no unbounded per-access allocations or hidden fallback map. Report allocator/RSS overhead separately rather than claiming the byte budget bounds process RSS.
 
 The resident disk-location index is outside this cache budget:
 
-| Logical size | Index bytes | Default requested cache bytes |
+| Logical size | Index bytes | Base cache bytes, before the write-buffer minimum |
 |---:|---:|---:|
 | 4 GiB | 13,108 | 429,496 |
 | 400 GiB | 1,310,720 | 42,949,672 |
@@ -195,7 +198,7 @@ Implement a mapping-page-specific cache, not a generic caching framework. Keep e
 
 CLOCK keeps one referenced bit per slot and a cursor. Access sets the bit. Victim search clears referenced bits and selects an unreferenced clean slot. Search is bounded to two full passes. Dirty pages are never eviction victims during normal operation. When no victim exists, return a typed checkpoint-required outcome; the cache performs no I/O. The engine checkpoints and retries. Invalid capacity and inconsistent slot transitions must have explicit errors or internal invariant checks.
 
-For a write, obtain a cache slot before appending its data record. After exact data-record completion, update the cached mapping and mark it dirty. Do not accept a write and only then discover that publishing its mapping needs an unavailable slot. Process multi-page requests in bounded units without unbounded pinning.
+Before appending a buffered group, ensure that cache capacity covers its mapping pages and all existing dirty pages. Publish a checkpoint first if needed. After exact data-record completion, acquire each required mapping page, update its entries, and mark it dirty. The configuration minimum and preflight guarantee slot availability throughout the group without pinning clean pages in advance. A mapping read or validation failure still latches the volume as failed.
 
 Dirty means that an update has changed the cached mapping since the last successful checkpoint publication. The payload write buffer contains application data, not mapping pages. Buffering a payload alone does not update its physical mapping. Releasing its data record updates the mapping after exact completion and marks the page dirty. A successful data flush leaves the page dirty; only successful checkpoint publication marks it clean. Loading a page from the active checkpoint, or constructing an implicitly unmapped page from a zero index pointer, produces a clean page. Replay updates produce dirty pages as well.
 
@@ -229,11 +232,23 @@ Unchanged pointers are reused. The old checkpoint and its pages remain untouched
 
 Reserve enough append space for all resulting dirty-page snapshots before admitting each foreground record. Include the new dirty page and framing in the calculation. Reserved checkpoint bodies need no append space. Return a capacity error before accepting a write that would consume the space needed to checkpoint its mapping. There is still no reclaim or wraparound.
 
-For the existing payload write buffer, release each distinct mapping page's buffered LBAs together and visit that page only once per release. The buffer coalesces repeated writes to an LBA, so a group contains at most 320 payloads and fits one data record. This permits a one-slot cache without pinning multiple pages across an append. The disk decoder continues to accept all 1–338 payload counts.
+On release, sort the complete payload write buffer by LBA, then split it into packed data records of at most 338 payloads. Mapping-page boundaries do not split records. Sort the LBA sequence while retaining each payload's arena location; compute checksums using the resulting physical offsets. Repeated writes to an LBA still coalesce before release.
 
-Before accepting a new buffered LBA, let `N` be the resulting buffered payload count, `P` its distinct mapping-page count, and `D` the current dirty-cache page count. Reserve `N + P + D + P` physical blocks: payloads, data footers, existing dirty snapshots, and snapshots for the pending page updates. Count the existing and pending page sets separately even when they overlap. A pressure checkpoint may persist an old dirty page before the release reaches that page's pending update.
+Before the first record, count the union of currently dirty mapping pages and pages touched by this buffer. If that union exceeds cache capacity, publish one checkpoint first. Also checkpoint first if the complete packed group would exceed the configured replay-byte bound. The checkpoint interval must accommodate the largest effective packed buffer; reject an incompatible interval before recovery writes. After this preflight, neither cache pressure nor the replay threshold may publish a checkpoint within the group.
 
-The bound holds across intermediate checkpoints: each initially dirty page needs at most one snapshot before its pending update; each pending page is updated in exactly one release group and then needs at most one further snapshot. Checkpointing a clean page writes no snapshot. The engine must preserve this grouping rule when integrating the reservation helper. A buffered overwrite of an existing LBA adds no reservation. Capacity rejection occurs before modifying the buffer or issuing backing I/O.
+Submit each packed record and wait for its exact write completion before applying its mapping entries. A completed record may update several mapping pages, and a mapping page may span consecutive records. Dirty pages remain protected throughout the group. Advance the in-memory log position after all mappings for that record have been applied. On any failure, latch the volume as failed; do not publish a partial record's mapping state. Recovery replays complete records from the previous checkpoint after a crash.
+
+A flush drains the required complete group and issues **one data-log fsync for the group**, not one per packed record. Filling the buffer releases records without an unconditional fsync. A checkpoint before a group has its own existing log, index-body, and descriptor barriers. Those checkpoint barriers are separate from the group's final data-log barrier. Close may persist the group through checkpoint publication.
+
+The group is not an atomic transaction. Before a flush succeeds, recovery may retain a prefix of complete records. A successful flush guarantees recovery of all its records.
+
+Before accepting a new buffered LBA, let `N` be the resulting payload count, `R = ceil(N / 338)` its packed record count, `P` its distinct mapping-page count, and `D` the current dirty-cache page count. Reserve `N + R + D + P` physical blocks: payloads, data footers, existing dirty snapshots, and snapshots for pending updates. Count existing and pending page sets separately even when they overlap: the preflight checkpoint can persist an old dirty page before this group updates it.
+
+No checkpoint occurs inside the group. Each pending mapping page therefore needs at most one later snapshot, even when its updates cross a packed-record boundary. A buffered overwrite of an existing LBA adds no reservation. Capacity rejection occurs before modifying the buffer or issuing backing I/O.
+
+This write-batching amendment supersedes v1.2's one-mapping-page-per-record rule. The [v1.1/v1.2 measurements](RESULTS-PERF-PAGED-MAPPING.md) found 4,080 backing writes instead of 128 for the same scattered batch. The minimum compatible cache replaces that rule without changing the version-3 disk layout. Historical delivery entries below describe the original v1.2 implementation.
+
+The [packed-write measurements](RESULTS-PERF-PACKED-WRITES.md) repeat the release baselines and report the amended implementation's throughput, latency, memory, and checkpoint costs.
 
 ### How does bounded recovery work?
 
@@ -320,3 +335,9 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 - [x] Pass the authorized ext4 and XFS regression gates. Evidence (2026-09-19): `make test-ext4` and `make test-xfs` each passed three fresh-image lifecycles, all 12 filesystem checks, content verification across clean restart, request/flag checks, and fixture cleanup. Logs: `evidence/ext4-1789774403275866806.log` and `evidence/xfs-1789774443341096331.log`, both `result: PASS`. Live mapping statistics were captured at open and before close.
 - [x] Pass the authorized SQLite regressions. Evidence (2026-09-19): `make test-sqlite-ext4` passed all 87 exact selections in 116.849 seconds; the manifest, summary, and every case result were checked for completeness and zero failures. Evidence directory: `evidence/sqlite-1789774471226558259`. The separate `make test-sqlite` WAL/FULL probe also passed: `evidence/sqlite-1789774611754898730`. These filesystem/database gates verify clean-restart behavior, not power-loss durability.
 - [x] Complete the acceptance audit and documentation. `make lint`, all 298 normal test commands, the exhaustive crash matrix, live ublk/fio, ext4, XFS, and both SQLite gates passed. The engine source is unchanged since the exhaustive crash run; later frontend configuration/reporting changes passed the normal and live gates. README, this ADR, and the delivery plan record format compatibility, exact schemas, measured allocations, hit rates, and evidence. Create the completion tag only after committing this final record.
+
+### v1.2.1 packed-write amendment (2026-09-19)
+
+Implemented whole-buffer sorting, 338-payload packing across mapping pages, and cache/checkpoint configuration validation. Tests cover 338, 339, 1,024, and 1,500 scattered payloads, exact record offsets, one final data-log fsync, dirty-page overlap, pressure before release, partial in-memory mapping updates, and checkpoint interruptions. No disk-format or dependency change was needed.
+
+`make lint test` passed all 301 commands. The exhaustive process-crash gate, 21 live ublk/fio cases, ext4 and XFS lifecycles, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#packed-write-amendment-validation-2026-09-19) lists the evidence. [The performance report](RESULTS-PERF-PACKED-WRITES.md) retains 105 engine and 60 fio measurements against both earlier release tags, including the remaining flush-tail and checkpoint costs. The corrected implementation is released as v1.2.1. Raw benchmark rows retain their pre-release label `working`.

@@ -1,0 +1,1258 @@
+filesystem: xfs
+limits: repetitions=3 per_command_s=60 suite_s=600 volume_bytes=536870912 backing_bytes=4294967296
+repetition: 1/3
+fixture: /tmp/my-block-storage-ublk.3311552.0 identity=52:507116
+command commit at_ms=0: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/001-commit.stdout bytes=41 ---
+4b77c4daf79560a437954743fd7c2a5bf904312f
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/001-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=10: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/002-worktree.stdout bytes=1012 ---
+ M .gitignore
+ M ADR-07-PAGED-MAPPING-AND-CACHE.md
+ M README.md
+ M rust/src/bin/block-storage-ublk.rs
+ M rust/src/format_v3.rs
+ D rust/src/format_v3/buffered_pages.rs
+ M rust/src/format_v3/mapping_state.rs
+ M rust/src/format_v3/reservation.rs
+ M rust/src/format_v3/volume.rs
+ M rust/src/format_v3/volume/write.rs
+ M rust/src/lib.rs
+ M rust/src/mapping_cache/sizing.rs
+ M rust/src/tests/format_geometry.rs
+ M rust/src/tests/format_v3_engine_crash.rs
+ M rust/src/tests/format_v3_write.rs
+ M rust/src/tests/mod.rs
+ M rust/src/tests/write_buffer.rs
+?? RESULTS-PERF-PAGED-MAPPING.md
+?? evidence/mapping-bench-packed-2026-09-19.jsonl
+?? evidence/mapping-bench-seq-write-control-2026-09-19.jsonl
+?? evidence/mapping-bench-v11-v12-2026-09-19.jsonl
+?? evidence/mapping-fio-verification-control-2026-09-19.json
+?? evidence/mapping-io-counts-2026-09-19.jsonl
+?? evidence/mapping-ublk-2026-09-19/
+?? evidence/mapping-ublk-packed-2026-09-19/
+?? manual-test-ext4.txt
+?? rust/src/tests/packed_writes.rs
+?? tools/mapping-bench/
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/002-worktree.stderr bytes=0 ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=21: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/003-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/003-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=31: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.3311552.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/004-backing-filesystem.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/004-backing-filesystem.stderr bytes=0 ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab bytes=26228072 xxh3=437eaa6a53c56743
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk bytes=22627456 xxh3=b9fd6ca8d4642962
+command mkfs-version at_ms=315: "/usr/sbin/mkfs.xfs" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/005-mkfs-version.stdout bytes=24 ---
+mkfs.xfs version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/005-mkfs-version.stderr bytes=0 ---
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command xfs-repair-version at_ms=326: "/usr/sbin/xfs_repair" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/006-xfs-repair-version.stdout bytes=26 ---
+xfs_repair version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/006-xfs-repair-version.stderr bytes=0 ---
+
+--- end stderr ---
+command xfs-repair-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+resources: available_memory_bytes=41254895616 available_tmp_bytes=27352805376
+kernel filesystem support: xfs
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+binary: /usr/local/libexec/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+helper binary match: PASS
+command helper-preflight at_ms=524: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/007-helper-preflight.stdout bytes=91 ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/007-helper-preflight.stderr bytes=0 ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=540: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.3311552.0/backing.img", "--prealloc-bytes", "4294967296", "--size-bytes", "536870912"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/008-format.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/008-format.stderr bytes=226 ---
+info event=format volume_mib=512.0 live_mib=0.0 backing_declared_mib=4096.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=4096.0 log_capacity_mib=4096.0 log_used_percent=0.0 allocated_per_live=0.000
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=550: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3311552.0/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3311566
+device: /dev/ublkb0 number=(259, 4) class=25:676473 node=7:18216
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Mkfs
+command Mkfs at_ms=612: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "format-xfs", "0", "my-block-storage-ublk.3311552.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/010-Mkfs.stdout bytes=900 ---
+meta-data=/proc/self/fd/5        isize=512    agcount=4, agsize=32768 blks
+         =                       sectsz=4096  attr=2, projid32bit=1
+         =                       crc=1        finobt=1, sparse=1, rmapbt=1
+         =                       reflink=1    bigtime=1 inobtcount=1 nrext64=1
+         =                       exchange=0   metadir=0
+data     =                       bsize=4096   blocks=131072, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0, ftype=1, parent=0
+log      =internal log           bsize=4096   blocks=16384, version=2
+         =                       sectsz=4096  sunit=1 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+         =                       rgcount=0    rgsize=0 extents
+         =                       zoned=0      start=0 reserved=0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/010-Mkfs.stderr bytes=0 ---
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=483 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=1096: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/011-Check(1).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/011-Check(1).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 1
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=1117: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.3311552.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/012-mount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/012-mount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3311552.0/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Populate
+command workload at_ms=1148: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-populate"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/013-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/013-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=40 cleanup=Ok(())
+step: Verify
+command workload at_ms=1193: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/014-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/014-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=1219: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.3311552.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/015-unmount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/015-unmount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=1240: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/016-Check(2).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/016-Check(2).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 1
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 619        0    17056       46      647       13   139328    16172        0      517    16243        0        0        0        0       34       24
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3311552.0/009-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3311552.0/009-daemon.stderr bytes=2898 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=open volume_mib=512.0 live_mib=0.0 backing_declared_mib=4096.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=4096.0 log_capacity_mib=4096.0 log_used_percent=0.0 allocated_per_live=0.000
+request-count op_flags=0x0 count=209 before_ready=0 errors=0 cancelled=0 sectors=6048
+request-count op_flags=0x1 count=599 before_ready=0 errors=0 cancelled=0 sectors=134792
+request-count op_flags=0x2 count=34 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=344 before_ready=0 errors=0 cancelled=0 sectors=10432
+request-count op_flags=0x800 count=66 before_ready=0 errors=0 cancelled=0 sectors=576
+request-count op_flags=0x801 count=42 before_ready=0 errors=0 cancelled=0 sectors=4536
+request-count-end combinations=6 total=1294 complete=true
+info event=request_totals reads=619 writes=641 flushes=34 other=0 read_sectors=17056 write_sectors=139328 read_bytes=8732672 write_bytes=71335936
+info event=release_stats records=90 payloads=17388 payloads_per_record=193.200 backing_over_payload=1.005 footer_bytes=368640 payload_bytes=71221248 full_releases=16 flush_releases=25 histogram=[19, 1, 0, 16, 3, 2, 49]
+info event=mapping_stats phase=before_close mapping_foreground_hits=2192 mapping_foreground_misses=61 mapping_foreground_hit_rate=0.972925 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=51 mapping_index_bytes_written=4096 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=61 mapping_dirty_slots=12 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=shutdown volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=68.5 metadata_mib=0.0 log_used_mib=68.5 log_free_mib=4027.5 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.043
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=1312: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3311552.0/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3312096
+device: /dev/ublkb0 number=(259, 4) class=25:676673 node=7:18234
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Check(3)
+command Check(3) at_ms=1394: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/018-Check(3).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/018-Check(3).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=1426: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.3311552.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/019-mount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/019-mount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3311552.0/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Verify
+command workload at_ms=1448: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/020-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/020-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=1488: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.3311552.0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/021-unmount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/021-unmount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=1520: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.0/022-Check(4).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.0/022-Check(4).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 445        0    13184       73       23        0     4120       52        0       55      141        0        0        0        0        8       14
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3311552.0/017-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3311552.0/017-daemon.stderr bytes=2792 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=58 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=open volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=69.9 metadata_mib=0.0 log_used_mib=68.5 log_free_mib=4027.5 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.064
+request-count op_flags=0x0 count=186 before_ready=0 errors=0 cancelled=0 sectors=6328
+request-count op_flags=0x2 count=8 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=205 before_ready=0 errors=0 cancelled=0 sectors=6088
+request-count op_flags=0x800 count=54 before_ready=0 errors=0 cancelled=0 sectors=768
+request-count op_flags=0x801 count=19 before_ready=0 errors=0 cancelled=0 sectors=4120
+request-count-end combinations=5 total=472 complete=true
+info event=request_totals reads=445 writes=19 flushes=8 other=0 read_sectors=13184 write_sectors=4120 read_bytes=6750208 write_bytes=2109440
+info event=release_stats records=5 payloads=515 payloads_per_record=103.000 backing_over_payload=1.010 footer_bytes=20480 payload_bytes=2109440 full_releases=0 flush_releases=4 histogram=[3, 0, 0, 0, 0, 1, 1]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1640 mapping_foreground_misses=15 mapping_foreground_hit_rate=0.990937 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=70 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=15 mapping_dirty_slots=4 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=shutdown volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=70.6 metadata_mib=0.0 log_used_mib=70.6 log_free_mib=4025.4 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.074
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 1: PASS; all owned resources removed
+repetition: 2/3
+fixture: /tmp/my-block-storage-ublk.3311552.1 identity=52:507164
+command commit at_ms=1586: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/001-commit.stdout bytes=41 ---
+4b77c4daf79560a437954743fd7c2a5bf904312f
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/001-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=1597: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/002-worktree.stdout bytes=1012 ---
+ M .gitignore
+ M ADR-07-PAGED-MAPPING-AND-CACHE.md
+ M README.md
+ M rust/src/bin/block-storage-ublk.rs
+ M rust/src/format_v3.rs
+ D rust/src/format_v3/buffered_pages.rs
+ M rust/src/format_v3/mapping_state.rs
+ M rust/src/format_v3/reservation.rs
+ M rust/src/format_v3/volume.rs
+ M rust/src/format_v3/volume/write.rs
+ M rust/src/lib.rs
+ M rust/src/mapping_cache/sizing.rs
+ M rust/src/tests/format_geometry.rs
+ M rust/src/tests/format_v3_engine_crash.rs
+ M rust/src/tests/format_v3_write.rs
+ M rust/src/tests/mod.rs
+ M rust/src/tests/write_buffer.rs
+?? RESULTS-PERF-PAGED-MAPPING.md
+?? evidence/mapping-bench-packed-2026-09-19.jsonl
+?? evidence/mapping-bench-seq-write-control-2026-09-19.jsonl
+?? evidence/mapping-bench-v11-v12-2026-09-19.jsonl
+?? evidence/mapping-fio-verification-control-2026-09-19.json
+?? evidence/mapping-io-counts-2026-09-19.jsonl
+?? evidence/mapping-ublk-2026-09-19/
+?? evidence/mapping-ublk-packed-2026-09-19/
+?? manual-test-ext4.txt
+?? rust/src/tests/packed_writes.rs
+?? tools/mapping-bench/
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/002-worktree.stderr bytes=0 ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=1607: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/003-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/003-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=1618: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.3311552.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/004-backing-filesystem.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/004-backing-filesystem.stderr bytes=0 ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab bytes=26228072 xxh3=437eaa6a53c56743
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk bytes=22627456 xxh3=b9fd6ca8d4642962
+command mkfs-version at_ms=1882: "/usr/sbin/mkfs.xfs" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/005-mkfs-version.stdout bytes=24 ---
+mkfs.xfs version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/005-mkfs-version.stderr bytes=0 ---
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command xfs-repair-version at_ms=1892: "/usr/sbin/xfs_repair" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/006-xfs-repair-version.stdout bytes=26 ---
+xfs_repair version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/006-xfs-repair-version.stderr bytes=0 ---
+
+--- end stderr ---
+command xfs-repair-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+resources: available_memory_bytes=41223483392 available_tmp_bytes=27352805376
+kernel filesystem support: xfs
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+binary: /usr/local/libexec/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+helper binary match: PASS
+command helper-preflight at_ms=2087: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/007-helper-preflight.stdout bytes=91 ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/007-helper-preflight.stderr bytes=0 ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=2102: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.3311552.1/backing.img", "--prealloc-bytes", "4294967296", "--size-bytes", "536870912"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/008-format.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/008-format.stderr bytes=226 ---
+info event=format volume_mib=512.0 live_mib=0.0 backing_declared_mib=4096.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=4096.0 log_capacity_mib=4096.0 log_used_percent=0.0 allocated_per_live=0.000
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=2113: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3311552.1/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3312632
+device: /dev/ublkb0 number=(259, 4) class=25:676873 node=7:18251
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Mkfs
+command Mkfs at_ms=2164: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "format-xfs", "0", "my-block-storage-ublk.3311552.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/010-Mkfs.stdout bytes=900 ---
+meta-data=/proc/self/fd/5        isize=512    agcount=4, agsize=32768 blks
+         =                       sectsz=4096  attr=2, projid32bit=1
+         =                       crc=1        finobt=1, sparse=1, rmapbt=1
+         =                       reflink=1    bigtime=1 inobtcount=1 nrext64=1
+         =                       exchange=0   metadir=0
+data     =                       bsize=4096   blocks=131072, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0, ftype=1, parent=0
+log      =internal log           bsize=4096   blocks=16384, version=2
+         =                       sectsz=4096  sunit=1 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+         =                       rgcount=0    rgsize=0 extents
+         =                       zoned=0      start=0 reserved=0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/010-Mkfs.stderr bytes=0 ---
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=503 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=2668: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/011-Check(1).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/011-Check(1).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 3
+        - agno = 2
+        - agno = 1
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=2689: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.3311552.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/012-mount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/012-mount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3311552.1/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Populate
+command workload at_ms=2721: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-populate"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/013-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/013-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=50 cleanup=Ok(())
+step: Verify
+command workload at_ms=2776: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/014-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/014-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=2811: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.3311552.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/015-unmount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/015-unmount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=2832: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/016-Check(2).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/016-Check(2).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 3
+        - agno = 1
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 606        0    15992       75      647       13   139328    17063        0      563    17173        0        0        0        0       34       34
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3311552.1/009-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3311552.1/009-daemon.stderr bytes=2897 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=open volume_mib=512.0 live_mib=0.0 backing_declared_mib=4096.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=4096.0 log_capacity_mib=4096.0 log_used_percent=0.0 allocated_per_live=0.000
+request-count op_flags=0x0 count=209 before_ready=0 errors=0 cancelled=0 sectors=6048
+request-count op_flags=0x1 count=599 before_ready=0 errors=0 cancelled=0 sectors=134792
+request-count op_flags=0x2 count=34 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=331 before_ready=0 errors=0 cancelled=0 sectors=9368
+request-count op_flags=0x800 count=66 before_ready=0 errors=0 cancelled=0 sectors=576
+request-count op_flags=0x801 count=42 before_ready=0 errors=0 cancelled=0 sectors=4536
+request-count-end combinations=6 total=1281 complete=true
+info event=request_totals reads=606 writes=641 flushes=34 other=0 read_sectors=15992 write_sectors=139328 read_bytes=8187904 write_bytes=71335936
+info event=release_stats records=90 payloads=17388 payloads_per_record=193.200 backing_over_payload=1.005 footer_bytes=368640 payload_bytes=71221248 full_releases=16 flush_releases=25 histogram=[19, 1, 0, 16, 3, 2, 49]
+info event=mapping_stats phase=before_close mapping_foreground_hits=2059 mapping_foreground_misses=61 mapping_foreground_hit_rate=0.971226 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=51 mapping_index_bytes_written=4096 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=61 mapping_dirty_slots=12 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=shutdown volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=68.5 metadata_mib=0.0 log_used_mib=68.5 log_free_mib=4027.5 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.043
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=2903: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3311552.1/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3313173
+device: /dev/ublkb0 number=(259, 4) class=25:677073 node=7:18268
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Check(3)
+command Check(3) at_ms=2955: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/018-Check(3).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/018-Check(3).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=2986: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.3311552.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/019-mount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/019-mount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3311552.1/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Verify
+command workload at_ms=3008: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/020-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/020-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=3033: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.3311552.1"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/021-unmount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/021-unmount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=3064: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.1/022-Check(4).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.1/022-Check(4).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 3
+        - agno = 1
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 445        0    13184       64       23        0     4120       32        0       51      110        0        0        0        0        8       12
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3311552.1/017-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3311552.1/017-daemon.stderr bytes=2792 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=58 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=open volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=69.9 metadata_mib=0.0 log_used_mib=68.5 log_free_mib=4027.5 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.064
+request-count op_flags=0x0 count=186 before_ready=0 errors=0 cancelled=0 sectors=6328
+request-count op_flags=0x2 count=8 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=205 before_ready=0 errors=0 cancelled=0 sectors=6088
+request-count op_flags=0x800 count=54 before_ready=0 errors=0 cancelled=0 sectors=768
+request-count op_flags=0x801 count=19 before_ready=0 errors=0 cancelled=0 sectors=4120
+request-count-end combinations=5 total=472 complete=true
+info event=request_totals reads=445 writes=19 flushes=8 other=0 read_sectors=13184 write_sectors=4120 read_bytes=6750208 write_bytes=2109440
+info event=release_stats records=5 payloads=515 payloads_per_record=103.000 backing_over_payload=1.010 footer_bytes=20480 payload_bytes=2109440 full_releases=0 flush_releases=4 histogram=[3, 0, 0, 0, 0, 1, 1]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1640 mapping_foreground_misses=15 mapping_foreground_hit_rate=0.990937 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=70 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=15 mapping_dirty_slots=4 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=shutdown volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=70.6 metadata_mib=0.0 log_used_mib=70.6 log_free_mib=4025.4 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.074
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 2: PASS; all owned resources removed
+repetition: 3/3
+fixture: /tmp/my-block-storage-ublk.3311552.2 identity=52:507212
+command commit at_ms=3159: "git" ["rev-parse", "HEAD"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/001-commit.stdout bytes=41 ---
+4b77c4daf79560a437954743fd7c2a5bf904312f
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/001-commit.stderr bytes=0 ---
+
+--- end stderr ---
+command commit: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command worktree at_ms=3170: "git" ["status", "--short"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/002-worktree.stdout bytes=1012 ---
+ M .gitignore
+ M ADR-07-PAGED-MAPPING-AND-CACHE.md
+ M README.md
+ M rust/src/bin/block-storage-ublk.rs
+ M rust/src/format_v3.rs
+ D rust/src/format_v3/buffered_pages.rs
+ M rust/src/format_v3/mapping_state.rs
+ M rust/src/format_v3/reservation.rs
+ M rust/src/format_v3/volume.rs
+ M rust/src/format_v3/volume/write.rs
+ M rust/src/lib.rs
+ M rust/src/mapping_cache/sizing.rs
+ M rust/src/tests/format_geometry.rs
+ M rust/src/tests/format_v3_engine_crash.rs
+ M rust/src/tests/format_v3_write.rs
+ M rust/src/tests/mod.rs
+ M rust/src/tests/write_buffer.rs
+?? RESULTS-PERF-PAGED-MAPPING.md
+?? evidence/mapping-bench-packed-2026-09-19.jsonl
+?? evidence/mapping-bench-seq-write-control-2026-09-19.jsonl
+?? evidence/mapping-bench-v11-v12-2026-09-19.jsonl
+?? evidence/mapping-fio-verification-control-2026-09-19.json
+?? evidence/mapping-io-counts-2026-09-19.jsonl
+?? evidence/mapping-ublk-2026-09-19/
+?? evidence/mapping-ublk-packed-2026-09-19/
+?? manual-test-ext4.txt
+?? rust/src/tests/packed_writes.rs
+?? tools/mapping-bench/
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/002-worktree.stderr bytes=0 ---
+
+--- end stderr ---
+command worktree: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command kernel at_ms=3180: "uname" ["-srvm"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/003-kernel.stdout bytes=90 ---
+Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/003-kernel.stderr bytes=0 ---
+
+--- end stderr ---
+command kernel: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command backing-filesystem at_ms=3190: "stat" ["-f", "-c", "%T", "/tmp/my-block-storage-ublk.3311552.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/004-backing-filesystem.stdout bytes=6 ---
+tmpfs
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/004-backing-filesystem.stderr bytes=0 ---
+
+--- end stderr ---
+command backing-filesystem: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab bytes=26228072 xxh3=437eaa6a53c56743
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk bytes=22627456 xxh3=b9fd6ca8d4642962
+command mkfs-version at_ms=3451: "/usr/sbin/mkfs.xfs" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/005-mkfs-version.stdout bytes=24 ---
+mkfs.xfs version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/005-mkfs-version.stderr bytes=0 ---
+
+--- end stderr ---
+command mkfs-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+command xfs-repair-version at_ms=3461: "/usr/sbin/xfs_repair" ["-V"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/006-xfs-repair-version.stdout bytes=26 ---
+xfs_repair version 6.18.0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/006-xfs-repair-version.stderr bytes=0 ---
+
+--- end stderr ---
+command xfs-repair-version: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+resources: available_memory_bytes=41143939072 available_tmp_bytes=27352805376
+kernel filesystem support: xfs
+binary: /home/miguel/play/msfblkdev/rust/target/debug/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+binary: /usr/local/libexec/block-storage-mount bytes=17779496 xxh3=fa96f69434655d06
+helper binary match: PASS
+command helper-preflight at_ms=3660: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "check"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/007-helper-preflight.stdout bytes=91 ---
+block-storage-mount protocol=3 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/007-helper-preflight.stderr bytes=0 ---
+
+--- end stderr ---
+command helper-preflight: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+expected manifest:
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+step: Format
+command format at_ms=3675: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["format", "/tmp/my-block-storage-ublk.3311552.2/backing.img", "--prealloc-bytes", "4294967296", "--size-bytes", "536870912"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/008-format.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/008-format.stderr bytes=226 ---
+info event=format volume_mib=512.0 live_mib=0.0 backing_declared_mib=4096.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=4096.0 log_capacity_mib=4096.0 log_used_percent=0.0 allocated_per_live=0.000
+
+--- end stderr ---
+command format: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=10 cleanup=Ok(())
+step: Start
+command serve at_ms=3685: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3311552.2/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3313707
+device: /dev/ublkb0 number=(259, 4) class=25:677273 node=7:18285
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Mkfs
+command Mkfs at_ms=3757: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "format-xfs", "0", "my-block-storage-ublk.3311552.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/010-Mkfs.stdout bytes=900 ---
+meta-data=/proc/self/fd/5        isize=512    agcount=4, agsize=32768 blks
+         =                       sectsz=4096  attr=2, projid32bit=1
+         =                       crc=1        finobt=1, sparse=1, rmapbt=1
+         =                       reflink=1    bigtime=1 inobtcount=1 nrext64=1
+         =                       exchange=0   metadir=0
+data     =                       bsize=4096   blocks=131072, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0, ftype=1, parent=0
+log      =internal log           bsize=4096   blocks=16384, version=2
+         =                       sectsz=4096  sunit=1 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+         =                       rgcount=0    rgsize=0 extents
+         =                       zoned=0      start=0 reserved=0
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/010-Mkfs.stderr bytes=0 ---
+
+--- end stderr ---
+command Mkfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=493 cleanup=Ok(())
+step: Check(1)
+command Check(1) at_ms=4251: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/011-Check(1).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/011-Check(1).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(1): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=4272: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.3311552.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/012-mount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/012-mount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3311552.2/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Populate
+command workload at_ms=4303: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-populate"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/013-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/013-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=40 cleanup=Ok(())
+step: Verify
+command workload at_ms=4349: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/014-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/014-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=4384: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.3311552.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/015-unmount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/015-unmount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Check(2)
+command Check(2) at_ms=4406: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/016-Check(2).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/016-Check(2).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(2): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 662        0    18360       52      647       13   139328    16776        0      527    16853        0        0        0        0       34       25
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3311552.2/009-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3311552.2/009-daemon.stderr bytes=2898 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=open volume_mib=512.0 live_mib=0.0 backing_declared_mib=4096.0 backing_allocated_mib=1.3 metadata_mib=0.0 log_used_mib=0.0 log_free_mib=4096.0 log_capacity_mib=4096.0 log_used_percent=0.0 allocated_per_live=0.000
+request-count op_flags=0x0 count=209 before_ready=0 errors=0 cancelled=0 sectors=6048
+request-count op_flags=0x1 count=599 before_ready=0 errors=0 cancelled=0 sectors=134792
+request-count op_flags=0x2 count=34 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=387 before_ready=0 errors=0 cancelled=0 sectors=11736
+request-count op_flags=0x800 count=66 before_ready=0 errors=0 cancelled=0 sectors=576
+request-count op_flags=0x801 count=42 before_ready=0 errors=0 cancelled=0 sectors=4536
+request-count-end combinations=6 total=1337 complete=true
+info event=request_totals reads=662 writes=641 flushes=34 other=0 read_sectors=18360 write_sectors=139328 read_bytes=9400320 write_bytes=71335936
+info event=release_stats records=90 payloads=17388 payloads_per_record=193.200 backing_over_payload=1.005 footer_bytes=368640 payload_bytes=71221248 full_releases=16 flush_releases=25 histogram=[19, 1, 0, 16, 3, 2, 49]
+info event=mapping_stats phase=before_close mapping_foreground_hits=2355 mapping_foreground_misses=61 mapping_foreground_hit_rate=0.974752 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=0 mapping_page_writes=51 mapping_index_bytes_written=4096 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=61 mapping_dirty_slots=12 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=shutdown volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=68.5 metadata_mib=0.0 log_used_mib=68.5 log_free_mib=4027.5 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.043
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+step: Start
+command serve at_ms=4497: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-ublk" ["serve", "/tmp/my-block-storage-ublk.3311552.2/backing.img", "-1"] env=[("BLOCK_STORAGE_IO_LEDGER", None)]
+daemon pid=3314238
+device: /dev/ublkb0 number=(259, 4) class=25:677473 node=7:18304
+queue/logical_block_size: 4096
+queue/physical_block_size: 4096
+queue/max_sectors_kb: 128
+step: Check(3)
+command Check(3) at_ms=4569: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/018-Check(3).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/018-Check(3).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(3): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+step: Mount
+command mount-xfs at_ms=4590: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "mount-xfs", "0", "my-block-storage-ublk.3311552.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/019-mount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/019-mount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command mount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=20 cleanup=Ok(())
+mount id=8885 target=/tmp/my-block-storage-ublk.3311552.2/mount filesystem=xfs mount_options=rw,nosuid,nodev,relatime super_options=rw,inode64,logbufs=8,logbsize=32k,noquota
+step: Verify
+command workload at_ms=4611: "/home/miguel/play/msfblkdev/rust/target/debug/block-storage-lab" ["xfs-verify"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/020-workload.stdout bytes=116 ---
+a/stable bytes=262144 xxh3=6e47b07d2a3bfa8e
+b/renamed bytes=70001 xxh3=d0dafc10c11ac040
+absent: a/payload a/deleted
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/020-workload.stderr bytes=0 ---
+
+--- end stderr ---
+command workload: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Unmount
+command unmount-xfs at_ms=4647: "sudo" ["-n", "--", "/usr/local/libexec/block-storage-mount", "unmount-xfs", "0", "my-block-storage-ublk.3311552.2"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/021-unmount-xfs.stdout bytes=0 ---
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/021-unmount-xfs.stderr bytes=0 ---
+
+--- end stderr ---
+command unmount-xfs: outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=81 cleanup=Ok(())
+step: Check(4)
+command Check(4) at_ms=4729: "/usr/sbin/xfs_repair" ["-n", "/dev/ublkb0"] env=[("BLOCK_STORAGE_IO_DEVICE_ID", None), ("BLOCK_STORAGE_IO_LEDGER", None), ("BLOCK_STORAGE_LAB_EXECUTABLE", None), ("BLOCK_STORAGE_SQLITE_PROFILE", None), ("BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION", None), ("LC_ALL", Some("C"))]
+--- stdout: /tmp/my-block-storage-ublk.3311552.2/022-Check(4).stdout bytes=37 ---
+No modify flag set, skipping phase 5
+
+--- end stdout ---
+--- stderr: /tmp/my-block-storage-ublk.3311552.2/022-Check(4).stderr bytes=912 ---
+Phase 1 - find and verify superblock...
+Phase 2 - using internal log
+        - zero log...
+        - scan filesystem freespace and inode maps...
+        - found root inode chunk
+Phase 3 - for each AG...
+        - scan (but don't clear) agi unlinked lists...
+        - process known inodes and perform inode discovery...
+        - agno = 0
+        - agno = 1
+        - agno = 2
+        - agno = 3
+        - process newly discovered inodes...
+Phase 4 - check for duplicate blocks...
+        - setting up duplicate extent list...
+        - check for inodes claiming duplicate blocks...
+        - agno = 0
+        - agno = 2
+        - agno = 1
+        - agno = 3
+Phase 6 - check inode connectivity...
+        - traversing filesystem ...
+        - traversal finished ...
+        - moving disconnected inodes to lost+found ...
+Phase 7 - verify link counts...
+No modify flag set, skipping filesystem flush and exiting.
+
+--- end stderr ---
+command Check(4): outcome=Ok(Exit(ExitStatus(unix_wait_status(0)))) elapsed_ms=30 cleanup=Ok(())
+step: Stop
+kernel block I/O counters before stop: 488        0    14488       59       23        0     4120       33        0       45      106        0        0        0        0        8       12
+daemon SIGTERM: Exit(ExitStatus(unix_wait_status(0)))
+--- daemon stdout: /tmp/my-block-storage-ublk.3311552.2/017-daemon.stdout bytes=12 ---
+/dev/ublkb0
+
+--- end daemon stdout ---
+--- daemon stderr: /tmp/my-block-storage-ublk.3311552.2/017-daemon.stderr bytes=2792 ---
+info event=serve_config max_request_bytes=131072 inflight_memory_bytes=4194304 depth=32 buffer_memory_bytes=4194304 write_buffer_bytes=4194304
+info event=mapping_stats phase=open mapping_foreground_hits=0 mapping_foreground_misses=0 mapping_foreground_hit_rate=unavailable mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=58 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=0 mapping_dirty_slots=0 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=open volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=69.9 metadata_mib=0.0 log_used_mib=68.5 log_free_mib=4027.5 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.064
+request-count op_flags=0x0 count=186 before_ready=0 errors=0 cancelled=0 sectors=6328
+request-count op_flags=0x2 count=8 before_ready=0 errors=0 cancelled=0 sectors=0
+request-count op_flags=0x700 count=248 before_ready=0 errors=0 cancelled=0 sectors=7392
+request-count op_flags=0x800 count=54 before_ready=0 errors=0 cancelled=0 sectors=768
+request-count op_flags=0x801 count=19 before_ready=0 errors=0 cancelled=0 sectors=4120
+request-count-end combinations=5 total=515 complete=true
+info event=request_totals reads=488 writes=19 flushes=8 other=0 read_sectors=14488 write_sectors=4120 read_bytes=7417856 write_bytes=2109440
+info event=release_stats records=5 payloads=515 payloads_per_record=103.000 backing_over_payload=1.010 footer_bytes=20480 payload_bytes=2109440 full_releases=0 flush_releases=4 histogram=[3, 0, 0, 0, 0, 1, 1]
+info event=mapping_stats phase=before_close mapping_foreground_hits=1803 mapping_foreground_misses=15 mapping_foreground_hit_rate=0.991749 mapping_recovery_hits=0 mapping_recovery_misses=0 mapping_recovery_hit_rate=unavailable mapping_clean_evictions=0 mapping_victim_scans=0 mapping_checkpoint_required=0 mapping_pressure_checkpoints=0 mapping_checkpoint_failures=0 mapping_page_reads=70 mapping_page_writes=0 mapping_index_bytes_written=0 mapping_tail_blocks_read=339 mapping_recovery_passes=1 mapping_resident_slots=15 mapping_dirty_slots=4 mapping_slot_capacity=410 mapping_cache_requested_bytes=1586968 mapping_cache_allocated_bytes=1586968 mapping_index_bytes=1640
+info event=space phase=shutdown volume_mib=512.0 live_mib=65.7 backing_declared_mib=4096.0 backing_allocated_mib=70.6 metadata_mib=0.0 log_used_mib=70.6 log_free_mib=4025.4 log_capacity_mib=4096.0 log_used_percent=1.7 allocated_per_live=1.074
+
+--- end daemon stderr ---
+daemon request/flag evidence: PASS
+repetition 3: PASS; all owned resources removed
+elapsed_ms: 4805
+result: PASS

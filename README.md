@@ -10,10 +10,16 @@ ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem
 
 The SQLite/ext4 portion of Delivery 3 passed 87 fresh runs across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. All 348 filesystem checks and 174 logical validations passed. [SQLITE-EXT4.md](SQLITE-EXT4.md) records the suite and selected initial baseline. SQLite on XFS and RocksDB remain unimplemented.
 
-ADR-07 is complete. The version-3 engine uses paged mappings and a bounded CLOCK cache.
+ADR-07 is complete. The latest release is **v1.2.1**, with corrected packed writes.
+The original **v1.2** tag retains the earlier one-record-per-mapping-page implementation.
+The version-3 engine uses paged mappings and a bounded CLOCK cache.
 Engine/crash tests, memory/access measurements, live ublk/fio, ext4, XFS, and the full
 87-case SQLite/ext4 regression matrix passed. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 records the schema, compatibility rules, isolated deliveries, and validation evidence.
+[The v1.1/v1.2 performance comparison](RESULTS-PERF-PAGED-MAPPING.md) measures bounded
+read/write workloads, cache sizing, tail latency, and memory use.
+[The v1.2.1 performance report](RESULTS-PERF-PACKED-WRITES.md) repeats both earlier release baselines
+and measures the corrected batching, including flush tails and final checkpoint cost.
 
 [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
 
@@ -58,13 +64,22 @@ persists the inactive index, and then persists its descriptor before selecting t
 
 `VolumeOpenOptions::cache_budget_bytes` overrides the requested byte budget.
 The daemon exposes the same override as `serve ... --mapping-cache-bytes N`.
-The default is `logical_bytes / 10_000`, with a one-slot minimum and a complete-map cap.
+The automatic budget is the larger of `logical_bytes / 10_000` and the cache allocation
+needed for the effective write buffer's worst-case mapping working set. The required slot
+count is `min(buffer_payload_slots, volume_mapping_pages)`. Explicit smaller configurations
+are rejected before recovery writes; one-slot caches remain valid with compatible buffers.
 Sizing includes slot padding, hash-map buckets/control bytes, and policy bits. Hash-map
 reservation is twice the slot count so the pinned implementation can rehash tombstones
 in place. Cache operations allocate nothing after construction. Checkpoint publication
 and bounded recovery can allocate a candidate index or replace a recovery-window cache.
 The budget excludes the resident index, candidate index, I/O and payload buffers,
 allocator overhead, and inline objects; it is not a process RSS limit.
+
+Releases sort the whole buffer by LBA and pack up to 338 payloads per data record,
+including payloads from different mapping pages. A flush issues one data-log fsync after
+the required records complete. Cache pressure and replay-threshold checkpoints occur
+before a group, with their own metadata barriers. The checkpoint interval must hold one
+complete packed buffer. This replaces v1.2's one-record-per-mapping-page release rule.
 
 `Volume::mapping_stats()` reports foreground/recovery hits and misses, evictions,
 victim scans, pressure, resident/dirty slots, requested/effective cache bytes, index bytes,
@@ -76,8 +91,8 @@ At info level, the daemon emits `event=mapping_stats` at open and before close;
 the latter excludes checkpoint work performed by close. Existing lab evidence captures
 these records with daemon stderr.
 
-Buffered payloads are grouped by mapping page before append. A flush persists their data
-records; it does not require a checkpoint or clear dirty mapping flags. Recovery replays
+A flush persists the packed data records; it does not require a checkpoint or clear
+dirty mapping flags. Recovery replays
 those records, using bounded cache windows when the dirty working set exceeds capacity.
 Admission reserves data records and mapping snapshots before accepting a new buffered LBA.
 The log remains finite, with no reclaim or wraparound.
@@ -352,4 +367,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, 4 KiB payloads, a finite log, and no compaction or wraparound. Version 3 groups up to 320 buffered payloads from one mapping page per data record; its decoder accepts the format limit of 338 payloads. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 clean-restart matrix. Medium-write faults, compaction and wraparound remain outside ADR-03.
+The engine has one serialized writer, 4 KiB payloads, a finite log, and no compaction or wraparound. Version 3 packs up to 338 buffered payloads per data record after sorting the complete buffer by LBA. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 clean-restart matrix. Medium-write faults, compaction and wraparound remain outside ADR-03.

@@ -1,10 +1,14 @@
 # Delivery plan: paged mapping and bounded cache
 
 Status: Deliveries 1–4 complete; all required engine, memory, and live gates passed (2026-09-19)
+Latest release: v1.2.1, including the packed-write amendment; original v1.2 remains unchanged.
 Contract: [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 
 Progress entries are chronological. Pending work in an earlier entry describes that step;
 the final completion audit records the delivered state.
+
+The [packed-write amendment validation](#packed-write-amendment-validation-2026-09-19)
+records the later correction to v1.2's record-grouping rule and its performance rerun.
 
 Delivery 1 evidence (2026-09-18): 16 isolated cache tests passed, including allocation-counted churn and a deterministic mapping reference model. `make lint test` passed all 234 test commands. The cache is compiled only under `cfg(test)`; persistence and engine integration remain unimplemented.
 
@@ -200,11 +204,24 @@ passed lint, all 298 normal test commands, and the live gates above. Runtime and
 definitions include both checkpoint/index ownership and mapping-record framing, entries,
 padding, and checksums. The independent header checksum was explicitly approved.
 
-No required implementation or validation remains. Commit the final ADR/README/plan
-record and create the annotated `v1.2` tag at that commit. Preserve the unrelated local
-`.gitignore` and `manual-test-ext4.txt` changes. The finite log, format incompatibility,
+The original delivery completed at `4b77c4d`, tagged `v1.2`. The packed-write correction
+is recorded below and released as `v1.2.1`. The finite log, format incompatibility,
 and absence of a power-loss claim remain documented limitations, not failed acceptance.
 
 ### Final agent handoff
 
 Report changed paths, delivery units, exact commands and outcomes, format version, default/effective cache sizing, measured hit rate with its access sequence, and unresolved limitations. State whether bounded recovery and crash fallback were executed or remain unverified. Do not claim completion while allocation bounds, persistence ordering, or mandatory regression failures remain unresolved.
+
+## Packed-write amendment validation (2026-09-19)
+
+The amendment sorts the whole payload buffer, packs records across mapping-page boundaries,
+and retains one final data-log barrier. Open validates enough cache slots for the buffer's
+worst-case distinct pages and enough checkpoint interval for a complete packed group.
+Pressure publication occurs before the group. The version-3 disk layout is unchanged.
+This amendment is released as v1.2.1. Validation ran before committing on top of v1.2;
+commit IDs in gate filenames identify that base, and benchmark rows use `working`.
+
+- `make lint test`: passed all 301 bounded gate commands. Added tests verify allocation-free sorting, correct payload/physical offsets across 338/339/1,024/1,500 payloads, exact write and fsync counts, configuration rejection before recovery writes, overlapping dirty pages, and pressure preflight.
+- `make test-acceptance`: [passed](evidence/engine-crash-1789812429103862626-4b77c4daf79560a437954743fd7c2a5bf904312f.log). New packed-record and preflight-checkpoint scenarios add 180 SIGKILL interruptions in exhaustive mode. `make test-ublk-fio`: [passed all 21 cases](evidence/ublk-fio-1789812522568955971-4b77c4daf79560a437954743fd7c2a5bf904312f.log).
+- `make test-ext4 test-xfs test-sqlite-ext4`: passed [ext4](evidence/ext4-1789812989181115994.log), [XFS](evidence/xfs-1789812992639330136.log), and [all 87 SQLite/ext4 selections](evidence/sqlite-1789812998100356595/summary.json), with zero failed selections. These are the existing authorized disposable fixtures; the installed mount helper matched the build. Cleanup left no test device, mount, or benchmark backing.
+- The [performance rerun](RESULTS-PERF-PACKED-WRITES.md) completed 105 engine and 60 fio cases against fresh v1.1/v1.2 baselines. It retains throughput, read/flush p99, RSS, cache allocation, records, pressure checkpoints, open time, and close cost. Full-cache fio scattered-write throughput returned to the v1.1 range; flush tails and checkpoint/close cost remain above baseline.
