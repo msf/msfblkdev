@@ -4,7 +4,7 @@ use super::*;
 fn public_cache_configuration_reports_requested_and_effective_capacity() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(64 * BLOCK_SIZE as u64)?;
-    let logical_bytes = 641 * BLOCK_SIZE as u64;
+    let logical_bytes = 673 * BLOCK_SIZE as u64;
     format(&backing.0, logical_bytes)?;
     for (budget, capacity, hits, misses) in
         [(None, 1, 1, 4), (Some(1), 1, 1, 4), (Some(20_000), 3, 2, 3)]
@@ -29,10 +29,10 @@ fn public_cache_configuration_reports_requested_and_effective_capacity() -> io::
         );
         assert_eq!(initial.cache.sizing.capacity, capacity);
         assert_eq!(initial.index_bytes, 12);
-        assert!(initial.cache.sizing.allocated_bytes >= capacity * 3840);
+        assert!(initial.cache.sizing.allocated_bytes >= capacity * 4032);
         assert_eq!(initial.cache.counters.foreground.hit_rate(), None);
         let mut bytes = [0xff; BLOCK_SIZE];
-        for lba in [0, 0, 320, 640, 0] {
+        for lba in [0, 0, 336, 672, 0] {
             volume.read_block(lba, &mut bytes)?;
             assert_eq!(bytes, [0; BLOCK_SIZE]);
         }

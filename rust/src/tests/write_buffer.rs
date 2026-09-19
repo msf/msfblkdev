@@ -45,7 +45,7 @@ fn batch_boundary(payloads: u32) -> io::Result<()> {
 
 #[test]
 fn releases_at_record_boundaries_and_replays_multi_record_windows() -> io::Result<()> {
-    for payloads in [1, 2, 319, 320, 321, 337, 338, 339, 676] {
+    for payloads in [1, 2, 335, 336, 337, 337, 338, 339, 676] {
         batch_boundary(payloads)?;
     }
     Ok(())
@@ -160,7 +160,7 @@ fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<(
 fn checkpoint_index_round_trips_across_block_boundaries() -> io::Result<()> {
     // More than 1024 mapping pages requires a second index block.
     let backing = TemporaryBacking::new()?;
-    let volume_blocks = 320 * 1024 + 1;
+    let volume_blocks = 336 * 1024 + 1;
     let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
     assert!(layout.index_blocks > 1);
     backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;

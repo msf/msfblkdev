@@ -1,7 +1,7 @@
 # ADR-07 Paged mapping and bounded cache
 
 Status: complete; all engine, memory, and live acceptance gates passed (2026-09-19)
-Latest release: v1.2.2, with batched checkpoint writes. v1.2.1 contains the packed-data correction; v1.2 preserves the original release.
+Latest release: v1.2.2; v1.2.3 refinement and validation in progress. v1.2.1 contains the packed-data correction; v1.2 preserves the original release.
 On-disk format: 3
 Updates: ADR-01 and ADR-03 for newly formatted version-3 images only
 Related: [research proposal](papers/README.md#ideas-to-improve-the-design), [delivery plan](PLAN-PAGED-MAPPING.md)
@@ -15,7 +15,13 @@ Another problem we have is very large checkpoints. The full `dense mapping` is f
 
 We will store the mapping in independently replaceable 4 KiB log records and cache a bounded subset in RAM. A resident directory locates each mapping page. This reduces checkpoint writes to changed pages plus the complete directory.
 
-ADR-04 already assigns format version 2 to its separate growth proposal. This ADR assigns version 3; it does not implement or inherit version 2. that ADR isn't implemented yet, we've decided instead to fix this high memory usage first.
+ADR-04 already assigns format version 2 to its separate growth proposal. This ADR assigns version 3; it does not implement or inherit version 2. ADR-04 is not implemented; we prioritized reducing mapping memory.
+
+Format 3 remains a prototype under active refinement. The user explicitly permits
+incompatible layout changes within version 3. The 336-entry layout replaces the
+320-entry layout used through v1.2.2. Reformat disposable images; no migration or
+compatibility with earlier format-3 images is promised. Release tags retain the old
+implementation and measurements. This refinement does not implement ADR-04.
 
 ## Decision
 
@@ -24,19 +30,19 @@ Keep fixed logical and backing sizes, the serialized engine, payload integrity c
 ### What is a mapping page?
 
 ```text
-page_id = LBA / 320
-entry   = LBA % 320
-page_count = ceil(volume_blocks / 320)
+page_id = LBA / 336
+entry   = LBA % 336
+page_count = ceil(volume_blocks / 336)
 
 MappingEntries in RAM
-  physical_addr[320]       u32
-  payload_checksum[320]    u64
+  physical_addr[336]       u32
+  payload_checksum[336]    u64
 
 PageIndex in RAM and each checkpoint body
   mapping_page_block[page_count] u32
 ```
 
-The two entry arrays occupy exactly 3,840 bytes. Separate arrays avoid the per-entry padding of ordinary `{u32, u64}` structs. Use naturally aligned native arrays in RAM and explicit little-endian encoding on disk. Do not use packed references or cast disk buffers into native structs. Direct-I/O alignment applies to the separate I/O buffers, not every cache slot.
+The two entry arrays occupy exactly 4,032 bytes. Separate arrays avoid the per-entry padding of ordinary `{u32, u64}` structs. Use naturally aligned native arrays in RAM and explicit little-endian encoding on disk. Do not use packed references or cast disk buffers into native structs. Direct-I/O alignment applies to the separate I/O buffers, not every cache slot.
 
 Physical address zero means unmapped and requires checksum zero. A zero directory entry means the entire page is unmapped. Entries beyond the logical end of the volume must be zero. The disk record checksum is not retained as authoritative state in a mutable cached page.
 
@@ -76,8 +82,8 @@ struct RecordHeader {
 }
 
 struct MappingEntries {
-    physical_addr: [u32; 320],
-    payload_checksum: [u64; 320],
+    physical_addr: [u32; 336],
+    payload_checksum: [u64; 336],
 }
 
 struct MappingPageRecord {
@@ -119,10 +125,10 @@ Mapping-page records use kind 2 and have no preceding payload. Require `this_bou
 | 0 | 32 | Shared framing described above |
 | 32 | 4 | Page ID (`u32`) |
 | 36 | 4 | Zero padding |
-| 40 | 1280 | `physical_addr[320]`, little-endian `u32` |
-| 1320 | 2560 | `payload_checksum[320]`, little-endian `u64` |
-| 3880 | 8 | Header checksum: XXH3-64 over bytes 0–39, little-endian `u64` |
-| 3888 | 200 | Zero padding |
+| 40 | 1344 | `physical_addr[336]`, little-endian `u32` |
+| 1384 | 2688 | `payload_checksum[336]`, little-endian `u64` |
+| 4072 | 8 | Header checksum: XXH3-64 over bytes 0–39, little-endian `u64` |
+| 4080 | 8 | Zero padding |
 | 4088 | 8 | Record checksum |
 
 Both arrays begin at 8-byte-aligned offsets. A directory lookup validates the record checksum, kind, version, volume, expected physical boundary, page ID, entry bounds, and that the snapshot is not newer than the selecting checkpoint. Snapshot records describe mappings; they are not independent logical writes during replay.
@@ -184,9 +190,9 @@ The resident disk-location index is outside this cache budget:
 
 | Logical size | Index bytes | Base cache bytes, before the write-buffer minimum |
 |---:|---:|---:|
-| 4 GiB | 13,108 | 429,496 |
-| 400 GiB | 1,310,720 | 42,949,672 |
-| 4 TiB | 13,421,776 | 439,804,651 |
+| 4 GiB | 12,484 | 429,496 |
+| 400 GiB | 1,248,308 | 42,949,672 |
+| 4 TiB | 12,782,644 | 439,804,651 |
 
 Use a bounded page-ID-to-slot hash table initially so cache lookup memory scales with cache capacity rather than logical size. Count its actual allocated capacity, including spare buckets and control bytes; do not estimate it as just key/value bytes. If the chosen library cannot expose an allocation bound, resolve that in the isolated-cache delivery before integration.
 
@@ -280,7 +286,7 @@ Required evidence includes byte-layout fixtures, malformed-record rejection, iso
 
 A cache miss can add a mapping-page read before the payload read. Small caches can cause frequent checkpoints under scattered writes. CLOCK is approximate LRU. The deterministic access measurements below establish accounting for those sequences; they do not establish a production hit rate or justify the default budget for a particular workload.
 
-Checkpoint bodies shrink to four bytes per 320 logical blocks, rounded to 4 KiB. Mapping-page writes depend on dirty pages rather than the complete map. The resident index still grows with logical capacity, and peak checkpoint memory includes a candidate copy.
+Checkpoint bodies shrink to four bytes per 336 logical blocks, rounded to 4 KiB. Mapping-page writes depend on dirty pages rather than the complete map. The resident index still grows with logical capacity, and peak checkpoint memory includes a candidate copy.
 
 Old mapping and data records still fill the finite log. Multi-pass recovery and full checkpoint-page validation can be expensive. These are explicit initial costs, not sustained-overwrite or fast-startup claims.
 

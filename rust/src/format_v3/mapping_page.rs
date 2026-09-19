@@ -8,9 +8,9 @@ use xxhash_rust::xxh3::xxh3_64;
 
 // ADR-07's explicit on-disk offsets; native MappingEntries is never cast to bytes.
 const ADDRESS_OFFSET: usize = 40;
-const PAYLOAD_CHECKSUM_OFFSET: usize = 1320;
-const HEADER_CHECKSUM_OFFSET: usize = 3880;
-const PADDING_OFFSET: usize = 3888;
+const PAYLOAD_CHECKSUM_OFFSET: usize = 1384;
+const HEADER_CHECKSUM_OFFSET: usize = 4072;
+const PADDING_OFFSET: usize = 4080;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MappingPageRecord {
@@ -134,7 +134,7 @@ mod tests {
     use super::*;
 
     fn fixture() -> (MappingPageRecord, PageExpectation) {
-        let geometry = Geometry::new(641, 1000).unwrap();
+        let geometry = Geometry::new(673, 1000).unwrap();
         let mut entries = MappingEntries::zeroed();
         entries.physical_addr[0] = 4;
         entries.payload_checksum[0] = 0x0102_0304_0506_0708;
@@ -167,11 +167,11 @@ mod tests {
         assert_eq!(bytes[5], 2);
         assert_eq!(&bytes[32..40], &[2, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(&bytes[40..44], &[4, 0, 0, 0]);
-        assert!(bytes[44..1320].iter().all(|byte| *byte == 0));
-        assert_eq!(&bytes[1320..1328], &[8, 7, 6, 5, 4, 3, 2, 1]);
-        assert!(bytes[1328..3880].iter().all(|byte| *byte == 0));
-        assert_eq!(read_u64(&bytes, 3880), xxh3_64(&bytes[..40]));
-        assert!(bytes[3888..4088].iter().all(|byte| *byte == 0));
+        assert!(bytes[44..1384].iter().all(|byte| *byte == 0));
+        assert_eq!(&bytes[1384..1392], &[8, 7, 6, 5, 4, 3, 2, 1]);
+        assert!(bytes[1392..4072].iter().all(|byte| *byte == 0));
+        assert_eq!(read_u64(&bytes, 4072), xxh3_64(&bytes[..40]));
+        assert!(bytes[4080..4088].iter().all(|byte| *byte == 0));
         let checksum = read_u64(&bytes, 4088);
         let mut copy = bytes;
         copy[4088..].fill(0);
@@ -196,14 +196,14 @@ mod tests {
             (28, 10),
             (32, 1),
             (36, 1),
-            (3880, original[3880] ^ 1),
-            (3888, 1),
+            (4072, original[4072] ^ 1),
+            (4080, 1),
             (4087, 1),
             (40, 0),
             (40, 3),
             (40, 9),
             (44, 4),
-            (1328, 1),
+            (1392, 1),
         ] {
             let mut bytes = original;
             bytes[offset] = value;
@@ -220,7 +220,7 @@ mod tests {
             );
             assert_eq!(bytes, before);
         }
-        for length in [0, 35, 3880, 4095] {
+        for length in [0, 35, 4072, 4095] {
             assert!(MappingPageRecord::decode(&original[..length], &expected).is_err());
         }
         original[100] ^= 1;
@@ -270,7 +270,7 @@ mod tests {
             let mut bytes = original;
             bytes[offset] = value;
             let checksum = xxh3_64(&bytes[..40]);
-            bytes[3880..3888].copy_from_slice(&checksum.to_le_bytes());
+            bytes[4072..4080].copy_from_slice(&checksum.to_le_bytes());
             assert!(
                 MappingPageRecord::decode_framing(&bytes, expected.geometry, expected.volume_id)
                     .is_err()
@@ -293,14 +293,14 @@ mod tests {
         let (mut record, mut expected) = fixture();
         record.page_id = 0;
         expected.page_id = 0;
-        for index in 0..320 {
+        for index in 0..336 {
             record.entries.physical_addr[index] = 4 + (index % 5) as u32;
             record.entries.payload_checksum[index] = index as u64;
         }
         let mut bytes = [0; BLOCK_SIZE];
         record.encode(expected.geometry, &mut bytes).unwrap();
-        assert_eq!(read_u32(&bytes, 1316), record.entries.physical_addr[319]);
-        assert_eq!(read_u64(&bytes, 3872), 319);
+        assert_eq!(read_u32(&bytes, 1380), record.entries.physical_addr[335]);
+        assert_eq!(read_u64(&bytes, 4064), 335);
         assert_eq!(
             MappingPageRecord::decode(&bytes, &expected).unwrap(),
             record

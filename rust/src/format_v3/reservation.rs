@@ -139,7 +139,7 @@ mod tests {
                 total_blocks: 3,
             }
         );
-        let lbas = [0, 1, 320, 2];
+        let lbas = [0, 1, 336, 2];
         let reserve = Reservation::buffered(&lbas, 2, None).unwrap();
         assert_eq!(
             reserve,
@@ -159,17 +159,17 @@ mod tests {
             10
         );
         assert_eq!(
-            Reservation::buffered(&lbas, 2, Some(640))
+            Reservation::buffered(&lbas, 2, Some(672))
                 .unwrap()
                 .total_blocks,
             11
         );
-        let same_page: Vec<_> = (0..320).collect();
+        let same_page: Vec<_> = (0..336).collect();
         assert_eq!(
             Reservation::buffered(&same_page, 0, None)
                 .unwrap()
                 .total_blocks,
-            322
+            338
         );
     }
 
@@ -214,7 +214,7 @@ mod tests {
             for entry in 0..6 {
                 let page = sequence % 3;
                 sequence /= 3;
-                lbas.push(page * 320 + entry);
+                lbas.push(page * 336 + entry);
                 if !groups.contains(&page) {
                     groups.push(page);
                 }

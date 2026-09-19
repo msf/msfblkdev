@@ -8,7 +8,7 @@ use crate::format_v3::{
 
 #[test]
 fn format_v3_persists_both_full_index_bodies_and_roots() -> io::Result<()> {
-    let geometry = Geometry::new(320 * 1024 + 1, 32)?;
+    let geometry = Geometry::new(336 * 1024 + 1, 32)?;
     let backing = TemporaryBacking::new()?;
     backing.create_sized(32 * BLOCK_SIZE as u64)?;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;

@@ -11,7 +11,7 @@ fn fixture(index_blocks: u32) -> io::Result<TemporaryBacking> {
     backing.create_sized(1024 * BLOCK_SIZE as u64)?;
     format(
         &backing.0,
-        u64::from(index_blocks) * 1024 * 320 * BLOCK_SIZE as u64,
+        u64::from(index_blocks) * 1024 * 336 * BLOCK_SIZE as u64,
     )?;
     Ok(backing)
 }
@@ -30,7 +30,7 @@ fn options(pages: u32) -> VolumeOpenOptions {
 
 fn dirty(volume: &mut Volume, pages: u32) -> io::Result<()> {
     for page in 0..pages {
-        volume.write_block(page * 320, &[page as u8 + 1; BLOCK_SIZE])?;
+        volume.write_block(page * 336, &[page as u8 + 1; BLOCK_SIZE])?;
     }
     volume.flush()
 }
@@ -39,7 +39,7 @@ fn verify(backing: &TemporaryBacking, pages: u32) -> io::Result<()> {
     let mut volume = open_with_options(&backing.0, options(pages))?;
     for page in 0..pages {
         let mut bytes = [0; BLOCK_SIZE];
-        volume.read_block(page * 320, &mut bytes)?;
+        volume.read_block(page * 336, &mut bytes)?;
         assert_eq!(bytes, [page as u8 + 1; BLOCK_SIZE]);
     }
     volume.close()
@@ -124,7 +124,7 @@ fn short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages() -> io:
         };
         volume.inject_metadata_short_write(at, prefix_bytes);
         // A new page needs a victim; all 65 cache slots are dirty.
-        assert!(volume.read_block(65 * 320, &mut [0; BLOCK_SIZE]).is_err());
+        assert!(volume.read_block(65 * 336, &mut [0; BLOCK_SIZE]).is_err());
         assert!(volume.failed);
         assert_eq!(volume.mapping.checkpoint.descriptor, active);
         assert_eq!(volume.mapping.tail, tail);
@@ -148,7 +148,7 @@ fn short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages() -> io:
         if prefix_bytes.is_multiple_of(BLOCK_SIZE) {
             verify(&backing, 65)?;
         } else {
-            // The independent header checksum is at byte 3880 and was not written.
+            // The independent header checksum is at byte 4072 and was not written.
             // Existing recovery must fail closed instead of skipping unknown framing.
             let before = std::fs::read(&backing.0)?;
             let error = open_with_options(&backing.0, options(65)).err().unwrap();

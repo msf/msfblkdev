@@ -4,7 +4,7 @@ use crate::format_v3::{storage, volume};
 fn fixture() -> io::Result<TemporaryBacking> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(1024 * BLOCK_SIZE as u64)?;
-    storage::format(&backing.0, (320 * 1024 + 1) * BLOCK_SIZE as u64, None)?;
+    storage::format(&backing.0, (336 * 1024 + 1) * BLOCK_SIZE as u64, None)?;
     let mut volume = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)?;
     volume.write_block(0, &[1; BLOCK_SIZE])?;
     volume.close()?;
@@ -33,7 +33,7 @@ fn paged_grouped_release_survives_foreground_and_pressure_crashes() -> io::Resul
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
         let mut volume =
             volume::open(&PathBuf::from(path), buffered_options(), Some(20_000), None)?;
-        for (lba, byte) in [(0, 2), (320, 3), (640, 4), (0, 5)] {
+        for (lba, byte) in [(0, 2), (336, 3), (672, 4), (0, 5)] {
             volume.write_block(lba, &[byte; BLOCK_SIZE])?;
         }
         volume.flush()?;
@@ -62,7 +62,7 @@ fn paged_grouped_release_survives_foreground_and_pressure_crashes() -> io::Resul
                 Some(boundary),
             )?;
             // Exact record completion survives process death; this is not a power-loss test.
-            verify(&backing, [(0, 5), (320, 3), (640, 4)])?;
+            verify(&backing, [(0, 5), (336, 3), (672, 4)])?;
         }
     }
     Ok(())
@@ -73,7 +73,7 @@ fn paged_buffer_is_volatile_and_flushed_groups_survive_sigkill() -> io::Result<(
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
         let mut volume =
             volume::open(&PathBuf::from(path), buffered_options(), Some(20_000), None)?;
-        for (lba, byte) in [(0, 2), (320, 3), (640, 4), (0, 5)] {
+        for (lba, byte) in [(0, 2), (336, 3), (672, 4), (0, 5)] {
             volume.write_block(lba, &[byte; BLOCK_SIZE])?;
         }
         pause_at_test_failpoint("paged-buffered-ready")?;
@@ -82,8 +82,8 @@ fn paged_buffer_is_volatile_and_flushed_groups_survive_sigkill() -> io::Result<(
         return Err(io::Error::other("buffer failpoint did not pause child"));
     }
     for (boundary, expected) in [
-        ("paged-buffered-ready", [(0, 1), (320, 0), (640, 0)]),
-        ("paged-flushed-ready", [(0, 5), (320, 3), (640, 4)]),
+        ("paged-buffered-ready", [(0, 1), (336, 0), (672, 0)]),
+        ("paged-flushed-ready", [(0, 5), (336, 3), (672, 4)]),
     ] {
         for _ in 0..configured_crash_test_plan(2)?.repetitions {
             let backing = fixture()?;

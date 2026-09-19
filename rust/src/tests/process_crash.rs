@@ -335,7 +335,7 @@ fn recover_after_checkpoint_crash(
     }
 
     let backing = TemporaryBacking::new()?;
-    let volume_blocks = 320_u32 * 1024 + 1;
+    let volume_blocks = 336_u32 * 1024 + 1;
     let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
     assert!(layout.index_blocks > 1);
     backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
@@ -392,7 +392,7 @@ fn crash_test_modes_select_smoke_and_exhaustive_work() -> io::Result<()> {
 
 #[test]
 fn recover_after_each_checkpoint_body_block_boundary() -> io::Result<()> {
-    let (_, layout) = layout_for((320 * 1024 + 1) * BLOCK_SIZE as u64)?;
+    let (_, layout) = layout_for((336 * 1024 + 1) * BLOCK_SIZE as u64)?;
     let body_blocks = layout.index_blocks;
     let plan = configured_crash_test_plan(u64::from(body_blocks))?;
     for block_index in plan.boundary_indices {

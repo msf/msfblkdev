@@ -9,8 +9,8 @@ mod tests;
 use clock::Clock;
 use sizing::{Lookup, Sizing, filled_slice, new_lookup};
 
-// ADR-07 packs 320 physical addresses and payload checksums into each mapping page.
-pub(super) const ENTRIES_PER_PAGE: usize = 320;
+// ADR-07 packs 336 physical addresses and payload checksums into each mapping page.
+pub(super) const ENTRIES_PER_PAGE: usize = 336;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct MappingEntries {

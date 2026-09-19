@@ -380,7 +380,7 @@ fn rejects_invalid_checkpoint_after_bytes_before_touching_backing() -> io::Resul
 fn checkpoints_before_buffered_group_exceeding_replay_bound() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(1024 * BLOCK_SIZE as u64)?;
-    format(&backing.0, 320 * BLOCK_SIZE as u64)?;
+    format(&backing.0, 336 * BLOCK_SIZE as u64)?;
     let options = VolumeOpenOptions {
         checkpoint_after_bytes: 339 * BLOCK_SIZE as u64,
         write_buffer_bytes: 160 * BLOCK_SIZE as u64,
@@ -399,7 +399,7 @@ fn checkpoints_before_buffered_group_exceeding_replay_bound() -> io::Result<()> 
     drop(volume);
     let mut reopened = open_with_options(&backing.0, options)?;
     let mut bytes = [0; BLOCK_SIZE];
-    for lba in 0..320 {
+    for lba in 0..336 {
         reopened.read_block(lba, &mut bytes)?;
         assert_eq!(bytes, [if lba < 160 { 3 } else { 0 }; BLOCK_SIZE]);
     }

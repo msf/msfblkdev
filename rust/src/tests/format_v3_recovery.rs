@@ -9,7 +9,7 @@ use crate::format_v3::{
 pub(super) fn fixture(blocks: u64) -> io::Result<(TemporaryBacking, Checkpoint)> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(blocks * BLOCK_SIZE as u64)?;
-    storage::format(&backing.0, 640 * BLOCK_SIZE as u64, None)?;
+    storage::format(&backing.0, 672 * BLOCK_SIZE as u64, None)?;
     let (checkpoint, _) =
         checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, blocks)?;
     let file = OpenOptions::new().write(true).open(&backing.0)?;
@@ -142,7 +142,7 @@ fn recovery_space_exhaustion_leaves_every_backing_byte_and_root_unchanged() -> i
 
 #[test]
 fn bounded_recovery_rebuilds_an_older_root_after_snapshot_body_corruption() -> io::Result<()> {
-    let (backing, checkpoint) = super::format_v3_load::populated_fixture(321)?;
+    let (backing, checkpoint) = super::format_v3_load::populated_fixture(337)?;
     super::format_v3_publish::pending_update(&backing, &checkpoint)?;
     let plain = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     plain.write_all_at(

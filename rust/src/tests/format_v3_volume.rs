@@ -5,7 +5,7 @@ use crate::format_v3::{storage, volume};
 fn paged_metrics_distinguish_cache_lookups_snapshot_io_and_tail_scans() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(32 * BLOCK_SIZE as u64)?;
-    storage::format(&backing.0, 641 * BLOCK_SIZE as u64, None)?;
+    storage::format(&backing.0, 673 * BLOCK_SIZE as u64, None)?;
     let mut volume = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)?;
     let initial = volume.mapping_stats();
     assert_eq!(initial.index_bytes, 12);
@@ -21,13 +21,13 @@ fn paged_metrics_distinguish_cache_lookups_snapshot_io_and_tail_scans() -> io::R
             .contains("mapping_foreground_hit_rate=unavailable")
     );
     let mut bytes = [0; BLOCK_SIZE];
-    for lba in [0, 0, 320] {
+    for lba in [0, 0, 336] {
         volume.read_block(lba, &mut bytes)?;
     }
-    volume.write_block(320, &[1; BLOCK_SIZE])?;
-    volume.read_block(640, &mut bytes)?;
-    volume.read_block(320, &mut bytes)?;
-    volume.write_block(320, &[2; BLOCK_SIZE])?;
+    volume.write_block(336, &[1; BLOCK_SIZE])?;
+    volume.read_block(672, &mut bytes)?;
+    volume.read_block(336, &mut bytes)?;
+    volume.write_block(336, &[2; BLOCK_SIZE])?;
     volume.flush()?;
     let stats = volume.mapping_stats();
     assert_eq!(stats.cache.counters.foreground.hits, 3);
@@ -62,16 +62,16 @@ fn paged_metrics_distinguish_cache_lookups_snapshot_io_and_tail_scans() -> io::R
 
 #[test]
 fn paged_reads_checkpoint_dirty_pressure_and_retry_without_double_counting() -> io::Result<()> {
-    let (backing, checkpoint) = super::format_v3_load::populated_fixture(641)?;
+    let (backing, checkpoint) = super::format_v3_load::populated_fixture(673)?;
     super::format_v3_publish::pending_update(&backing, &checkpoint)?;
     let mut volume = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)?;
-    assert_eq!(volume.volume_blocks(), 641);
+    assert_eq!(volume.volume_blocks(), 673);
     let recovered = volume.cache_snapshot();
     assert_eq!(recovered.dirty_slots, 1);
     assert_eq!(recovered.counters.recovery.misses, 1);
     assert_eq!(recovered.counters.foreground.misses, 0);
     let mut bytes = [0xff; BLOCK_SIZE];
-    for (lba, expected) in [(1, 0), (640, 0x5a), (0, 0x9c)] {
+    for (lba, expected) in [(1, 0), (672, 0x5a), (0, 0x9c)] {
         volume.read_block(lba, &mut bytes)?;
         assert_eq!(bytes, [expected; BLOCK_SIZE]);
     }
@@ -93,7 +93,7 @@ fn paged_reads_checkpoint_dirty_pressure_and_retry_without_double_counting() -> 
     reopened.read_block(0, &mut bytes)?;
     assert_eq!(bytes, [0x9c; BLOCK_SIZE]);
     assert_eq!(
-        reopened.read_block(641, &mut bytes).unwrap_err().kind(),
+        reopened.read_block(673, &mut bytes).unwrap_err().kind(),
         io::ErrorKind::InvalidInput
     );
     assert_eq!(bytes, [0x9c; BLOCK_SIZE]);
@@ -104,10 +104,10 @@ fn paged_reads_checkpoint_dirty_pressure_and_retry_without_double_counting() -> 
 fn paged_zero_reads_cover_eviction_and_the_final_partial_page() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(32 * BLOCK_SIZE as u64)?;
-    storage::format(&backing.0, 641 * BLOCK_SIZE as u64, None)?;
+    storage::format(&backing.0, 673 * BLOCK_SIZE as u64, None)?;
     let mut volume = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)?;
     let mut bytes = [0xff; BLOCK_SIZE];
-    for lba in [0, 320, 640, 0] {
+    for lba in [0, 336, 672, 0] {
         volume.read_block(lba, &mut bytes)?;
         assert_eq!(bytes, [0; BLOCK_SIZE]);
     }
@@ -120,7 +120,7 @@ fn paged_zero_reads_cover_eviction_and_the_final_partial_page() -> io::Result<()
 
 #[test]
 fn paged_metadata_failure_preserves_output_and_latches_the_volume() -> io::Result<()> {
-    let (backing, checkpoint) = super::format_v3_load::populated_fixture(321)?;
+    let (backing, checkpoint) = super::format_v3_load::populated_fixture(337)?;
     let mut volume = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)?;
     let mut bytes = [0xee; BLOCK_SIZE];
     volume.read_block(0, &mut bytes)?;
@@ -132,7 +132,7 @@ fn paged_metadata_failure_preserves_output_and_latches_the_volume() -> io::Resul
         u64::from(checkpoint.mapping_page_block[1]) * BLOCK_SIZE as u64 + 40,
     )?;
     assert_eq!(
-        volume.read_block(320, &mut bytes).unwrap_err().kind(),
+        volume.read_block(336, &mut bytes).unwrap_err().kind(),
         io::ErrorKind::InvalidData
     );
     assert_eq!(bytes, [0xee; BLOCK_SIZE]);

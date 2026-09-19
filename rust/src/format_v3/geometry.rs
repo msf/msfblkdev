@@ -61,19 +61,19 @@ mod tests {
         );
         assert_eq!(minimum.page_entries(0).unwrap(), 1);
         assert!(minimum.page_entries(1).is_err());
-        for volume in [320, 321, 320 * 1024, 320 * 1024 + 1] {
+        for volume in [336, 337, 336 * 1024, 336 * 1024 + 1] {
             let geometry = Geometry::new(volume, 100_000).unwrap();
-            assert_eq!(geometry.page_count, volume.div_ceil(320));
-            assert_eq!(geometry.index_blocks, volume.div_ceil(320 * 1024));
+            assert_eq!(geometry.page_count, volume.div_ceil(336));
+            assert_eq!(geometry.index_blocks, volume.div_ceil(336 * 1024));
             assert_eq!(
                 geometry.page_entries(geometry.page_count - 1).unwrap(),
-                ((volume - 1) % 320 + 1) as usize
+                ((volume - 1) % 336 + 1) as usize
             );
         }
         let maximum = Geometry::new(1 << 31, 1_u64 << 32).unwrap();
-        assert_eq!(maximum.page_count, 6_710_887);
-        assert_eq!(maximum.index_blocks, 6_554);
-        assert_eq!(maximum.log_start, 13_110);
+        assert_eq!(maximum.page_count, 6_391_321);
+        assert_eq!(maximum.index_blocks, 6_242);
+        assert_eq!(maximum.log_start, 12_486);
         for (volume, backing) in [
             (0, 100),
             ((1 << 31) + 1, 100),

@@ -124,7 +124,7 @@ mod tests {
     use super::*;
 
     fn populated() -> Checkpoint {
-        let geometry = Geometry::new(320 * 1024 + 1, 1000).unwrap();
+        let geometry = Geometry::new(336 * 1024 + 1, 1000).unwrap();
         let mut checkpoint = Checkpoint::empty(geometry, 7).unwrap();
         checkpoint.descriptor.checkpoint_lsn = 3;
         checkpoint.descriptor.last_record_boundary = 8;

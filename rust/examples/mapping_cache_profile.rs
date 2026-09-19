@@ -9,7 +9,7 @@ use std::{
 };
 
 const BLOCK_BYTES: usize = 4096;
-const ENTRIES_PER_PAGE: u32 = 320; // ADR-07 mapping-page geometry.
+const ENTRIES_PER_PAGE: u32 = 336; // ADR-07 mapping-page geometry.
 const ACCESS_COUNT: u32 = 4096;
 
 struct Backing(PathBuf);

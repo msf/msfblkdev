@@ -1554,7 +1554,7 @@ mod tests {
                 "volume.img",
                 "-1",
                 "--mapping-cache-bytes",
-                "12000",
+                "13000",
                 "--write-buffer-bytes",
                 "32768",
             ]
@@ -1563,7 +1563,7 @@ mod tests {
         let CliCommand::Serve { config, .. } = command else {
             panic!("serve command expected");
         };
-        assert_eq!(config.volume_open_options().cache_budget_bytes, Some(12000));
+        assert_eq!(config.volume_open_options().cache_budget_bytes, Some(13000));
         for invalid in ["-1", "1.5", "18446744073709551616"] {
             assert!(
                 parse_args(
@@ -1580,15 +1580,15 @@ mod tests {
                 .is_err()
             );
         }
-        let backing = TemporaryBacking::formatted(641)?;
+        let backing = TemporaryBacking::formatted(673)?;
         let mut volume =
             block_storage::open_with_options(&backing.0, config.volume_open_options())?;
         let initial = volume.mapping_stats();
-        assert_eq!(initial.cache.sizing.requested_bytes, 12000);
+        assert_eq!(initial.cache.sizing.requested_bytes, 13000);
         assert_eq!(initial.cache.sizing.capacity, 3);
         let mut write = descriptor(
             UBLK_IO_OP_WRITE,
-            319 * SECTORS_PER_BLOCK,
+            335 * SECTORS_PER_BLOCK,
             3 * SECTORS_PER_BLOCK as u32,
         );
         write.op_flags |= UBLK_IO_F_FUA;

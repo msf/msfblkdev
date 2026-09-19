@@ -13,7 +13,7 @@ use crate::format_v3::{
 fn empty_image() -> io::Result<(TemporaryBacking, Checkpoint)> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(1024 * BLOCK_SIZE as u64)?;
-    storage::format(&backing.0, 640 * BLOCK_SIZE as u64, None)?;
+    storage::format(&backing.0, 672 * BLOCK_SIZE as u64, None)?;
     let (checkpoint, _) =
         checkpoint_load::load(&mut BackingIo::new(None)?, &backing.reopen()?, 1024)?;
     Ok((backing, checkpoint))
@@ -55,7 +55,7 @@ pub(super) fn write_zero_payload_record(
 
 #[test]
 fn tail_reader_handles_record_bounds_and_partial_append() -> io::Result<()> {
-    for count in [1, 2, 320, MAXIMUM_PAYLOAD_BLOCKS] {
+    for count in [1, 2, 336, MAXIMUM_PAYLOAD_BLOCKS] {
         let (backing, checkpoint) = empty_image()?;
         let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
         let expected = write_zero_payload_record(&file, checkpoint.descriptor, count)?;
@@ -144,7 +144,7 @@ fn tail_reader_checks_cursor_bounds_and_metadata_like_payloads() -> io::Result<(
 
 #[test]
 fn older_root_replay_traverses_damaged_snapshot_to_later_flushed_data() -> io::Result<()> {
-    let (backing, checkpoint) = super::format_v3_load::populated_fixture(321)?;
+    let (backing, checkpoint) = super::format_v3_load::populated_fixture(337)?;
     let (_, tail) = super::format_v3_publish::pending_update(&backing, &checkpoint)?;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     file.sync_all()?;
@@ -160,7 +160,7 @@ fn older_root_replay_traverses_damaged_snapshot_to_later_flushed_data() -> io::R
         boundary: older.descriptor.last_record_boundary,
     };
     for (kind, lsn, lba, byte) in [
-        (RecordKind::Data, 1, 320, 0x5a),
+        (RecordKind::Data, 1, 336, 0x5a),
         (RecordKind::MappingPage, 2, 0, 0),
         (RecordKind::Data, 3, 0, 0x9c),
     ] {
@@ -216,12 +216,12 @@ fn tail_reader_rejects_unknown_records_and_detected_mapping_framing_damage() -> 
             io::ErrorKind::InvalidData
         );
     }
-    let (backing, checkpoint) = super::format_v3_load::populated_fixture(321)?;
+    let (backing, checkpoint) = super::format_v3_load::populated_fixture(337)?;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     let boundary = checkpoint.descriptor.last_record_boundary;
     let mut bytes = [0; BLOCK_SIZE];
     file.read_exact_at(&mut bytes, u64::from(boundary) * BLOCK_SIZE as u64)?;
-    bytes[3880] ^= 1;
+    bytes[4072] ^= 1;
     file.write_all_at(&bytes, u64::from(boundary) * BLOCK_SIZE as u64)?;
     let (older, _) = checkpoint_load::load(&mut backing_io, &backing.reopen()?, 32)?;
     let position = LogPosition {

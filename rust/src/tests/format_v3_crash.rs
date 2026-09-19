@@ -34,7 +34,7 @@ fn checkpoint_publication_survives_sigkill_at_each_boundary() -> io::Result<()> 
     // This small matrix runs every boundary in smoke mode too.
     for (failpoint, published) in boundaries {
         for _ in 0..plan.repetitions {
-            let (backing, original) = super::format_v3_load::populated_fixture(320 * 1024 + 1)?;
+            let (backing, original) = super::format_v3_load::populated_fixture(336 * 1024 + 1)?;
             let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
             file.sync_all()?;
             sigkill_child_at_handshake(
@@ -198,8 +198,8 @@ fn verify_complete_recovery(
                 maximum_lsn: active.descriptor.checkpoint_lsn,
             },
         )?;
-        for index in 0..320 {
-            let lba = page_id * 320 + index as u32;
+        for index in 0..336 {
+            let lba = page_id * 336 + index as u32;
             let physical = if lba < 338 { 4 + lba } else { 0 };
             let checksum = if lba < 338 {
                 payload_checksum(

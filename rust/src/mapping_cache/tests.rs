@@ -18,7 +18,7 @@ fn install(cache: &mut MappingCache, page: u32, access: Access) -> CachedPage<'_
 
 #[test]
 fn mapping_layout_and_empty_cache() {
-    assert_eq!(size_of::<MappingEntries>(), 3840);
+    assert_eq!(size_of::<MappingEntries>(), 4032);
     assert_eq!(align_of::<MappingEntries>(), align_of::<u64>());
     let cache = cache(4, 2);
     let snapshot = cache.snapshot();
@@ -51,7 +51,7 @@ fn budget_rounding_minimum_and_page_cap() {
     assert!(minimum.allocated_bytes > 0);
     let capped = Sizing::new(logical, Some(u64::MAX)).unwrap();
     assert_eq!(capped.capacity, 100);
-    let partial = Sizing::new(321 * crate::BLOCK_SIZE as u64, Some(u64::MAX)).unwrap();
+    let partial = Sizing::new(337 * crate::BLOCK_SIZE as u64, Some(u64::MAX)).unwrap();
     assert_eq!(partial.page_count, 2);
     assert_eq!(partial.capacity, 2);
 }
@@ -185,7 +185,7 @@ fn dirty_protection_publication_and_retry_have_exact_counters() {
 
 #[test]
 fn invalid_updates_and_loads_preserve_contents_and_dirty_state() {
-    let mut cache = MappingCache::new(321 * 4096, Some(0)).unwrap();
+    let mut cache = MappingCache::new(337 * 4096, Some(0)).unwrap();
     assert!(matches!(
         cache.acquire(2, Access::Foreground),
         Err(CacheError::InvalidPage)
@@ -213,7 +213,7 @@ fn invalid_updates_and_loads_preserve_contents_and_dirty_state() {
     ));
     assert!(cache.lookup.contains_key(&1));
     assert_eq!(cache.snapshot().counters.clean_evictions, 0);
-    let mut other = MappingCache::new(321 * 4096, Some(0)).unwrap();
+    let mut other = MappingCache::new(337 * 4096, Some(0)).unwrap();
     let Acquisition::Vacant(vacant) = other.acquire(1, Access::Foreground).unwrap() else {
         panic!()
     };

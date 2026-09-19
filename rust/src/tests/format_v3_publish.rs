@@ -56,7 +56,7 @@ pub(super) fn pending_update(
 
 #[test]
 fn checkpoint_publish_persists_dirty_page_and_reuses_unchanged_pointers() -> io::Result<()> {
-    let (backing, mut active) = super::format_v3_load::populated_fixture(321)?;
+    let (backing, mut active) = super::format_v3_load::populated_fixture(337)?;
     let (mut cache, tail) = pending_update(&backing, &active)?;
     let descriptor = active.descriptor;
     let geometry = descriptor.geometry()?;
@@ -132,7 +132,7 @@ fn checkpoint_publish_persists_dirty_page_and_reuses_unchanged_pointers() -> io:
 
 #[test]
 fn checkpoint_publish_rejects_exhausted_space_and_generation_before_writing() -> io::Result<()> {
-    let (backing, mut active) = super::format_v3_load::populated_fixture(321)?;
+    let (backing, mut active) = super::format_v3_load::populated_fixture(337)?;
     let (mut cache, tail) = pending_update(&backing, &active)?;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     let mut before = vec![0; 32 * BLOCK_SIZE];

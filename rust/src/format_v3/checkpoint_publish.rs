@@ -91,7 +91,7 @@ pub(crate) fn append_snapshots(
                 boundary: previous + 1,
             },
             page_id,
-            // The codec owns its fixed arrays; cloning copies 3,840 stack bytes.
+            // The codec owns its fixed arrays; cloning copies 4,032 stack bytes.
             entries: entries.clone(),
         };
         record.encode(geometry, &mut blocks[count].0)?;

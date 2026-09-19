@@ -73,11 +73,11 @@ pub(super) fn populated_fixture(volume_blocks: u32) -> io::Result<(TemporaryBack
             boundary: geometry.log_start + 2,
             ..record.header
         },
-        page_id: lba / 320,
+        page_id: lba / 336,
         entries: MappingEntries::zeroed(),
     };
-    mapping.entries.physical_addr[(lba % 320) as usize] = geometry.log_start;
-    mapping.entries.payload_checksum[(lba % 320) as usize] = checksum;
+    mapping.entries.physical_addr[(lba % 336) as usize] = geometry.log_start;
+    mapping.entries.payload_checksum[(lba % 336) as usize] = checksum;
     mapping.encode(geometry, &mut bytes)?;
     file.write_all_at(
         &bytes,
@@ -104,7 +104,7 @@ fn load(backing: &TemporaryBacking) -> io::Result<Checkpoint> {
 
 #[test]
 fn checkpoint_load_validates_multiblock_index_and_last_partial_page() -> io::Result<()> {
-    let (backing, expected) = populated_fixture(320 * 1024 + 1)?;
+    let (backing, expected) = populated_fixture(336 * 1024 + 1)?;
     let selected = load(&backing)?;
     assert_eq!(selected.descriptor, expected.descriptor);
     assert_eq!(selected.mapping_page_block, expected.mapping_page_block);
@@ -114,7 +114,7 @@ fn checkpoint_load_validates_multiblock_index_and_last_partial_page() -> io::Res
 
 #[test]
 fn checkpoint_load_falls_back_after_referenced_page_corruption() -> io::Result<()> {
-    let (backing, checkpoint) = populated_fixture(321)?;
+    let (backing, checkpoint) = populated_fixture(337)?;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     let offset = u64::from(checkpoint.descriptor.last_record_boundary) * BLOCK_SIZE as u64;
     let mut original = [0; BLOCK_SIZE];
@@ -145,7 +145,7 @@ fn checkpoint_load_falls_back_after_referenced_page_corruption() -> io::Result<(
 
 #[test]
 fn checkpoint_load_rejects_invalid_bodies_and_conflicting_roots() -> io::Result<()> {
-    let (backing, mut checkpoint) = populated_fixture(321)?;
+    let (backing, mut checkpoint) = populated_fixture(337)?;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     let geometry = checkpoint.descriptor.geometry()?;
     let body = u64::from(CheckpointSlot::Blue.body_start(geometry)) * BLOCK_SIZE as u64;
@@ -184,7 +184,7 @@ fn checkpoint_load_rejects_invalid_bodies_and_conflicting_roots() -> io::Result<
 
 #[test]
 fn checkpoint_load_propagates_failed_reads_without_selecting_an_older_root() -> io::Result<()> {
-    let (backing, checkpoint) = populated_fixture(321)?;
+    let (backing, checkpoint) = populated_fixture(337)?;
     let file = OpenOptions::new().write(true).open(&backing.0)?;
     // Simulate loss of the snapshot after the caller has obtained backing geometry.
     file.set_len(u64::from(checkpoint.descriptor.last_record_boundary) * BLOCK_SIZE as u64)?;

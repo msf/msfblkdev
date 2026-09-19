@@ -89,8 +89,8 @@ pub struct Geometry {
 
 impl Geometry {
     pub fn expected() -> Self {
-        // ADR-07: 320 mappings per page and 1024 page pointers per index block.
-        let index_blocks = VOLUME_BLOCKS.div_ceil(320).div_ceil(1024);
+        // ADR-07: 336 mappings per page and 1024 page pointers per index block.
+        let index_blocks = VOLUME_BLOCKS.div_ceil(336).div_ceil(1024);
         let log_start_blocks = 2 + 2 * index_blocks;
         Self {
             block_bytes: BLOCK_BYTES,

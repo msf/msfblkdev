@@ -134,8 +134,8 @@ fn format_v3_accounts_both_index_bodies_descriptors_and_barriers() -> io::Result
 
 #[test]
 fn checkpoint_load_accounts_reads_and_skips_unmapped_pages() -> io::Result<()> {
-    let (backing, _) = create_backing(321)?;
-    crate::format_v3::storage::format(&backing.0, 321 * 4096, None)?;
+    let (backing, _) = create_backing(337)?;
+    crate::format_v3::storage::format(&backing.0, 337 * 4096, None)?;
     let (accounting, reader) = AccountingFixture::new(1)?;
     let file = backing.reopen()?;
     let (checkpoint, _) = crate::format_v3::checkpoint_load::load(
@@ -158,7 +158,7 @@ fn checkpoint_publish_preserves_dirty_state_until_all_writes_succeed() -> io::Re
     use crate::format_v3::{checkpoint_load, checkpoint_publish};
 
     for blocks in 0..=3 {
-        let (backing, mut active) = super::format_v3_load::populated_fixture(321)?;
+        let (backing, mut active) = super::format_v3_load::populated_fixture(337)?;
         let (mut cache, tail) = super::format_v3_publish::pending_update(&backing, &active)?;
         let original = active.try_clone()?;
         let (accounting, reader) = AccountingFixture::new((blocks * 4096).max(1))?;
@@ -200,7 +200,7 @@ fn paged_failed_pressure_counts_completed_io_without_counting_publication() -> i
     use crate::format_v3::{storage, volume};
     let backing = TemporaryBacking::new()?;
     backing.create_sized(32 * BLOCK_SIZE as u64)?;
-    storage::format(&backing.0, 321 * 4096, None)?;
+    storage::format(&backing.0, 337 * 4096, None)?;
     // Sanitation uses 28 blocks, the data record two, and the snapshot one.
     let (accounting, _) = AccountingFixture::new(31 * 4096)?;
     let mut volume = volume::open(
@@ -213,7 +213,7 @@ fn paged_failed_pressure_counts_completed_io_without_counting_publication() -> i
     let mut bytes = [0xff; BLOCK_SIZE];
     assert_eq!(
         volume
-            .read_block(320, &mut bytes)
+            .read_block(336, &mut bytes)
             .unwrap_err()
             .raw_os_error(),
         Some(libc::ENOSPC)
