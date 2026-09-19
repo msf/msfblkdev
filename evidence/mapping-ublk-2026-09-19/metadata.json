@@ -1,0 +1,25 @@
+{
+  "kernel": "7.0.0-31-generic",
+  "cpus": [
+    0,
+    1
+  ],
+  "logical_bytes": 4294967296,
+  "backing_bytes": 1073741824,
+  "repetitions": 3,
+  "fio": "fio-3.41",
+  "binaries": {
+    "v1.1": {
+      "path": "/tmp/msfblkdev-mapping-bench-wc8gm7xi/target-v1.1/release/block-storage-ublk",
+      "sha256": "c1c8b219eb41184da1e145aee7bed56420296c2b051e1dac3b5986c82a9364f1"
+    },
+    "v1.2": {
+      "path": "/tmp/msfblkdev-mapping-bench-wc8gm7xi/target-v1.2/release/block-storage-ublk",
+      "sha256": "a3a3ef6a1356f7d7c0bbb7f8fa565078850f3b81b6c88d33ff7f61feeb6857ee"
+    }
+  },
+  "tags": {
+    "v1.1": "1ea859783621dfad36cc75cd5616a8613ae2d9c7",
+    "v1.2": "4b77c4daf79560a437954743fd7c2a5bf904312f"
+  }
+}
