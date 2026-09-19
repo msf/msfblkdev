@@ -1,6 +1,7 @@
 use crate::mapping_cache::ENTRIES_PER_PAGE;
 use crate::{
-    BLOCK_SIZE, MAX_BACKING_BLOCKS, MAX_VOLUME_BLOCKS, MAXIMUM_WRITE_BUFFER_BYTES, invalid_input,
+    BLOCK_SIZE, MAX_BACKING_BLOCKS, MAX_VOLUME_BLOCKS, MAXIMUM_PAYLOAD_BLOCKS,
+    MAXIMUM_WRITE_BUFFER_BYTES, invalid_input,
 };
 use std::io;
 
@@ -8,6 +9,7 @@ use std::io;
 pub(crate) struct Reservation {
     pub(crate) payload_blocks: u64,
     pub(crate) data_records: u64,
+    pub(crate) pending_pages: u64,
     pub(crate) mapping_snapshots: u64,
     pub(crate) total_blocks: u64,
 }
@@ -43,7 +45,7 @@ impl Reservation {
         )
     }
 
-    /// Release must group each mapping page's buffered LBAs into one data record.
+    /// Release sorts the whole buffer and checkpoints only before appending it.
     #[cfg(test)]
     pub(crate) fn buffered(
         lbas: &[u32],
@@ -93,13 +95,15 @@ impl Reservation {
         let mapping_snapshots = (dirty_pages as u64)
             .checked_add(pages as u64)
             .ok_or_else(|| invalid_input("mapping snapshot reservation overflow"))?;
+        let data_records = payloads.div_ceil(MAXIMUM_PAYLOAD_BLOCKS) as u64;
         let total_blocks = (payloads as u64)
-            .checked_add(pages as u64)
+            .checked_add(data_records)
             .and_then(|blocks| blocks.checked_add(mapping_snapshots))
             .ok_or_else(|| invalid_input("append reservation overflow"))?;
         Ok(Self {
             payload_blocks: payloads as u64,
-            data_records: pages as u64,
+            data_records,
+            pending_pages: pages as u64,
             mapping_snapshots,
             total_blocks,
         })
@@ -123,13 +127,14 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn reservation_counts_payloads_page_groups_and_checkpoint_debt() {
+    fn reservation_counts_packed_records_and_checkpoint_debt() {
         assert_eq!(Reservation::buffered(&[], 0, None).unwrap().total_blocks, 0);
         assert_eq!(
             Reservation::buffered(&[], 0, Some(0)).unwrap(),
             Reservation {
                 payload_blocks: 1,
                 data_records: 1,
+                pending_pages: 1,
                 mapping_snapshots: 1,
                 total_blocks: 3,
             }
@@ -140,9 +145,10 @@ mod tests {
             reserve,
             Reservation {
                 payload_blocks: 4,
-                data_records: 2,
+                data_records: 1,
+                pending_pages: 2,
                 mapping_snapshots: 4,
-                total_blocks: 10
+                total_blocks: 9
             }
         );
         assert_eq!(Reservation::buffered(&lbas, 2, Some(1)).unwrap(), reserve);
@@ -150,13 +156,13 @@ mod tests {
             Reservation::buffered(&lbas, 2, Some(3))
                 .unwrap()
                 .total_blocks,
-            11
+            10
         );
         assert_eq!(
             Reservation::buffered(&lbas, 2, Some(640))
                 .unwrap()
                 .total_blocks,
-            13
+            11
         );
         let same_page: Vec<_> = (0..320).collect();
         assert_eq!(
@@ -234,7 +240,7 @@ mod tests {
                         snapshots += dirty.len();
                         assert!(snapshots as u64 <= reservation.mapping_snapshots);
                         assert!(
-                            lbas.len() as u64 + groups.len() as u64 + snapshots as u64
+                            lbas.len() as u64 + reservation.data_records + snapshots as u64
                                 <= reservation.total_blocks
                         );
                     }

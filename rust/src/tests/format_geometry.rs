@@ -19,7 +19,13 @@ fn public_cache_configuration_reports_requested_and_effective_capacity() -> io::
         let initial = volume.mapping_stats();
         assert_eq!(
             initial.cache.sizing.requested_bytes,
-            budget.unwrap_or(logical_bytes / 10_000)
+            budget.unwrap_or(
+                (logical_bytes / 10_000).max(
+                    crate::mapping_cache::sizing::Sizing::for_capacity(1)
+                        .unwrap()
+                        .allocated_bytes as u64
+                )
+            )
         );
         assert_eq!(initial.cache.sizing.capacity, capacity);
         assert_eq!(initial.index_bytes, 12);

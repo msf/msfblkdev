@@ -1546,7 +1546,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_budget_reaches_engine_and_fua_persists_across_page_groups() -> io::Result<()> {
+    fn cache_budget_reaches_engine_and_fua_persists_across_mapping_pages() -> io::Result<()> {
         let command = parse_args(
             [
                 "daemon",
@@ -1554,7 +1554,7 @@ mod tests {
                 "volume.img",
                 "-1",
                 "--mapping-cache-bytes",
-                "1",
+                "12000",
                 "--write-buffer-bytes",
                 "32768",
             ]
@@ -1563,7 +1563,7 @@ mod tests {
         let CliCommand::Serve { config, .. } = command else {
             panic!("serve command expected");
         };
-        assert_eq!(config.volume_open_options().cache_budget_bytes, Some(1));
+        assert_eq!(config.volume_open_options().cache_budget_bytes, Some(12000));
         for invalid in ["-1", "1.5", "18446744073709551616"] {
             assert!(
                 parse_args(
@@ -1584,8 +1584,8 @@ mod tests {
         let mut volume =
             block_storage::open_with_options(&backing.0, config.volume_open_options())?;
         let initial = volume.mapping_stats();
-        assert_eq!(initial.cache.sizing.requested_bytes, 1);
-        assert_eq!(initial.cache.sizing.capacity, 1);
+        assert_eq!(initial.cache.sizing.requested_bytes, 12000);
+        assert_eq!(initial.cache.sizing.capacity, 3);
         let mut write = descriptor(
             UBLK_IO_OP_WRITE,
             319 * SECTORS_PER_BLOCK,
@@ -1600,9 +1600,9 @@ mod tests {
                 fatal: false
             }
         );
-        assert_eq!(volume.release_stats().records, 2);
-        assert_eq!(volume.mapping_stats().pressure_checkpoints, 1);
-        assert_eq!(volume.mapping_stats().cache.dirty_slots, 1);
+        assert_eq!(volume.release_stats().records, 1);
+        assert_eq!(volume.mapping_stats().pressure_checkpoints, 0);
+        assert_eq!(volume.mapping_stats().cache.dirty_slots, 2);
         drop(volume);
         let mut reopened =
             block_storage::open_with_options(&backing.0, config.volume_open_options())?;

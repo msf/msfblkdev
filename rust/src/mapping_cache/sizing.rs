@@ -16,7 +16,7 @@ pub struct Sizing {
 }
 
 impl Sizing {
-    pub(super) fn new(logical_bytes: u64, budget: Option<u64>) -> Result<Self, CacheError> {
+    pub(crate) fn new(logical_bytes: u64, budget: Option<u64>) -> Result<Self, CacheError> {
         let block_bytes = u64::try_from(crate::BLOCK_SIZE).expect("block size fits u64");
         let blocks = logical_bytes / block_bytes;
         if !logical_bytes.is_multiple_of(block_bytes)
@@ -49,7 +49,7 @@ impl Sizing {
         })
     }
 
-    pub(super) fn for_capacity(capacity: usize) -> Result<Self, CacheError> {
+    pub(crate) fn for_capacity(capacity: usize) -> Result<Self, CacheError> {
         if capacity == 0 {
             return Err(CacheError::InvalidCapacity);
         }

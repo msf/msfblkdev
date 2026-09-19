@@ -231,7 +231,9 @@ pub struct VolumeOpenOptions {
     /// Write-back buffer capacity in bytes, clamped to the device at open. A one-block value keeps
     /// write-through semantics; larger values coalesce writes and release them on flush or FUA.
     pub write_buffer_bytes: u64,
-    /// Mapping-cache allocation budget; None uses logical bytes / 10,000.
+    /// Mapping-cache allocation budget; None uses the larger of logical bytes / 10,000
+    /// and the minimum needed by the effective write buffer.
+    /// Must hold min(effective buffer slots, volume mapping pages) pages.
     pub cache_budget_bytes: Option<u64>,
 }
 
@@ -321,6 +323,11 @@ impl WriteBackBuffer {
     fn clear(&mut self) {
         self.lbas.clear();
         self.slot_of_lba.clear();
+    }
+
+    fn sort_by_lba(&mut self) {
+        // Payloads stay in their arena slots; the lookup retains their locations.
+        self.lbas.sort_unstable();
     }
 }
 

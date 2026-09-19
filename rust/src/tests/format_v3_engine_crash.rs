@@ -19,7 +19,7 @@ fn buffered_options() -> VolumeOpenOptions {
 }
 
 fn verify(backing: &TemporaryBacking, expected: [(u32, u8); 3]) -> io::Result<()> {
-    let mut volume = volume::open(&backing.0, buffered_options(), Some(1), None)?;
+    let mut volume = volume::open(&backing.0, VolumeOpenOptions::default(), Some(1), None)?;
     let mut bytes = [0; BLOCK_SIZE];
     for (lba, byte) in expected {
         volume.read_block(lba, &mut bytes)?;
@@ -31,11 +31,13 @@ fn verify(backing: &TemporaryBacking, expected: [(u32, u8); 3]) -> io::Result<()
 #[test]
 fn paged_grouped_release_survives_foreground_and_pressure_crashes() -> io::Result<()> {
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = volume::open(&PathBuf::from(path), buffered_options(), Some(1), None)?;
+        let mut volume =
+            volume::open(&PathBuf::from(path), buffered_options(), Some(20_000), None)?;
         for (lba, byte) in [(0, 2), (320, 3), (640, 4), (0, 5)] {
             volume.write_block(lba, &[byte; BLOCK_SIZE])?;
         }
         volume.flush()?;
+        volume.close()?;
         return Err(io::Error::other("foreground failpoint did not pause child"));
     }
     let boundaries = [
@@ -60,7 +62,7 @@ fn paged_grouped_release_survives_foreground_and_pressure_crashes() -> io::Resul
                 Some(boundary),
             )?;
             // Exact record completion survives process death; this is not a power-loss test.
-            verify(&backing, [(0, 5), (320, 0), (640, 0)])?;
+            verify(&backing, [(0, 5), (320, 3), (640, 4)])?;
         }
     }
     Ok(())

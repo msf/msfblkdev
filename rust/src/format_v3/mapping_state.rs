@@ -22,13 +22,20 @@ pub(crate) struct MappingState {
     pub(crate) checkpoint_failures: u64,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckpointPolicy {
+    Allow,
+    Forbid,
+}
+
 impl MappingState {
     pub(crate) fn with_page<T>(
         &mut self,
         backing_io: &mut BackingIo,
         backing: &File,
         page_id: u32,
-        operation: impl FnOnce(CachedPage<'_>, LogPosition, &mut BackingIo) -> io::Result<T>,
+        checkpoint_policy: CheckpointPolicy,
+        operation: impl FnOnce(CachedPage<'_>) -> io::Result<T>,
     ) -> io::Result<T> {
         let acquisition = match self
             .cache
@@ -36,6 +43,10 @@ impl MappingState {
             .map_err(cache_error)?
         {
             Acquisition::CheckpointRequired(pending) => {
+                assert!(
+                    checkpoint_policy == CheckpointPolicy::Allow,
+                    "write-buffer preflight must reserve all mapping slots"
+                );
                 match checkpoint_publish::publish(
                     backing_io,
                     backing,
@@ -67,7 +78,7 @@ impl MappingState {
                 ));
             }
         };
-        operation(page, self.tail, backing_io)
+        operation(page)
     }
 
     pub(crate) fn publish(&mut self, backing_io: &mut BackingIo, backing: &File) -> io::Result<()> {

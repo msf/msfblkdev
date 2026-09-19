@@ -61,11 +61,11 @@ fn release_stats_report_batch_occupancy_and_footer_ratio() -> io::Result<()> {
     }
     volume.flush()?;
     let stats = volume.release_stats();
-    // Page grouping splits 340 payloads into 320 + 20.
+    // Packing splits 340 payloads into 338 + 2.
     assert_eq!(stats.payloads, u64::from(payloads));
     assert_eq!(stats.records, 2);
-    assert_eq!(stats.payload_histogram[5], 1, "one 320-payload record");
-    assert_eq!(stats.payload_histogram[3], 1, "one 20-payload record");
+    assert_eq!(stats.payload_histogram[6], 1, "one 338-payload record");
+    assert_eq!(stats.payload_histogram[1], 1, "one 2-payload record");
     let ratio = (stats.footer_bytes + stats.payload_bytes) as f64 / stats.payload_bytes as f64;
     assert!(
         ratio < 1.01,

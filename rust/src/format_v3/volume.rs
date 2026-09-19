@@ -1,4 +1,8 @@
-use super::{checkpoint_load, mapping_state::MappingState, recovery, storage};
+use super::{
+    checkpoint_load,
+    mapping_state::{CheckpointPolicy, MappingState},
+    recovery, storage,
+};
 mod write;
 use crate::{
     AlignedBlock, BLOCK_SIZE, ReleaseIovecs, ReleaseStats, ReleaseTrigger, SpaceUsage,
@@ -49,6 +53,17 @@ pub(crate) fn open(
     let mut backing_io = BackingIo::new(accounting)?;
     let (mut checkpoint, live_blocks) =
         checkpoint_load::load(&mut backing_io, &backing, bytes / BLOCK_SIZE as u64)?;
+    let buffer_blocks = clamp_write_buffer_blocks(
+        options.write_buffer_bytes,
+        checkpoint.descriptor.backing_blocks,
+        checkpoint.descriptor.geometry()?.log_start,
+    );
+    let cache_budget = Some(validate_buffer_mapping_capacity(
+        options,
+        cache_budget,
+        &checkpoint,
+        buffer_blocks,
+    )?);
     let recovered = recovery::recover(&mut backing_io, &backing, &mut checkpoint, cache_budget)?;
     clear_stale_tail(
         &mut backing_io,
@@ -56,11 +71,6 @@ pub(crate) fn open(
         u64::from(recovered.tail.boundary) + 1,
         checkpoint.descriptor.backing_blocks,
     )?;
-    let buffer_blocks = clamp_write_buffer_blocks(
-        options.write_buffer_bytes,
-        checkpoint.descriptor.backing_blocks,
-        checkpoint.descriptor.geometry()?.log_start,
-    );
     Ok(Volume {
         backing,
         backing_io,
@@ -76,12 +86,53 @@ pub(crate) fn open(
         write_buffer: WriteBackBuffer::with_capacity(buffer_blocks),
         buffered_pages: 0,
         footer_scratch: AlignedBlock([0; BLOCK_SIZE]),
-        release_iovecs: ReleaseIovecs(Vec::with_capacity(ENTRIES_PER_PAGE + 1)),
+        release_iovecs: ReleaseIovecs(Vec::with_capacity(crate::MAXIMUM_PAYLOAD_BLOCKS + 1)),
         release_stats: ReleaseStats::default(),
         checkpoint_after_bytes: options.checkpoint_after_bytes,
         live_blocks: live_blocks + recovered.stats.newly_mapped_blocks,
         failed: false,
     })
+}
+
+fn validate_buffer_mapping_capacity(
+    options: VolumeOpenOptions,
+    budget: Option<u64>,
+    checkpoint: &super::index::Checkpoint,
+    buffer_blocks: usize,
+) -> io::Result<u64> {
+    use crate::mapping_cache::sizing::Sizing;
+    let logical_bytes = u64::from(checkpoint.descriptor.volume_blocks) * BLOCK_SIZE as u64;
+    let required = buffer_blocks.min(checkpoint.descriptor.geometry()?.page_count as usize);
+    let minimum = Sizing::for_capacity(required).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("mapping cache: {error:?}"),
+        )
+    })?;
+    let budget = budget.unwrap_or((logical_bytes / 10_000).max(minimum.allocated_bytes as u64));
+    let sizing = Sizing::new(logical_bytes, Some(budget)).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("mapping cache: {error:?}"),
+        )
+    })?;
+    if sizing.capacity < required {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "mapping cache has {} slots; write buffer requires {required} slots (at least {} cache bytes)",
+                sizing.capacity, minimum.allocated_bytes,
+            ),
+        ));
+    }
+    let payloads = buffer_blocks.min(checkpoint.descriptor.volume_blocks as usize);
+    let records = payloads.div_ceil(crate::MAXIMUM_PAYLOAD_BLOCKS);
+    if (payloads + records) as u64 * BLOCK_SIZE as u64 > options.checkpoint_after_bytes {
+        return Err(invalid_input(
+            "checkpoint_after_bytes must hold one packed write buffer",
+        ));
+    }
+    Ok(budget)
 }
 
 impl Volume {
@@ -141,7 +192,8 @@ impl Volume {
             &mut self.backing_io,
             &self.backing,
             page_id,
-            |page, _, _| {
+            CheckpointPolicy::Allow,
+            |page| {
                 Ok((
                     page.entries().physical_addr[entry],
                     page.entries().payload_checksum[entry],
