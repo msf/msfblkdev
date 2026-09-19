@@ -21,7 +21,7 @@ def checked(args, **kwargs):
         raise
 
 
-def prepare(repo, build, version):
+def prepare(repo, build, version, driver="compare.rs", adapter_file=None):
     checkout = build / version
     checkout.mkdir(exist_ok=True)
     if version == "working":
@@ -34,9 +34,9 @@ def prepare(repo, build, version):
     example = checkout / "rust/examples/mapping_compare"
     example.mkdir(parents=True, exist_ok=True)
     source = repo / "tools/mapping-bench"
-    shutil.copyfile(source / "compare.rs", example / "main.rs")
+    shutil.copyfile(source / driver, example / "main.rs")
     adapter = "v11" if version == "v1.1" else "v12"
-    shutil.copyfile(source / f"{adapter}.rs", example / "adapter.rs")
+    shutil.copyfile(source / (adapter_file or f"{adapter}.rs"), example / "adapter.rs")
     target = build / f"target-{version}"
     env = dict(os.environ, CARGO_TARGET_DIR=str(target))
     with (build / f"build-{version}.log").open("w") as log:
