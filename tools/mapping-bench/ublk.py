@@ -172,12 +172,14 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--pilot", action="store_true")
     parser.add_argument("--working-tree", action="store_true")
+    parser.add_argument("--versions", nargs="+", choices=("v1.1", "v1.2", "v1.2.1", "v1.2.2"),
+                        default=["v1.1", "v1.2"])
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
     args.output.mkdir()
     build = args.build_dir.resolve()
     build.mkdir(exist_ok=True)
-    versions = ["v1.1", "v1.2"] + (["working"] if args.working_tree else [])
+    versions = args.versions + (["working"] if args.working_tree else [])
     for version in versions:
         prepare(repo, build, version)
         with (build / f"daemon-{version}.log").open("w") as log:
@@ -197,9 +199,9 @@ def main():
                               for v, p in binaries.items()},
                     tags={v: checked(["git", "rev-parse", f"{'HEAD' if v == 'working' else v}^{{commit}}"], cwd=repo,
                                      capture_output=True).stdout.strip() for v in binaries})
-    configurations = [("v1.1", "default"), ("v1.2", "default"), ("v1.2", str(16 << 20))]
+    configurations = [(version, "default") for version in versions]
+    configurations += [(version, str(16 << 20)) for version in versions if version != "v1.1"]
     if args.working_tree:
-        configurations += [("working", "default"), ("working", str(16 << 20))]
         digest = hashlib.sha256()
         source = build / "working/rust"
         for path in sorted(p for p in source.rglob("*") if p.is_file()):

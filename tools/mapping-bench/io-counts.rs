@@ -1,4 +1,4 @@
-//! Count backing operations for bounded scattered writes, excluding open and close.
+//! Count backing operations for bounded writes and report final close separately.
 use block_storage::{VolumeOpenOptions, format, io_accounting, open_with_accounting};
 use std::{fs, io, path::Path, time::Instant};
 
@@ -41,12 +41,14 @@ fn run(root: &Path, budget: Option<u64>, flush_every: usize, pages: u32) -> io::
     let elapsed_ns = start.elapsed().as_nanos();
     let final_counts = reader.snapshot()?;
     let release = volume.release_stats();
-    assert!(!final_counts.completed_totals_incomplete);
-    assert!(!final_counts.budget_exhausted);
-    assert_eq!(final_counts.errors, 0);
-    assert_eq!(final_counts.pending_operations, 0);
+    volume.close()?;
+    let closed = reader.snapshot()?;
+    assert!(!closed.completed_totals_incomplete);
+    assert!(!closed.budget_exhausted);
+    assert_eq!(closed.errors, 0);
+    assert_eq!(closed.pending_operations, 0);
     println!(
-        "flush_every={flush_every} pages={pages} elapsed_ns={elapsed_ns} reads={} writes={} flushes={} read_bytes={} write_bytes={} records={} payloads={}",
+        "flush_every={flush_every} pages={pages} elapsed_ns={elapsed_ns} reads={} writes={} flushes={} read_bytes={} write_bytes={} records={} payloads={} close_writes={} close_write_bytes={} close_flushes={}",
         final_counts.read_completed_operations - initial.read_completed_operations,
         final_counts.write_completed_operations - initial.write_completed_operations,
         final_counts.flush_completed_operations - initial.flush_completed_operations,
@@ -54,8 +56,10 @@ fn run(root: &Path, budget: Option<u64>, flush_every: usize, pages: u32) -> io::
         final_counts.write_completed_bytes - initial.write_completed_bytes,
         release.records,
         release.payloads,
+        closed.write_completed_operations - final_counts.write_completed_operations,
+        closed.write_completed_bytes - final_counts.write_completed_bytes,
+        closed.flush_completed_operations - final_counts.flush_completed_operations,
     );
-    volume.close()?;
     drop(reader);
     fs::remove_file(ledger)?;
     fs::remove_file(backing)

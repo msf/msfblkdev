@@ -15,7 +15,7 @@ def build_binary(repo, build, version):
     example.mkdir(exist_ok=True)
     source = repo / "tools/mapping-bench"
     shutil.copyfile(source / "io-counts.rs", example / "main.rs")
-    adapter = (source / f"{version.replace('.', '')}.rs").read_text()
+    adapter = (source / ("v11.rs" if version == "v1.1" else "v12.rs")).read_text()
     (example / "options.rs").write_text(adapter.split("\nfn stats(", 1)[0])
     env = dict(os.environ, CARGO_TARGET_DIR=str(build / f"target-{version}"))
     with (build / f"io-counts-{version}.log").open("w") as log:
@@ -31,13 +31,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--versions", nargs="+", choices=("v1.1", "v1.2", "v1.2.1", "v1.2.2"),
+                        default=["v1.1", "v1.2"])
+    parser.add_argument("--working-tree", action="store_true")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
     build = args.build_dir.resolve()
     build.mkdir(exist_ok=True)
-    binaries = {v: build_binary(repo, build, v) for v in ("v1.1", "v1.2")}
+    versions = args.versions + (["working"] if args.working_tree else [])
+    binaries = {v: build_binary(repo, build, v) for v in versions}
+    configurations = [(v, "default") for v in versions]
+    configurations += [(v, str(16 << 20)) for v in versions if v != "v1.1"]
     with args.output.open("x") as output:
-        for version, budget in (("v1.1", "default"), ("v1.2", "default"), ("v1.2", str(16 << 20))):
+        for version, budget in configurations:
             for pages, flush in ((3277, 1), (3277, 32), (3277, 256), (3277, 1024), (32, 32)):
                 fixture = Path(tempfile.mkdtemp(prefix=".mapping-io-counts-", dir=repo))
                 checked(["chattr", "+C", str(fixture)])

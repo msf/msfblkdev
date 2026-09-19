@@ -35,7 +35,7 @@ def prepare(repo, build, version):
     example.mkdir(parents=True, exist_ok=True)
     source = repo / "tools/mapping-bench"
     shutil.copyfile(source / "compare.rs", example / "main.rs")
-    adapter = "v12" if version == "working" else version.replace('.', '')
+    adapter = "v11" if version == "v1.1" else "v12"
     shutil.copyfile(source / f"{adapter}.rs", example / "adapter.rs")
     target = build / f"target-{version}"
     env = dict(os.environ, CARGO_TARGET_DIR=str(target))
@@ -55,6 +55,8 @@ def main():
     parser.add_argument("--pilot", action="store_true")
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--working-tree", action="store_true")
+    parser.add_argument("--versions", nargs="+", choices=("v1.1", "v1.2", "v1.2.1", "v1.2.2"),
+                        default=["v1.1", "v1.2"])
     parser.add_argument("--workloads", nargs="+", choices=(
         "seq-read", "hot-read", "wide-read", "seq-write", "wide-write"))
     parser.add_argument("--budgets", nargs="+", choices=(
@@ -65,23 +67,24 @@ def main():
     build = build.resolve()
     build.mkdir(exist_ok=True)
     print(f"build={build}", flush=True)
-    binaries = {version: prepare(repo, build, version) for version in ("v1.1", "v1.2")}
-    configurations = [("v1.1", "default"), ("v1.2", "default")]
-    configurations += [("v1.2", str(mib << 20)) for mib in (1, 4, 12, 16)]
+    versions = args.versions + (["working"] if args.working_tree else [])
+    binaries = {version: prepare(repo, build, version) for version in versions}
+    configurations = [(version, "default") for version in versions]
+    for version in versions:
+        if version != "v1.1":
+            # The packed writer's 4 MiB buffer requires 1,024 mapping slots.
+            sizes = (1, 4, 12, 16) if version == "v1.2" else (4, 12, 16)
+            configurations += [(version, str(mib << 20)) for mib in sizes]
     workloads = ["seq-read", "hot-read", "wide-read", "seq-write", "wide-write"]
     if args.pilot:
-        configurations = [("v1.1", "default"), ("v1.2", "default"), ("v1.2", str(16 << 20))]
+        configurations = [(version, budget) for version, budget in configurations
+                          if budget in ("default", str(16 << 20))]
         workloads = ["wide-read", "wide-write"]
     if args.workloads:
         workloads = args.workloads
     if args.budgets:
         configurations = [(version, budget) for version, budget in configurations
                           if version == "v1.1" or budget in args.budgets]
-    if args.working_tree:
-        binaries["working"] = prepare(repo, build, "working")
-        # This driver's 4 MiB write buffer requires 1,024 mapping slots.
-        configurations += [("working", budget) for version, budget in configurations
-                           if version == "v1.2" and budget != "1048576"]
     cpu = min(os.sched_getaffinity(0))
     metadata = {
         "kernel": os.uname().release,
