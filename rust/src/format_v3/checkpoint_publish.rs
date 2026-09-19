@@ -72,14 +72,14 @@ fn prepare(active: &Checkpoint, cache: &MappingCache, tail: LogPosition) -> io::
 pub(crate) fn append_snapshots(
     backing_io: &mut BackingIo,
     backing: &File,
-    cache: &MappingCache,
+    cache: &mut MappingCache,
     candidate: &mut Checkpoint,
 ) -> io::Result<()> {
     let geometry = candidate.descriptor.geometry()?;
     let mut blocks = [const { AlignedBlock([0; BLOCK_SIZE]) }; storage::CHECKPOINT_BATCH_BLOCKS];
     let mut page_ids = [0; storage::CHECKPOINT_BATCH_BLOCKS];
     let mut count = 0;
-    for (page_id, entries) in cache.dirty_pages() {
+    for (page_id, entries) in cache.sorted_dirty_pages() {
         let descriptor = candidate.descriptor;
         let previous = descriptor.last_record_boundary + count as u32;
         let record = MappingPageRecord {

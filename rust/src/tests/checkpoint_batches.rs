@@ -175,7 +175,7 @@ fn missing_snapshot_blocks_do_not_publish_later_out_of_order_records() -> io::Re
         checkpoint_publish::append_snapshots(
             &mut BackingIo::new(None)?,
             &volume.backing,
-            &volume.mapping.cache,
+            &mut volume.mapping.cache,
             &mut candidate,
         )?;
         drop(volume);

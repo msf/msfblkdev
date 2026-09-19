@@ -102,7 +102,7 @@ impl Recovery<'_> {
             checkpoint_publish::append_snapshots(
                 self.backing_io,
                 self.backing,
-                &cache,
+                &mut cache,
                 &mut self.candidate,
             )?;
             self.stats.snapshot_writes += cache.dirty_pages().count() as u64;

@@ -99,6 +99,7 @@ pub struct Snapshot {
 
 pub(super) struct MappingCache {
     slots: Box<[Slot]>,
+    dirty_order: Box<[u32]>,
     lookup: Lookup,
     clock: Clock,
     sizing: Sizing,
@@ -157,6 +158,7 @@ impl MappingCache {
         );
         Ok(Self {
             slots,
+            dirty_order: filled_slice(sizing.capacity, 0)?,
             lookup,
             clock,
             sizing,
@@ -243,6 +245,24 @@ impl MappingCache {
             .take(self.resident)
             .filter(|slot| slot.dirty)
             .map(|slot| (slot.page_id, &slot.entries))
+    }
+
+    pub(super) fn sorted_dirty_pages(&mut self) -> impl Iterator<Item = (u32, &MappingEntries)> {
+        let mut count = 0;
+        for slot in self
+            .slots
+            .iter()
+            .take(self.resident)
+            .filter(|slot| slot.dirty)
+        {
+            self.dirty_order[count] = slot.page_id;
+            count += 1;
+        }
+        self.dirty_order[..count].sort_unstable();
+        self.dirty_order[..count].iter().map(|&id| {
+            let slot = self.lookup[&id] as usize;
+            (id, &self.slots[slot].entries)
+        })
     }
 
     /// The caller must invoke this only after successful checkpoint publication.

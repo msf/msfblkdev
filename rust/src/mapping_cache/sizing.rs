@@ -12,6 +12,7 @@ pub struct Sizing {
     pub slot_bytes: usize,
     pub lookup_bytes: usize,
     pub policy_bytes: usize,
+    pub sort_bytes: usize,
     pub allocated_bytes: usize,
 }
 
@@ -62,9 +63,13 @@ impl Sizing {
             .ok_or(CacheError::SizeOverflow)?;
         // Query the pinned implementation, including buckets, control bytes and padding.
         let lookup_bytes = new_lookup(capacity)?.allocation_size();
+        let sort_bytes = capacity
+            .checked_mul(size_of::<u32>())
+            .ok_or(CacheError::SizeOverflow)?;
         let allocated_bytes = slot_bytes
             .checked_add(lookup_bytes)
             .and_then(|bytes| bytes.checked_add(policy_bytes))
+            .and_then(|bytes| bytes.checked_add(sort_bytes))
             .ok_or(CacheError::SizeOverflow)?;
         Ok(Self {
             requested_bytes: 0,
@@ -73,6 +78,7 @@ impl Sizing {
             slot_bytes,
             lookup_bytes,
             policy_bytes,
+            sort_bytes,
             allocated_bytes,
         })
     }

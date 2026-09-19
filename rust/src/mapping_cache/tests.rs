@@ -30,7 +30,10 @@ fn mapping_layout_and_empty_cache() {
     assert_eq!(cache.dirty_pages().count(), 0);
     assert_eq!(
         snapshot.sizing.allocated_bytes,
-        snapshot.sizing.slot_bytes + snapshot.sizing.lookup_bytes + snapshot.sizing.policy_bytes
+        snapshot.sizing.slot_bytes
+            + snapshot.sizing.lookup_bytes
+            + snapshot.sizing.policy_bytes
+            + snapshot.sizing.sort_bytes
     );
 }
 
@@ -350,4 +353,21 @@ fn dirty_updates_pressure_retry_iteration_and_snapshots_do_not_allocate() {
         vacant.install(MappingEntries::zeroed()).unwrap();
     });
     assert_eq!(allocations, 0);
+}
+
+#[test]
+fn sorted_dirty_pages_are_bounded_and_allocation_free() {
+    let mut cache = cache(20, 4);
+    for id in [9, 2, 7, 1] {
+        install(&mut cache, id, Access::Foreground)
+            .update(0, id + 20, 0)
+            .unwrap();
+    }
+    let before = cache.snapshot();
+    let (_, allocations) = crate::tests::allocations::measure(|| {
+        let ids: [u32; 4] = std::array::from_fn(|i| cache.sorted_dirty_pages().nth(i).unwrap().0);
+        assert_eq!(ids, [1, 2, 7, 9]);
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(cache.snapshot(), before);
 }
