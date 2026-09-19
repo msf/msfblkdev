@@ -48,6 +48,7 @@ struct Slot {
     entries: MappingEntries,
     page_id: u32,
     dirty: bool,
+    prefetched: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,6 +88,9 @@ pub struct Counters {
     pub clean_evictions: u64,
     pub victim_slots_examined: u64,
     pub checkpoint_required: u64,
+    pub prefetched_pages: u64,
+    pub prefetch_hits: u64,
+    pub prefetch_unused_evictions: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,6 +143,7 @@ impl MappingCache {
                 entries: MappingEntries::zeroed(),
                 page_id: 0,
                 dirty: false,
+                prefetched: false,
             },
         )?;
         assert_eq!(
@@ -210,6 +215,10 @@ impl MappingCache {
     fn resolve(&mut self, page_id: u32) -> Acquisition<'_> {
         if let Some(&slot) = self.lookup.get(&page_id) {
             let slot = usize::try_from(slot).expect("slot fits usize");
+            if self.slots[slot].prefetched {
+                self.counters.prefetch_hits += 1;
+                self.slots[slot].prefetched = false;
+            }
             self.clock.access(slot);
             let valid_entries = self.valid_entries(page_id);
             return Acquisition::Resident(CachedPage {
@@ -265,6 +274,40 @@ impl MappingCache {
         })
     }
 
+    pub(super) fn prefetch(
+        &mut self,
+        page_id: u32,
+        entries: MappingEntries,
+    ) -> Result<bool, CacheError> {
+        self.validate_page(page_id)?;
+        if self.lookup.contains_key(&page_id) {
+            return Ok(false);
+        }
+        let slot = if self.resident < self.slots.len() {
+            self.resident
+        } else {
+            let Some(slot) = self
+                .clock
+                .cold_candidates()
+                .find(|&slot| !self.slots[slot].dirty)
+            else {
+                return Ok(false);
+            };
+            self.clock.advance_past(slot);
+            slot
+        };
+        VacantPage {
+            cache: self,
+            page_id,
+            slot,
+        }
+        .install(entries)?;
+        self.slots[slot].prefetched = true;
+        self.clock.remove(slot);
+        self.counters.prefetched_pages += 1;
+        Ok(true)
+    }
+
     /// The caller must invoke this only after successful checkpoint publication.
     pub(super) fn checkpoint_published(&mut self) {
         for slot in self.slots.iter_mut().take(self.resident) {
@@ -317,6 +360,28 @@ impl CachedPage<'_> {
 }
 
 impl<'a> VacantPage<'a> {
+    pub(super) fn prefetch_limit(&self, maximum: usize) -> usize {
+        assert!(maximum > 0);
+        let unused = self.cache.slots.len() - self.cache.resident;
+        let available = unused.saturating_sub(usize::from(self.slot == self.cache.resident))
+            + self
+                .cache
+                .clock
+                .cold_candidates()
+                .filter(|&slot| {
+                    slot < self.cache.resident && slot != self.slot && !self.cache.slots[slot].dirty
+                })
+                .take(maximum - 1)
+                .count();
+        (1..maximum.min(available + 1))
+            .take_while(|offset| {
+                let id = self.page_id + *offset as u32;
+                id < self.cache.sizing.page_count && !self.cache.lookup.contains_key(&id)
+            })
+            .count()
+            + 1
+    }
+
     pub(super) fn install(self, entries: MappingEntries) -> Result<CachedPage<'a>, CacheError> {
         let valid_entries = self.cache.valid_entries(self.page_id);
         entries.validate(valid_entries)?;
@@ -327,6 +392,9 @@ impl<'a> VacantPage<'a> {
             .expect("reserved slot in range");
         assert!(!slot.dirty, "dirty pages cannot be replaced");
         if self.slot < self.cache.resident {
+            if slot.prefetched {
+                self.cache.counters.prefetch_unused_evictions += 1;
+            }
             let removed = self.cache.lookup.remove(&slot.page_id);
             assert_eq!(
                 removed,
@@ -356,6 +424,7 @@ impl<'a> VacantPage<'a> {
             entries,
             page_id: self.page_id,
             dirty: false,
+            prefetched: false,
         };
         self.cache.clock.insert(self.slot);
         Ok(CachedPage {

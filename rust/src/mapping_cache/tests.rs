@@ -162,6 +162,7 @@ fn dirty_protection_publication_and_retry_have_exact_counters() {
             clean_evictions: 1,
             victim_slots_examined: 12,
             checkpoint_required: 2,
+            ..Counters::default()
         }
     );
     cache.checkpoint_published();
@@ -182,6 +183,7 @@ fn dirty_protection_publication_and_retry_have_exact_counters() {
             clean_evictions: 2,
             victim_slots_examined: 13,
             checkpoint_required: 2,
+            ..Counters::default()
         }
     );
 }
@@ -356,7 +358,7 @@ fn dirty_updates_pressure_retry_iteration_and_snapshots_do_not_allocate() {
 }
 
 #[test]
-fn sorted_dirty_pages_are_bounded_and_allocation_free() {
+fn sorted_dirty_pages_and_prefetch_are_bounded_and_allocation_free() {
     let mut cache = cache(20, 4);
     for id in [9, 2, 7, 1] {
         install(&mut cache, id, Access::Foreground)
@@ -367,7 +369,31 @@ fn sorted_dirty_pages_are_bounded_and_allocation_free() {
     let (_, allocations) = crate::tests::allocations::measure(|| {
         let ids: [u32; 4] = std::array::from_fn(|i| cache.sorted_dirty_pages().nth(i).unwrap().0);
         assert_eq!(ids, [1, 2, 7, 9]);
+        assert!(!cache.prefetch(3, MappingEntries::zeroed()).unwrap());
+        assert!(!cache.prefetch(9, MappingEntries::zeroed()).unwrap());
     });
     assert_eq!(allocations, 0);
     assert_eq!(cache.snapshot(), before);
+    cache.checkpoint_published();
+    assert!(!cache.prefetch(3, MappingEntries::zeroed()).unwrap()); // All are referenced.
+    install(&mut cache, 10, Access::Foreground); // Demand ages other clean entries.
+    let (_, allocations) = crate::tests::allocations::measure(|| {
+        assert!(cache.prefetch(11, MappingEntries::zeroed()).unwrap());
+        assert!(cache.prefetch(12, MappingEntries::zeroed()).unwrap());
+        assert!(matches!(
+            cache.acquire(11, Access::Foreground).unwrap(),
+            Acquisition::Resident(_)
+        ));
+        assert!(matches!(
+            cache.acquire(11, Access::Foreground).unwrap(),
+            Acquisition::Resident(_)
+        ));
+        for id in [13, 14, 15, 16] {
+            install(&mut cache, id, Access::Foreground);
+        }
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(cache.counters.prefetched_pages, 2);
+    assert_eq!(cache.counters.prefetch_hits, 1);
+    assert_eq!(cache.counters.prefetch_unused_evictions, 1);
 }

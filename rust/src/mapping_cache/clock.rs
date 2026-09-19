@@ -30,6 +30,18 @@ impl Clock {
         self.set(slot, false);
     }
 
+    pub(super) fn cold_candidates(&self) -> impl Iterator<Item = usize> + '_ {
+        // Bound speculative admission work independently of the cache size.
+        (0..self.capacity.min(32))
+            .map(|offset| (self.cursor + offset) % self.capacity)
+            .filter(|&slot| self.referenced[slot / 64] & (1_u64 << (slot % 64)) == 0)
+    }
+
+    pub(super) fn advance_past(&mut self, slot: usize) {
+        assert!(slot < self.capacity);
+        self.cursor = (slot + 1) % self.capacity;
+    }
+
     fn set(&mut self, slot: usize, value: bool) {
         assert!(slot < self.capacity, "CLOCK slot must be in range");
         let word = self.referenced.get_mut(slot / 64).expect("allocated bit");

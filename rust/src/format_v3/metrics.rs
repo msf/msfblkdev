@@ -5,6 +5,9 @@ use crate::mapping_cache::Snapshot;
 pub struct MappingIo {
     /// Reads through checkpoint pointers, including rejected checkpoint candidates.
     pub page_reads: u64,
+    /// Foreground mapping read submissions, including adjacent speculative pages.
+    pub demand_page_read_ops: u64,
+    pub prefetch_rejected: u64,
     pub page_writes: u64,
     /// Complete index blocks written, including padding but excluding descriptors.
     pub index_bytes_written: u64,
@@ -27,7 +30,7 @@ impl MappingStats {
         let cache = self.cache;
         let counters = cache.counters;
         format!(
-            "mapping_foreground_hits={} mapping_foreground_misses={} mapping_foreground_hit_rate={} mapping_recovery_hits={} mapping_recovery_misses={} mapping_recovery_hit_rate={} mapping_clean_evictions={} mapping_victim_scans={} mapping_checkpoint_required={} mapping_pressure_checkpoints={} mapping_checkpoint_failures={} mapping_page_reads={} mapping_page_writes={} mapping_index_bytes_written={} mapping_tail_blocks_read={} mapping_recovery_passes={} mapping_resident_slots={} mapping_dirty_slots={} mapping_slot_capacity={} mapping_cache_requested_bytes={} mapping_cache_allocated_bytes={} mapping_index_bytes={}",
+            "mapping_foreground_hits={} mapping_foreground_misses={} mapping_foreground_hit_rate={} mapping_recovery_hits={} mapping_recovery_misses={} mapping_recovery_hit_rate={} mapping_clean_evictions={} mapping_victim_scans={} mapping_checkpoint_required={} mapping_pressure_checkpoints={} mapping_checkpoint_failures={} mapping_page_reads={} mapping_page_writes={} mapping_index_bytes_written={} mapping_tail_blocks_read={} mapping_recovery_passes={} mapping_resident_slots={} mapping_dirty_slots={} mapping_slot_capacity={} mapping_cache_requested_bytes={} mapping_cache_allocated_bytes={} mapping_index_bytes={} mapping_demand_read_ops={} mapping_prefetched_pages={} mapping_prefetch_hits={} mapping_prefetch_unused_evictions={} mapping_prefetch_rejected={}",
             counters.foreground.hits,
             counters.foreground.misses,
             rate(counters.foreground.hit_rate()),
@@ -50,6 +53,11 @@ impl MappingStats {
             cache.sizing.requested_bytes,
             cache.sizing.allocated_bytes,
             self.index_bytes,
+            self.io.demand_page_read_ops,
+            counters.prefetched_pages,
+            counters.prefetch_hits,
+            counters.prefetch_unused_evictions,
+            self.io.prefetch_rejected,
         )
     }
 }

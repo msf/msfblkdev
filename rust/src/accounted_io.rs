@@ -8,6 +8,8 @@ pub(super) struct BackingIo {
     pub(super) mapping_io: crate::format_v3::metrics::MappingIo,
     #[cfg(test)]
     pub(super) metadata_short_write: Option<(u32, usize)>,
+    #[cfg(test)]
+    pub(super) metadata_short_read: Option<usize>,
 }
 
 impl BackingIo {
@@ -18,6 +20,8 @@ impl BackingIo {
             mapping_io: crate::format_v3::metrics::MappingIo::default(),
             #[cfg(test)]
             metadata_short_write: None,
+            #[cfg(test)]
+            metadata_short_read: None,
         })
     }
 }

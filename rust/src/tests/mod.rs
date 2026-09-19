@@ -589,6 +589,7 @@ mod format_v3_tail;
 mod format_v3_volume;
 mod format_v3_write;
 mod io_uring;
+mod mapping_prefetch;
 mod packed_writes;
 mod process_crash;
 mod stale_tail;

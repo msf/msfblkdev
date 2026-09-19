@@ -14,6 +14,7 @@ pub(crate) mod index;
 pub(crate) mod mapping_page;
 pub(crate) mod mapping_state;
 pub(crate) mod metrics;
+mod page_read;
 pub(crate) mod recovery;
 pub(crate) mod reservation;
 pub(crate) mod storage;

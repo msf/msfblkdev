@@ -1,15 +1,13 @@
 use super::{
     checkpoint_publish::{self, LogPosition},
     index::Checkpoint,
-    mapping_page::{MappingPageRecord, PageExpectation},
+    page_read::{PageRead, READ_AHEAD_PAGES},
     recovery::RecoveryStats,
 };
 use crate::{
-    AlignedBlock, BLOCK_SIZE,
     accounted_io::BackingIo,
     invalid_data,
-    mapping_cache::{Access, Acquisition, CacheError, CachedPage, MappingCache, MappingEntries},
-    read_block_exact,
+    mapping_cache::{Access, Acquisition, CacheError, CachedPage, MappingCache},
 };
 use std::{fs::File, io};
 
@@ -20,6 +18,7 @@ pub(crate) struct MappingState {
     pub(crate) recovery: RecoveryStats,
     pub(crate) pressure_checkpoints: u64,
     pub(crate) checkpoint_failures: u64,
+    pub(crate) last_read_page: Option<u32>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -37,6 +36,12 @@ impl MappingState {
         checkpoint_policy: CheckpointPolicy,
         operation: impl FnOnce(CachedPage<'_>) -> io::Result<T>,
     ) -> io::Result<T> {
+        let sequential = checkpoint_policy == CheckpointPolicy::Allow
+            && self
+                .last_read_page
+                .and_then(|previous| previous.checked_add(1))
+                == Some(page_id);
+        self.last_read_page = (checkpoint_policy == CheckpointPolicy::Allow).then_some(page_id);
         let acquisition = match self
             .cache
             .acquire(page_id, Access::Foreground)
@@ -67,18 +72,33 @@ impl MappingState {
             }
             ready => ready,
         };
+        let mut prefetched = None;
         let page = match acquisition {
             Acquisition::Resident(page) => page,
-            Acquisition::Vacant(vacant) => vacant
-                .install(read_page(backing_io, backing, &self.checkpoint, page_id)?)
-                .map_err(cache_error)?,
+            Acquisition::Vacant(vacant) => {
+                let limit = if sequential {
+                    vacant.prefetch_limit(READ_AHEAD_PAGES)
+                } else {
+                    1
+                };
+                let mut read = PageRead::new();
+                let page = vacant
+                    .install(read.read(backing_io, backing, &self.checkpoint, page_id, limit)?)
+                    .map_err(cache_error)?;
+                prefetched = Some(read);
+                page
+            }
             Acquisition::CheckpointRequired(_) => {
                 return Err(invalid_data(
                     "published checkpoint did not release cache capacity",
                 ));
             }
         };
-        operation(page)
+        let result = operation(page)?;
+        if let Some(read) = prefetched {
+            read.install_prefetched(&mut self.cache, &self.checkpoint, backing_io, page_id)?;
+        }
+        Ok(result)
     }
 
     pub(crate) fn publish(&mut self, backing_io: &mut BackingIo, backing: &File) -> io::Result<()> {
@@ -101,33 +121,14 @@ impl MappingState {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn read_page(
     backing_io: &mut BackingIo,
     backing: &File,
     checkpoint: &Checkpoint,
     page_id: u32,
-) -> io::Result<MappingEntries> {
-    let descriptor = checkpoint.descriptor;
-    let geometry = descriptor.geometry()?;
-    geometry.page_entries(page_id)?;
-    let boundary = checkpoint.mapping_page_block[page_id as usize];
-    if boundary == 0 {
-        return Ok(MappingEntries::zeroed());
-    }
-    let mut bytes = AlignedBlock([0; BLOCK_SIZE]);
-    read_block_exact(backing_io, backing, boundary, &mut bytes)?;
-    backing_io.mapping_io.page_reads += 1;
-    Ok(MappingPageRecord::decode(
-        &bytes.0,
-        &PageExpectation {
-            geometry,
-            volume_id: descriptor.volume_id,
-            page_id,
-            boundary,
-            maximum_lsn: descriptor.checkpoint_lsn,
-        },
-    )?
-    .entries)
+) -> io::Result<crate::mapping_cache::MappingEntries> {
+    PageRead::new().read(backing_io, backing, checkpoint, page_id, 1)
 }
 
 fn cache_error(error: CacheError) -> io::Error {

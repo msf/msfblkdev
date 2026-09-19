@@ -81,6 +81,7 @@ pub(crate) fn open(
             recovery: recovered.stats,
             pressure_checkpoints: 0,
             checkpoint_failures: 0,
+            last_read_page: None,
         },
         read_scratch: AlignedBlock([0; BLOCK_SIZE]),
         write_buffer: WriteBackBuffer::with_capacity(buffer_blocks),
@@ -136,6 +137,11 @@ fn validate_buffer_mapping_capacity(
 }
 
 impl Volume {
+    #[cfg(test)]
+    pub(crate) fn inject_metadata_short_read(&mut self, bytes: usize) {
+        self.backing_io.metadata_short_read = Some(bytes);
+    }
+
     #[cfg(test)]
     pub(crate) fn inject_metadata_short_write(&mut self, physical: u32, bytes: usize) {
         self.backing_io.metadata_short_write = Some((physical, bytes));
