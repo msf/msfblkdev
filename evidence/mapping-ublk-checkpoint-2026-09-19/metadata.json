@@ -1,0 +1,59 @@
+{
+  "kernel": "7.0.0-31-generic",
+  "cpus": [
+    0,
+    1
+  ],
+  "logical_bytes": 4294967296,
+  "backing_bytes": 1073741824,
+  "repetitions": 3,
+  "workloads": [
+    "seq-read",
+    "wide-read",
+    "seq-write",
+    "wide-write"
+  ],
+  "fio": "fio-3.41",
+  "binaries": {
+    "v1.1": {
+      "path": "/tmp/msfblkdev-checkpoint-perf/target-v1.1/release/block-storage-ublk",
+      "sha256": "c1c8b219eb41184da1e145aee7bed56420296c2b051e1dac3b5986c82a9364f1"
+    },
+    "v1.2.1": {
+      "path": "/tmp/msfblkdev-checkpoint-perf/target-v1.2.1/release/block-storage-ublk",
+      "sha256": "81fd21cfae3f405a94e23b1bae896b2106bf1268991de953d1bdf002c4f27d92"
+    },
+    "working": {
+      "path": "/tmp/msfblkdev-checkpoint-perf/target-working/release/block-storage-ublk",
+      "sha256": "a55297c17a67a09afe704808a45091782c7f2fd46357f06a34c418d96a33df04"
+    }
+  },
+  "tags": {
+    "v1.1": "1ea859783621dfad36cc75cd5616a8613ae2d9c7",
+    "v1.2.1": "4c8037aa1b0a869274a908a57ad82f3c8d5336d1",
+    "working": "4c8037aa1b0a869274a908a57ad82f3c8d5336d1"
+  },
+  "working_source_sha256": "02ed4127d0af05144b4c896b790c1b96c8a58641cdaacce712e498d333eb8fd2",
+  "configurations": [
+    [
+      "v1.1",
+      "default"
+    ],
+    [
+      "v1.2.1",
+      "default"
+    ],
+    [
+      "working",
+      "default"
+    ],
+    [
+      "v1.2.1",
+      "16777216"
+    ],
+    [
+      "working",
+      "16777216"
+    ]
+  ]
+}

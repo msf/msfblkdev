@@ -10,16 +10,17 @@ ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem
 
 The SQLite/ext4 portion of Delivery 3 passed 87 fresh runs across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. All 348 filesystem checks and 174 logical validations passed. [SQLITE-EXT4.md](SQLITE-EXT4.md) records the suite and selected initial baseline. SQLite on XFS and RocksDB remain unimplemented.
 
-ADR-07 is complete. The latest release is **v1.2.1**, with corrected packed writes.
+ADR-07 is complete. The latest release is **v1.2.2**, with batched checkpoint writes.
+v1.2.1 introduced corrected packed data writes; v1.2.2 retains that behavior.
 The original **v1.2** tag retains the earlier one-record-per-mapping-page implementation.
 The version-3 engine uses paged mappings and a bounded CLOCK cache.
 Engine/crash tests, memory/access measurements, live ublk/fio, ext4, XFS, and the full
 87-case SQLite/ext4 regression matrix passed. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 records the schema, compatibility rules, isolated deliveries, and validation evidence.
-[The v1.1/v1.2 performance comparison](RESULTS-PERF-PAGED-MAPPING.md) measures bounded
-read/write workloads, cache sizing, tail latency, and memory use.
-[The v1.2.1 performance report](RESULTS-PERF-PACKED-WRITES.md) repeats both earlier release baselines
-and measures the corrected batching, including flush tails and final checkpoint cost.
+[The ADR-07 performance results](ADR-07-PERF-RESULTS.md) compare v1.1, v1.2.1, and v1.2.2.
+Checkpoint batching improves automatic-cache scattered-write throughput by 46% through fio
+and reduces full-cache close from 58.06 ms to 11.66 ms versus v1.2.1 in the bounded rerun.
+The same report retains historical results and separates throughput, tails, memory, and close cost.
 
 [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
 
@@ -61,6 +62,9 @@ It fills unused slots sequentially and reuses clean victims. Dirty mapping pages
 resident until successful checkpoint publication. Cache pressure can cause a read to
 publish a checkpoint before loading another page. Publication appends dirty snapshots,
 persists the inactive index, and then persists its descriptor before selecting the new root.
+Snapshot and index-body writes group up to 32 contiguous blocks (128 KiB) per io_uring
+submission. Each batch must complete exactly; publication retains its three fsync barriers.
+A failed batch latches the volume and leaves its dirty pages protected.
 
 `VolumeOpenOptions::cache_budget_bytes` overrides the requested byte budget.
 The daemon exposes the same override as `serve ... --mapping-cache-bytes N`.

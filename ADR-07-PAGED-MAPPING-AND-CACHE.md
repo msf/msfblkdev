@@ -1,7 +1,7 @@
 # ADR-07 Paged mapping and bounded cache
 
 Status: complete; all engine, memory, and live acceptance gates passed (2026-09-19)
-Latest release: v1.2.1, including the packed-write correction. The v1.2 tag preserves the original release.
+Latest release: v1.2.2, with batched checkpoint writes. v1.2.1 contains the packed-data correction; v1.2 preserves the original release.
 On-disk format: 3
 Updates: ADR-01 and ADR-03 for newly formatted version-3 images only
 Related: [research proposal](papers/README.md#ideas-to-improve-the-design), [delivery plan](PLAN-PAGED-MAPPING.md)
@@ -230,6 +230,10 @@ append dirty mapping-page records and update a candidate index
 
 Unchanged pointers are reused. The old checkpoint and its pages remain untouched. Do not mark pages clean or expose the candidate index as committed before descriptor persistence succeeds. An uncertain backing I/O failure enters the existing failed-volume state; it must not authorize eviction or continued writes.
 
+Checkpoint pressure publishes all current dirty pages. Starting with v1.2.2, the writer batches consecutive mapping snapshots and index-body blocks into writes of at most 32 blocks (128 KiB), using bounded aligned scratch storage. Each snapshot retains its own framing, consecutive LSN, and checksums. Require exact completion of each batched write before counting its pages as written. A short or failed write fails the publication and latches the volume; never retry an uncertain append or clear dirty flags. Preserve the existing three publication barriers. Batching changes I/O submission size, not the disk format or the checkpoint's atomic publication boundary.
+
+A batch is not an atomic disk write. A crash can leave complete records, missing blocks, or torn metadata. Recovery may traverse a valid consecutive prefix of snapshot records without adopting their entries. Invalid recognizable snapshot framing remains a fail-closed error under the existing format contract. Do not publish an index pointing into a batch until all required writes and barriers succeed.
+
 Reserve enough append space for all resulting dirty-page snapshots before admitting each foreground record. Include the new dirty page and framing in the calculation. Reserved checkpoint bodies need no append space. Return a capacity error before accepting a write that would consume the space needed to checkpoint its mapping. There is still no reclaim or wraparound.
 
 On release, sort the complete payload write buffer by LBA, then split it into packed data records of at most 338 payloads. Mapping-page boundaries do not split records. Sort the LBA sequence while retaining each payload's arena location; compute checksums using the resulting physical offsets. Repeated writes to an LBA still coalesce before release.
@@ -246,9 +250,9 @@ Before accepting a new buffered LBA, let `N` be the resulting payload count, `R 
 
 No checkpoint occurs inside the group. Each pending mapping page therefore needs at most one later snapshot, even when its updates cross a packed-record boundary. A buffered overwrite of an existing LBA adds no reservation. Capacity rejection occurs before modifying the buffer or issuing backing I/O.
 
-This write-batching amendment supersedes v1.2's one-mapping-page-per-record rule. The [v1.1/v1.2 measurements](RESULTS-PERF-PAGED-MAPPING.md) found 4,080 backing writes instead of 128 for the same scattered batch. The minimum compatible cache replaces that rule without changing the version-3 disk layout. Historical delivery entries below describe the original v1.2 implementation.
+This write-batching amendment supersedes v1.2's one-mapping-page-per-record rule. The [v1.1/v1.2 measurements](ADR-07-PERF-RESULTS.md#historical-measurements-before-the-batching-fix) found 4,080 backing writes instead of 128 for the same scattered batch. The minimum compatible cache replaces that rule without changing the version-3 disk layout. Historical delivery entries below describe the original v1.2 implementation.
 
-The [packed-write measurements](RESULTS-PERF-PACKED-WRITES.md) repeat the release baselines and report the amended implementation's throughput, latency, memory, and checkpoint costs.
+The [packed-write measurements](ADR-07-PERF-RESULTS.md) repeat the release baselines and report the amended implementation's throughput, latency, memory, and checkpoint costs.
 
 ### How does bounded recovery work?
 
@@ -340,4 +344,18 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 
 Implemented whole-buffer sorting, 338-payload packing across mapping pages, and cache/checkpoint configuration validation. Tests cover 338, 339, 1,024, and 1,500 scattered payloads, exact record offsets, one final data-log fsync, dirty-page overlap, pressure before release, partial in-memory mapping updates, and checkpoint interruptions. No disk-format or dependency change was needed.
 
-`make lint test` passed all 301 commands. The exhaustive process-crash gate, 21 live ublk/fio cases, ext4 and XFS lifecycles, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#packed-write-amendment-validation-2026-09-19) lists the evidence. [The performance report](RESULTS-PERF-PACKED-WRITES.md) retains 105 engine and 60 fio measurements against both earlier release tags, including the remaining flush-tail and checkpoint costs. The corrected implementation is released as v1.2.1. Raw benchmark rows retain their pre-release label `working`.
+`make lint test` passed all 301 commands. The exhaustive process-crash gate, 21 live ublk/fio cases, ext4 and XFS lifecycles, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#packed-write-amendment-validation-2026-09-19) lists the evidence. [The performance report](ADR-07-PERF-RESULTS.md) retains 105 engine and 60 fio measurements against both earlier release tags, including the remaining flush-tail and checkpoint costs. The corrected implementation is released as v1.2.1. Raw benchmark rows retain their pre-release label `working`.
+
+### Checkpoint batching validation (2026-09-19)
+
+The checkpoint writer groups at most 32 contiguous snapshot or index blocks into each positional io_uring write. It uses fixed 128 KiB aligned scratch arrays; there is no new runtime dependency or disk-format change. A pressure checkpoint still publishes every dirty page, and the cache becomes clean only after the descriptor fsync.
+
+`make lint test test-acceptance` passed all 305 commands in both bounded and exhaustive modes. New tests verify 1/2/31/32/33/65 dirty pages, 1/32/33 index blocks, exact completed write counts and bytes, consecutive snapshot LSNs, failed-publication latching after a successful earlier batch, and replay with holes before later snapshot records. Eight batched-publication boundaries passed 20 SIGKILL repetitions each in exhaustive mode. A further short-write test verifies that a sub-page write missing the independent header checksum leaves the old root valid and reopening fails closed without changing the backing. Focused tests and lint passed again after adding that case.
+
+The existing authorized live ublk/fio, ext4, XFS, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#checkpoint-batching-validation-2026-09-19) records the evidence. The [performance rerun](ADR-07-PERF-RESULTS.md#v122-checkpoint-batching-2026-09-19) passed 105 engine, 60 fio, and 25 I/O-accounting cases. Automatic-cache scattered writes improved 52% in the engine and 46% through fio versus v1.2.1. Full-cache close fell from 58.06 ms to 11.66 ms, with 76 backing writes instead of 2,363 and unchanged bytes/barriers. Released as v1.2.2; the measured Rust sources match the release.
+
+## FUTURE WORK
+
+Replace the geometry-sized, fixed-location checkpoint index bodies with inline MappingPage pointers in the checkpoint descriptor and indirect index pages. Allocate index pages in the append log using copy-on-write; reuse unchanged subtrees and publish a new root only after its referenced pages are durable. Reserve a bounded number of indirect root pointers and support enough indirection to cover the format's maximum logical capacity. Four or eight single-indirect pointers alone are insufficient for the current 8 TiB limit.
+
+This connects to [ADR-04: growable thin-provisioned format](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), which is proposed and **not implemented**. Mapping snapshots already have variable log locations; the fixed index bodies are the remaining geometry-dependent reservation. The proposed tree would keep bootstrap locations and the log start independent of logical growth, and replace ADR-04's checkpoint arenas and arena relocation. Preserve ADR-04's distinction between logical growth and durable backing provisioning. Settle the combined design in both ADRs and assign a new disk-format version before implementing it. This is separate from v1.2.2's checkpoint I/O batching.

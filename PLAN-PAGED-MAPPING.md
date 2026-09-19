@@ -1,14 +1,15 @@
 # Delivery plan: paged mapping and bounded cache
 
 Status: Deliveries 1–4 complete; all required engine, memory, and live gates passed (2026-09-19)
-Latest release: v1.2.1, including the packed-write amendment; original v1.2 remains unchanged.
+Latest release: v1.2.2, including checkpoint batching; v1.2 and v1.2.1 remain unchanged.
 Contract: [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
 
 Progress entries are chronological. Pending work in an earlier entry describes that step;
 the final completion audit records the delivered state.
 
 The [packed-write amendment validation](#packed-write-amendment-validation-2026-09-19)
-records the later correction to v1.2's record-grouping rule and its performance rerun.
+records the correction to v1.2's record-grouping rule and its performance rerun.
+The [checkpoint batching validation](#checkpoint-batching-validation-2026-09-19) records v1.2.2.
 
 Delivery 1 evidence (2026-09-18): 16 isolated cache tests passed, including allocation-counted churn and a deterministic mapping reference model. `make lint test` passed all 234 test commands. The cache is compiled only under `cfg(test)`; persistence and engine integration remain unimplemented.
 
@@ -224,4 +225,16 @@ commit IDs in gate filenames identify that base, and benchmark rows use `working
 - `make lint test`: passed all 301 bounded gate commands. Added tests verify allocation-free sorting, correct payload/physical offsets across 338/339/1,024/1,500 payloads, exact write and fsync counts, configuration rejection before recovery writes, overlapping dirty pages, and pressure preflight.
 - `make test-acceptance`: [passed](evidence/engine-crash-1789812429103862626-4b77c4daf79560a437954743fd7c2a5bf904312f.log). New packed-record and preflight-checkpoint scenarios add 180 SIGKILL interruptions in exhaustive mode. `make test-ublk-fio`: [passed all 21 cases](evidence/ublk-fio-1789812522568955971-4b77c4daf79560a437954743fd7c2a5bf904312f.log).
 - `make test-ext4 test-xfs test-sqlite-ext4`: passed [ext4](evidence/ext4-1789812989181115994.log), [XFS](evidence/xfs-1789812992639330136.log), and [all 87 SQLite/ext4 selections](evidence/sqlite-1789812998100356595/summary.json), with zero failed selections. These are the existing authorized disposable fixtures; the installed mount helper matched the build. Cleanup left no test device, mount, or benchmark backing.
-- The [performance rerun](RESULTS-PERF-PACKED-WRITES.md) completed 105 engine and 60 fio cases against fresh v1.1/v1.2 baselines. It retains throughput, read/flush p99, RSS, cache allocation, records, pressure checkpoints, open time, and close cost. Full-cache fio scattered-write throughput returned to the v1.1 range; flush tails and checkpoint/close cost remain above baseline.
+- The [performance rerun](ADR-07-PERF-RESULTS.md) completed 105 engine and 60 fio cases against fresh v1.1/v1.2 baselines. It retains throughput, read/flush p99, RSS, cache allocation, records, pressure checkpoints, open time, and close cost. Full-cache fio scattered-write throughput returned to the v1.1 range; flush tails and checkpoint/close cost remain above baseline.
+
+## Checkpoint batching validation (2026-09-19)
+
+Batch snapshot and index-body writes in groups of up to 32 blocks (128 KiB). Preserve
+per-record checksums/LSNs, exact completion checks, all three publication barriers,
+failed-volume latching, and the existing format. Pressure still checkpoints all dirty
+pages. Keep direct/indirect checkpoint indexes as future work linked to unimplemented ADR-04.
+
+- `make lint test test-acceptance`: passed all 305 commands in bounded and exhaustive modes. [Crash evidence](evidence/engine-crash-1789817660585860455-4c8037aa1b0a869274a908a57ad82f3c8d5336d1.log) includes 160 new interruptions across multi-batch snapshot/index publication. [Focused batch tests and lint](evidence/checkpoint-batches-final-tests-2026-09-19.log) passed again after extending the short-write test to cover torn framing and fail-closed reopen.
+- `make test-ublk-fio`: [passed 21 cases](evidence/ublk-fio-1789817805570145515-4c8037aa1b0a869274a908a57ad82f3c8d5336d1.log).
+- `make test-ext4 test-xfs test-sqlite-ext4`: passed [ext4](evidence/ext4-1789817831939395107.log), [XFS](evidence/xfs-1789817835692201163.log), and [all 87 SQLite cases](evidence/sqlite-1789817841449423719/summary.json) in 122.224 seconds with zero failures. The installed mount helper matched the build.
+- Performance validation: passed 105 engine, 60 fio, and 25 accounting cases against fresh v1.1/v1.2.1 baselines. The single [ADR-07 performance report](ADR-07-PERF-RESULTS.md) records 52% higher engine and 46% higher fio scattered-write throughput with the automatic cache. Full-cache close takes 11.66 ms versus 58.06 ms, with 76 rather than 2,363 writes, identical bytes, and three fsyncs. All measured Rust/Cargo files match the release; raw `working` rows identify v1.2.2. Cleanup left no benchmark backing, test device, or mount. Released as v1.2.2 with disk format 3 unchanged.

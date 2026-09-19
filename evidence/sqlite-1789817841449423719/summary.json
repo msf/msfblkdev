@@ -1,0 +1,1386 @@
+{
+  "baseline": {
+    "percentage_changes": {
+      "available": false
+    },
+    "selected": false
+  },
+  "elapsed_ns": 122224309842,
+  "expected_selections": [
+    "speedtest-main--delete-extra--repetition-1",
+    "speedtest-main--delete-extra--repetition-2",
+    "speedtest-main--delete-extra--repetition-3",
+    "kv-sequential-read-small--delete-extra--repetition-1",
+    "kv-sequential-read-small--delete-extra--repetition-2",
+    "kv-sequential-read-small--delete-extra--repetition-3",
+    "kv-random-read-small--delete-extra--repetition-1",
+    "kv-random-read-small--delete-extra--repetition-2",
+    "kv-random-read-small--delete-extra--repetition-3",
+    "kv-sequential-read-large--delete-extra--repetition-1",
+    "kv-sequential-read-large--delete-extra--repetition-2",
+    "kv-sequential-read-large--delete-extra--repetition-3",
+    "kv-random-read-large--delete-extra--repetition-1",
+    "kv-random-read-large--delete-extra--repetition-2",
+    "kv-random-read-large--delete-extra--repetition-3",
+    "kv-sequential-update-small-single-transaction--delete-extra--repetition-1",
+    "kv-sequential-update-small-single-transaction--delete-extra--repetition-2",
+    "kv-sequential-update-small-single-transaction--delete-extra--repetition-3",
+    "kv-sequential-update-small-per-op-commit--delete-extra--repetition-1",
+    "kv-sequential-update-small-per-op-commit--delete-extra--repetition-2",
+    "kv-sequential-update-small-per-op-commit--delete-extra--repetition-3",
+    "kv-random-update-large-single-transaction--delete-extra--repetition-1",
+    "kv-random-update-large-single-transaction--delete-extra--repetition-2",
+    "kv-random-update-large-single-transaction--delete-extra--repetition-3",
+    "kv-random-update-large-per-op-commit--delete-extra--repetition-1",
+    "kv-random-update-large-per-op-commit--delete-extra--repetition-2",
+    "kv-random-update-large-per-op-commit--delete-extra--repetition-3",
+    "speedtest-main--wal-full--repetition-1",
+    "speedtest-main--wal-full--repetition-2",
+    "speedtest-main--wal-full--repetition-3",
+    "kv-sequential-read-small--wal-full--repetition-1",
+    "kv-sequential-read-small--wal-full--repetition-2",
+    "kv-sequential-read-small--wal-full--repetition-3",
+    "kv-random-read-small--wal-full--repetition-1",
+    "kv-random-read-small--wal-full--repetition-2",
+    "kv-random-read-small--wal-full--repetition-3",
+    "kv-sequential-read-large--wal-full--repetition-1",
+    "kv-sequential-read-large--wal-full--repetition-2",
+    "kv-sequential-read-large--wal-full--repetition-3",
+    "kv-random-read-large--wal-full--repetition-1",
+    "kv-random-read-large--wal-full--repetition-2",
+    "kv-random-read-large--wal-full--repetition-3",
+    "kv-sequential-update-small-single-transaction--wal-full--repetition-1",
+    "kv-sequential-update-small-single-transaction--wal-full--repetition-2",
+    "kv-sequential-update-small-single-transaction--wal-full--repetition-3",
+    "kv-sequential-update-small-per-op-commit--wal-full--repetition-1",
+    "kv-sequential-update-small-per-op-commit--wal-full--repetition-2",
+    "kv-sequential-update-small-per-op-commit--wal-full--repetition-3",
+    "kv-random-update-large-single-transaction--wal-full--repetition-1",
+    "kv-random-update-large-single-transaction--wal-full--repetition-2",
+    "kv-random-update-large-single-transaction--wal-full--repetition-3",
+    "kv-random-update-large-per-op-commit--wal-full--repetition-1",
+    "kv-random-update-large-per-op-commit--wal-full--repetition-2",
+    "kv-random-update-large-per-op-commit--wal-full--repetition-3",
+    "speedtest-main--wal-normal--repetition-1",
+    "speedtest-main--wal-normal--repetition-2",
+    "speedtest-main--wal-normal--repetition-3",
+    "kv-sequential-read-small--wal-normal--repetition-1",
+    "kv-sequential-read-small--wal-normal--repetition-2",
+    "kv-sequential-read-small--wal-normal--repetition-3",
+    "kv-random-read-small--wal-normal--repetition-1",
+    "kv-random-read-small--wal-normal--repetition-2",
+    "kv-random-read-small--wal-normal--repetition-3",
+    "kv-sequential-read-large--wal-normal--repetition-1",
+    "kv-sequential-read-large--wal-normal--repetition-2",
+    "kv-sequential-read-large--wal-normal--repetition-3",
+    "kv-random-read-large--wal-normal--repetition-1",
+    "kv-random-read-large--wal-normal--repetition-2",
+    "kv-random-read-large--wal-normal--repetition-3",
+    "kv-sequential-update-small-single-transaction--wal-normal--repetition-1",
+    "kv-sequential-update-small-single-transaction--wal-normal--repetition-2",
+    "kv-sequential-update-small-single-transaction--wal-normal--repetition-3",
+    "kv-sequential-update-small-per-op-commit--wal-normal--repetition-1",
+    "kv-sequential-update-small-per-op-commit--wal-normal--repetition-2",
+    "kv-sequential-update-small-per-op-commit--wal-normal--repetition-3",
+    "kv-random-update-large-single-transaction--wal-normal--repetition-1",
+    "kv-random-update-large-single-transaction--wal-normal--repetition-2",
+    "kv-random-update-large-single-transaction--wal-normal--repetition-3",
+    "kv-random-update-large-per-op-commit--wal-normal--repetition-1",
+    "kv-random-update-large-per-op-commit--wal-normal--repetition-2",
+    "kv-random-update-large-per-op-commit--wal-normal--repetition-3",
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-1",
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-2",
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-3",
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-1",
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-2",
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-3"
+  ],
+  "fail_fast": true,
+  "manifest": "manifest.json",
+  "planned_full": 87,
+  "samples": [
+    {
+      "case": "kv-long-wal-checkpoint-stress",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 3724.238098943023,
+        "range": {
+          "maximum": 4219.3328589282755,
+          "minimum": 3520.446127985499
+        },
+        "samples": [
+          3520.446127985499,
+          3724.238098943023,
+          4219.3328589282755
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1099822270,
+        "range": {
+          "maximum": 1163488902,
+          "minimum": 970769583
+        },
+        "samples": [
+          970769583,
+          1099822270,
+          1163488902
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 1101933190,
+        "range": {
+          "maximum": 1164982182,
+          "minimum": 972330180
+        },
+        "samples": [
+          972330180,
+          1101933190,
+          1164982182
+        ]
+      }
+    },
+    {
+      "case": "kv-long-wal-checkpoint-stress",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 8258.9294724806,
+        "range": {
+          "maximum": 8384.985111154923,
+          "minimum": 7927.564419415568
+        },
+        "samples": [
+          7927.564419415568,
+          8258.9294724806,
+          8384.985111154923
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 495948054,
+        "range": {
+          "maximum": 516678236,
+          "minimum": 488492221
+        },
+        "samples": [
+          488492221,
+          495948054,
+          516678236
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 504134328,
+        "range": {
+          "maximum": 526058539,
+          "minimum": 497933949
+        },
+        "samples": [
+          497933949,
+          504134328,
+          526058539
+        ]
+      }
+    },
+    {
+      "case": "kv-random-read-large",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 672938.6653207893,
+        "range": {
+          "maximum": 1043534.1771455315,
+          "minimum": 669977.7350172631
+        },
+        "samples": [
+          669977.7350172631,
+          672938.6653207893,
+          1043534.1771455315
+        ]
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 6086736,
+        "range": {
+          "maximum": 6113636,
+          "minimum": 3925123
+        },
+        "samples": [
+          3925123,
+          6086736,
+          6113636
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 6113536,
+        "range": {
+          "maximum": 6155645,
+          "minimum": 3946162
+        },
+        "samples": [
+          3946162,
+          6113536,
+          6155645
+        ]
+      }
+    },
+    {
+      "case": "kv-random-read-large",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 649279.6261569653,
+        "range": {
+          "maximum": 852364.65641651,
+          "minimum": 632275.4708144513
+        },
+        "samples": [
+          632275.4708144513,
+          649279.6261569653,
+          852364.65641651
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 6308530,
+        "range": {
+          "maximum": 6478189,
+          "minimum": 4805455
+        },
+        "samples": [
+          4805455,
+          6308530,
+          6478189
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 6410001,
+        "range": {
+          "maximum": 6620827,
+          "minimum": 4951769
+        },
+        "samples": [
+          4951769,
+          6410001,
+          6620827
+        ]
+      }
+    },
+    {
+      "case": "kv-random-read-large",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 590741.9089559416,
+        "range": {
+          "maximum": 872569.1195743498,
+          "minimum": 587200.3231895529
+        },
+        "samples": [
+          587200.3231895529,
+          590741.9089559416,
+          872569.1195743498
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 6933654,
+        "range": {
+          "maximum": 6975473,
+          "minimum": 4694184
+        },
+        "samples": [
+          4694184,
+          6933654,
+          6975473
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 7073116,
+        "range": {
+          "maximum": 7098815,
+          "minimum": 4769816
+        },
+        "samples": [
+          4769816,
+          7073116,
+          7098815
+        ]
+      }
+    },
+    {
+      "case": "kv-random-read-small",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 2540227.50416446,
+        "range": {
+          "maximum": 2581136.279710479,
+          "minimum": 2455874.011744546
+        },
+        "samples": [
+          2455874.011744546,
+          2540227.50416446,
+          2581136.279710479
+        ]
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1612454,
+        "range": {
+          "maximum": 1667838,
+          "minimum": 1586898
+        },
+        "samples": [
+          1586898,
+          1612454,
+          1667838
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 1630758,
+        "range": {
+          "maximum": 1695169,
+          "minimum": 1613417
+        },
+        "samples": [
+          1613417,
+          1630758,
+          1695169
+        ]
+      }
+    },
+    {
+      "case": "kv-random-read-small",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 2117245.5751583413,
+        "range": {
+          "maximum": 2151281.9718263997,
+          "minimum": 2025231.336697182
+        },
+        "samples": [
+          2025231.336697182,
+          2117245.5751583413,
+          2151281.9718263997
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1934589,
+        "range": {
+          "maximum": 2022485,
+          "minimum": 1903981
+        },
+        "samples": [
+          1903981,
+          1934589,
+          2022485
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 2053011,
+        "range": {
+          "maximum": 2156225,
+          "minimum": 2038423
+        },
+        "samples": [
+          2038423,
+          2053011,
+          2156225
+        ]
+      }
+    },
+    {
+      "case": "kv-random-read-small",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 2150704.754863764,
+        "range": {
+          "maximum": 2196532.845834605,
+          "minimum": 2073677.3092821867
+        },
+        "samples": [
+          2073677.3092821867,
+          2150704.754863764,
+          2196532.845834605
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1904492,
+        "range": {
+          "maximum": 1975235,
+          "minimum": 1864757
+        },
+        "samples": [
+          1864757,
+          1904492,
+          1975235
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 2032372,
+        "range": {
+          "maximum": 2104377,
+          "minimum": 1976597
+        },
+        "samples": [
+          1976597,
+          2032372,
+          2104377
+        ]
+      }
+    },
+    {
+      "case": "kv-random-update-large-per-op-commit",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 759.8165328004487,
+        "range": {
+          "maximum": 767.4330687970561,
+          "minimum": 597.7100476618662
+        },
+        "samples": [
+          597.7100476618662,
+          759.8165328004487,
+          767.4330687970561
+        ]
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 336923440,
+        "range": {
+          "maximum": 428301316,
+          "minimum": 333579579
+        },
+        "samples": [
+          333579579,
+          336923440,
+          428301316
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 336966311,
+        "range": {
+          "maximum": 428365536,
+          "minimum": 333657595
+        },
+        "samples": [
+          333657595,
+          336966311,
+          428365536
+        ]
+      }
+    },
+    {
+      "case": "kv-random-update-large-per-op-commit",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 2140.8689064347964,
+        "range": {
+          "maximum": 2255.5399342772666,
+          "minimum": 2101.7747131165775
+        },
+        "samples": [
+          2101.7747131165775,
+          2140.8689064347964,
+          2255.5399342772666
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 119577616,
+        "range": {
+          "maximum": 121801827,
+          "minimum": 113498323
+        },
+        "samples": [
+          113498323,
+          119577616,
+          121801827
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 122047128,
+        "range": {
+          "maximum": 124317295,
+          "minimum": 116388964
+        },
+        "samples": [
+          116388964,
+          122047128,
+          124317295
+        ]
+      }
+    },
+    {
+      "case": "kv-random-update-large-per-op-commit",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 33180.2505445903,
+        "range": {
+          "maximum": 49538.56567662424,
+          "minimum": 31267.568923309813
+        },
+        "samples": [
+          31267.568923309813,
+          33180.2505445903,
+          49538.56567662424
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 7715433,
+        "range": {
+          "maximum": 8187397,
+          "minimum": 5167691
+        },
+        "samples": [
+          5167691,
+          7715433,
+          8187397
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 35049519,
+        "range": {
+          "maximum": 54520638,
+          "minimum": 29725171
+        },
+        "samples": [
+          29725171,
+          35049519,
+          54520638
+        ]
+      }
+    },
+    {
+      "case": "kv-random-update-large-single-transaction",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 18748.50918226546,
+        "range": {
+          "maximum": 27128.0727973356,
+          "minimum": 18611.200249390084
+        },
+        "samples": [
+          18611.200249390084,
+          18748.50918226546,
+          27128.0727973356
+        ]
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 13654419,
+        "range": {
+          "maximum": 13755158,
+          "minimum": 9436719
+        },
+        "samples": [
+          9436719,
+          13654419,
+          13755158
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 13721816,
+        "range": {
+          "maximum": 13817314,
+          "minimum": 9513793
+        },
+        "samples": [
+          9513793,
+          13721816,
+          13817314
+        ]
+      }
+    },
+    {
+      "case": "kv-random-update-large-single-transaction",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 37400.72008073881,
+        "range": {
+          "maximum": 46959.862525002456,
+          "minimum": 34957.13790618214
+        },
+        "samples": [
+          34957.13790618214,
+          37400.72008073881,
+          46959.862525002456
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 6844788,
+        "range": {
+          "maximum": 7323254,
+          "minimum": 5451464
+        },
+        "samples": [
+          5451464,
+          6844788,
+          7323254
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 9348974,
+        "range": {
+          "maximum": 9674354,
+          "minimum": 7685274
+        },
+        "samples": [
+          7685274,
+          9348974,
+          9674354
+        ]
+      }
+    },
+    {
+      "case": "kv-random-update-large-single-transaction",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 51251.68219632678,
+        "range": {
+          "maximum": 75527.89870764685,
+          "minimum": 49774.78852520024
+        },
+        "samples": [
+          49774.78852520024,
+          51251.68219632678,
+          75527.89870764685
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 4994958,
+        "range": {
+          "maximum": 5143166,
+          "minimum": 3389476
+        },
+        "samples": [
+          3389476,
+          4994958,
+          5143166
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 9543970,
+        "range": {
+          "maximum": 9927309,
+          "minimum": 7629519
+        },
+        "samples": [
+          7629519,
+          9543970,
+          9927309
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-read-large",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 743102.17582349,
+        "range": {
+          "maximum": 1281190.7066129583,
+          "minimum": 716590.0391185383
+        },
+        "samples": [
+          716590.0391185383,
+          743102.17582349,
+          1281190.7066129583
+        ]
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 5512028,
+        "range": {
+          "maximum": 5715960,
+          "minimum": 3197026
+        },
+        "samples": [
+          3197026,
+          5512028,
+          5715960
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 5537406,
+        "range": {
+          "maximum": 5740135,
+          "minimum": 3216332
+        },
+        "samples": [
+          3216332,
+          5537406,
+          5740135
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-read-large",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 636071.5623989153,
+        "range": {
+          "maximum": 647815.3865327468,
+          "minimum": 539251.335884596
+        },
+        "samples": [
+          539251.335884596,
+          636071.5623989153,
+          647815.3865327468
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 6439527,
+        "range": {
+          "maximum": 7595716,
+          "minimum": 6322789
+        },
+        "samples": [
+          6322789,
+          6439527,
+          7595716
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 6552259,
+        "range": {
+          "maximum": 7729337,
+          "minimum": 6439158
+        },
+        "samples": [
+          6439158,
+          6552259,
+          7729337
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-read-large",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 658557.2162580669,
+        "range": {
+          "maximum": 777068.142387872,
+          "minimum": 622107.7911102984
+        },
+        "samples": [
+          622107.7911102984,
+          658557.2162580669,
+          777068.142387872
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 6219657,
+        "range": {
+          "maximum": 6584068,
+          "minimum": 5271095
+        },
+        "samples": [
+          5271095,
+          6219657,
+          6584068
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 6365700,
+        "range": {
+          "maximum": 6711708,
+          "minimum": 5349222
+        },
+        "samples": [
+          5349222,
+          6365700,
+          6711708
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-read-small",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 2358445.752005053,
+        "range": {
+          "maximum": 2379168.336615145,
+          "minimum": 2249628.5861007445
+        },
+        "samples": [
+          2249628.5861007445,
+          2358445.752005053,
+          2379168.336615145
+        ]
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1736737,
+        "range": {
+          "maximum": 1820745,
+          "minimum": 1721610
+        },
+        "samples": [
+          1721610,
+          1736737,
+          1820745
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 1772144,
+        "range": {
+          "maximum": 1846493,
+          "minimum": 1746526
+        },
+        "samples": [
+          1746526,
+          1772144,
+          1846493
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-read-small",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 2141568.3328131037,
+        "range": {
+          "maximum": 2255685.4728568783,
+          "minimum": 2008262.5097201671
+        },
+        "samples": [
+          2008262.5097201671,
+          2141568.3328131037,
+          2255685.4728568783
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1912617,
+        "range": {
+          "maximum": 2039574,
+          "minimum": 1815856
+        },
+        "samples": [
+          1815856,
+          1912617,
+          2039574
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 2032892,
+        "range": {
+          "maximum": 2172183,
+          "minimum": 1964134
+        },
+        "samples": [
+          1964134,
+          2032892,
+          2172183
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-read-small",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 3599755.6806447217,
+        "range": {
+          "maximum": 4137139.7173493216,
+          "minimum": 2231322.074671934
+        },
+        "samples": [
+          2231322.074671934,
+          3599755.6806447217,
+          4137139.7173493216
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1137855,
+        "range": {
+          "maximum": 1835683,
+          "minimum": 990056
+        },
+        "samples": [
+          990056,
+          1137855,
+          1835683
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 1179844,
+        "range": {
+          "maximum": 1997506,
+          "minimum": 1043607
+        },
+        "samples": [
+          1043607,
+          1179844,
+          1997506
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-update-small-per-op-commit",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 973.5036936403346,
+        "range": {
+          "maximum": 983.7237222992815,
+          "minimum": 843.5140787293931
+        },
+        "samples": [
+          843.5140787293931,
+          973.5036936403346,
+          983.7237222992815
+        ]
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 262967672,
+        "range": {
+          "maximum": 303492267,
+          "minimum": 260235668
+        },
+        "samples": [
+          260235668,
+          262967672,
+          303492267
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 262982069,
+        "range": {
+          "maximum": 303503228,
+          "minimum": 260252229
+        },
+        "samples": [
+          260252229,
+          262982069,
+          303503228
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-update-small-per-op-commit",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 2809.468034580557,
+        "range": {
+          "maximum": 2858.433490907457,
+          "minimum": 2538.8296893639726
+        },
+        "samples": [
+          2538.8296893639726,
+          2809.468034580557,
+          2858.433490907457
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 91120453,
+        "range": {
+          "maximum": 100833861,
+          "minimum": 89559544
+        },
+        "samples": [
+          89559544,
+          91120453,
+          100833861
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 92546668,
+        "range": {
+          "maximum": 101652456,
+          "minimum": 90869381
+        },
+        "samples": [
+          90869381,
+          92546668,
+          101652456
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-update-small-per-op-commit",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 83841.87030252177,
+        "range": {
+          "maximum": 84453.7196915064,
+          "minimum": 70947.55728391687
+        },
+        "samples": [
+          70947.55728391687,
+          83841.87030252177,
+          84453.7196915064
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 3053367,
+        "range": {
+          "maximum": 3608299,
+          "minimum": 3031246
+        },
+        "samples": [
+          3031246,
+          3053367,
+          3608299
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 12052676,
+        "range": {
+          "maximum": 16485891,
+          "minimum": 9879179
+        },
+        "samples": [
+          9879179,
+          12052676,
+          16485891
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-update-small-single-transaction",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 109376.56214084112,
+        "range": {
+          "maximum": 115100.09886918649,
+          "minimum": 49896.86357281424
+        },
+        "samples": [
+          49896.86357281424,
+          109376.56214084112,
+          115100.09886918649
+        ]
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 2340538,
+        "range": {
+          "maximum": 5130583,
+          "minimum": 2224151
+        },
+        "samples": [
+          2224151,
+          2340538,
+          5130583
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 2377498,
+        "range": {
+          "maximum": 5174355,
+          "minimum": 2266010
+        },
+        "samples": [
+          2266010,
+          2377498,
+          5174355
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-update-small-single-transaction",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 117194.22378969497,
+        "range": {
+          "maximum": 150727.79149636193,
+          "minimum": 99956.07399092196
+        },
+        "samples": [
+          99956.07399092196,
+          117194.22378969497,
+          150727.79149636193
+        ]
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 2184408,
+        "range": {
+          "maximum": 2561125,
+          "minimum": 1698426
+        },
+        "samples": [
+          1698426,
+          2184408,
+          2561125
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 2727656,
+        "range": {
+          "maximum": 3504324,
+          "minimum": 2363994
+        },
+        "samples": [
+          2363994,
+          2727656,
+          3504324
+        ]
+      }
+    },
+    {
+      "case": "kv-sequential-update-small-single-transaction",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "median": 136988.86697899413,
+        "range": {
+          "maximum": 167273.25000163354,
+          "minimum": 122155.41317875584
+        },
+        "samples": [
+          122155.41317875584,
+          136988.86697899413,
+          167273.25000163354
+        ]
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 1868765,
+        "range": {
+          "maximum": 2095691,
+          "minimum": 1530430
+        },
+        "samples": [
+          1530430,
+          1868765,
+          2095691
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 3337199,
+        "range": {
+          "maximum": 3630800,
+          "minimum": 2409328
+        },
+        "samples": [
+          2409328,
+          3337199,
+          3630800
+        ]
+      }
+    },
+    {
+      "case": "speedtest-main",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "available": false
+      },
+      "profile": "delete-extra",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 53522965,
+        "range": {
+          "maximum": 66532225,
+          "minimum": 52009546
+        },
+        "samples": [
+          52009546,
+          53522965,
+          66532225
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 53564724,
+        "range": {
+          "maximum": 66566700,
+          "minimum": 52041346
+        },
+        "samples": [
+          52041346,
+          53564724,
+          66566700
+        ]
+      }
+    },
+    {
+      "case": "speedtest-main",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "available": false
+      },
+      "profile": "wal-full",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 36034906,
+        "range": {
+          "maximum": 36375515,
+          "minimum": 33321839
+        },
+        "samples": [
+          33321839,
+          36034906,
+          36375515
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 39032619,
+        "range": {
+          "maximum": 39262349,
+          "minimum": 36138341
+        },
+        "samples": [
+          36138341,
+          39032619,
+          39262349
+        ]
+      }
+    },
+    {
+      "case": "speedtest-main",
+      "expected_repetitions_complete": true,
+      "operations_per_second": {
+        "available": false
+      },
+      "profile": "wal-normal",
+      "sample_count": 3,
+      "tail_latency": {
+        "available": false
+      },
+      "workload_ns": {
+        "median": 21177190,
+        "range": {
+          "maximum": 22621908,
+          "minimum": 17726427
+        },
+        "samples": [
+          17726427,
+          21177190,
+          22621908
+        ]
+      },
+      "workload_plus_drain_ns": {
+        "median": 32114303,
+        "range": {
+          "maximum": 42663668,
+          "minimum": 27349927
+        },
+        "samples": [
+          27349927,
+          32114303,
+          42663668
+        ]
+      }
+    }
+  ],
+  "schema": "block-storage-sqlite-summary",
+  "schema_version": 2,
+  "scope": "ext4_matrix",
+  "selected": 87,
+  "status": "pass"
+}

@@ -1,0 +1,17 @@
+Commands: cargo test --lib checkpoint_batches -- --test-threads=1; cargo clippy --all-targets --features lab -- -D warnings
+
+   Compiling block-storage v0.0.0 (/home/miguel/play/msfblkdev/rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.53s
+     Running unittests src/lib.rs (target/debug/deps/block_storage-b817b885176a8fc6)
+
+running 4 tests
+test tests::checkpoint_batches::batched_checkpoint_survives_sigkill_before_root_publication ... ok
+test tests::checkpoint_batches::checkpoint_batches_preserve_records_and_exact_io_at_chunk_boundaries ... ok
+test tests::checkpoint_batches::missing_snapshot_blocks_do_not_publish_later_out_of_order_records ... ok
+test tests::checkpoint_batches::short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.83s
+
+
+    Checking block-storage v0.0.0 (/home/miguel/play/msfblkdev/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.84s
