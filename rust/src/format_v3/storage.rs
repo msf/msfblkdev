@@ -12,6 +12,9 @@ use std::{
     path::Path,
 };
 
+// Match v1.1's bounded 128 KiB checkpoint submissions.
+pub(crate) const CHECKPOINT_BATCH_BLOCKS: usize = 32;
+
 pub(crate) fn format(
     path: &Path,
     volume_bytes: u64,
@@ -43,11 +46,11 @@ pub(crate) fn format(
     for slot in [CheckpointSlot::Green, CheckpointSlot::Blue] {
         for block in 0..geometry.index_blocks {
             checkpoint.encode_block(block, &mut bytes.0)?;
-            write_block(
+            write_blocks(
                 &mut backing_io,
                 &backing,
                 slot.body_start(geometry) + block,
-                &bytes,
+                std::slice::from_ref(&bytes),
             )?;
         }
     }
@@ -55,21 +58,40 @@ pub(crate) fn format(
     for slot in [CheckpointSlot::Green, CheckpointSlot::Blue] {
         checkpoint.descriptor.slot = slot;
         checkpoint.descriptor.encode(&mut bytes.0)?;
-        write_block(&mut backing_io, &backing, slot as u32, &bytes)?;
+        write_blocks(
+            &mut backing_io,
+            &backing,
+            slot as u32,
+            std::slice::from_ref(&bytes),
+        )?;
     }
     sync(&mut backing_io, &backing)
 }
 
-pub(crate) fn write_block(
+pub(crate) fn write_blocks(
     backing_io: &mut BackingIo,
     backing: &File,
     physical_block: u32,
-    block: &AlignedBlock,
+    blocks: &[AlignedBlock],
 ) -> io::Result<()> {
+    assert!(!blocks.is_empty() && blocks.len() <= CHECKPOINT_BATCH_BLOCKS);
+    assert_eq!(
+        size_of::<AlignedBlock>(),
+        BLOCK_SIZE,
+        "contiguous aligned blocks"
+    );
+    assert!(u64::from(physical_block) + blocks.len() as u64 <= crate::MAX_BACKING_BLOCKS);
+    let expected = blocks.len() * BLOCK_SIZE;
+    let submitted = expected;
+    #[cfg(test)]
+    let submitted = match backing_io.metadata_short_write {
+        Some((at, limit)) if at == physical_block => limit.min(expected),
+        _ => submitted,
+    };
     let write = opcode::Write::new(
         types::Fd(backing.as_raw_fd()),
-        block.0.as_ptr(),
-        BLOCK_SIZE as u32,
+        blocks.as_ptr().cast::<u8>(),
+        submitted as u32,
     )
     .offset(u64::from(physical_block) * BLOCK_SIZE as u64)
     .build();
@@ -77,7 +99,7 @@ pub(crate) fn write_block(
         backing_io,
         write,
         u64::from(physical_block),
-        BLOCK_SIZE as i32,
+        expected as i32,
     )
 }
 

@@ -6,6 +6,8 @@ pub(super) struct BackingIo {
     pub(super) ring: Option<IoUring>,
     accounting: Option<Writer>,
     pub(super) mapping_io: crate::format_v3::metrics::MappingIo,
+    #[cfg(test)]
+    pub(super) metadata_short_write: Option<(u32, usize)>,
 }
 
 impl BackingIo {
@@ -14,6 +16,8 @@ impl BackingIo {
             ring: Some(IoUring::new(2)?),
             accounting,
             mapping_io: crate::format_v3::metrics::MappingIo::default(),
+            #[cfg(test)]
+            metadata_short_write: None,
         })
     }
 }

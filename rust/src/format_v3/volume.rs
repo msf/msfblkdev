@@ -136,6 +136,11 @@ fn validate_buffer_mapping_capacity(
 }
 
 impl Volume {
+    #[cfg(test)]
+    pub(crate) fn inject_metadata_short_write(&mut self, physical: u32, bytes: usize) {
+        self.backing_io.metadata_short_write = Some((physical, bytes));
+    }
+
     pub fn volume_blocks(&self) -> u32 {
         self.mapping.checkpoint.descriptor.volume_blocks
     }

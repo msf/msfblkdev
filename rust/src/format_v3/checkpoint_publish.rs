@@ -76,31 +76,68 @@ pub(crate) fn append_snapshots(
     candidate: &mut Checkpoint,
 ) -> io::Result<()> {
     let geometry = candidate.descriptor.geometry()?;
-    let mut bytes = AlignedBlock([0; BLOCK_SIZE]);
+    let mut blocks = [const { AlignedBlock([0; BLOCK_SIZE]) }; storage::CHECKPOINT_BATCH_BLOCKS];
+    let mut page_ids = [0; storage::CHECKPOINT_BATCH_BLOCKS];
+    let mut count = 0;
     for (page_id, entries) in cache.dirty_pages() {
-        let descriptor = &mut candidate.descriptor;
+        let descriptor = candidate.descriptor;
+        let previous = descriptor.last_record_boundary + count as u32;
         let record = MappingPageRecord {
             header: RecordHeader {
                 kind: RecordKind::MappingPage,
                 volume_id: descriptor.volume_id,
-                lsn: descriptor.checkpoint_lsn + 1,
-                previous_boundary: descriptor.last_record_boundary,
-                boundary: descriptor.last_record_boundary + 1,
+                lsn: descriptor.checkpoint_lsn + count as u64 + 1,
+                previous_boundary: previous,
+                boundary: previous + 1,
             },
             page_id,
             // The codec owns its fixed arrays; cloning copies 3,840 stack bytes.
             entries: entries.clone(),
         };
-        record.encode(geometry, &mut bytes.0)?;
+        record.encode(geometry, &mut blocks[count].0)?;
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint(&format!("mapping-page-write-before-{page_id}"))?;
-        storage::write_block(backing_io, backing, record.header.boundary, &bytes)?;
-        backing_io.mapping_io.page_writes += 1;
+        page_ids[count] = page_id;
+        count += 1;
+        if count == blocks.len() {
+            append_batch(backing_io, backing, candidate, &blocks, &page_ids)?;
+            count = 0;
+        }
+    }
+    if count != 0 {
+        append_batch(
+            backing_io,
+            backing,
+            candidate,
+            &blocks[..count],
+            &page_ids[..count],
+        )?;
+    }
+    Ok(())
+}
+
+fn append_batch(
+    backing_io: &mut BackingIo,
+    backing: &File,
+    candidate: &mut Checkpoint,
+    blocks: &[AlignedBlock],
+    page_ids: &[u32],
+) -> io::Result<()> {
+    assert_eq!(blocks.len(), page_ids.len());
+    storage::write_blocks(
+        backing_io,
+        backing,
+        candidate.descriptor.last_record_boundary + 1,
+        blocks,
+    )?;
+    backing_io.mapping_io.page_writes += blocks.len() as u64;
+    for &page_id in page_ids {
+        let descriptor = &mut candidate.descriptor;
+        descriptor.last_record_boundary += 1;
+        descriptor.checkpoint_lsn += 1;
+        candidate.mapping_page_block[page_id as usize] = descriptor.last_record_boundary;
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint(&format!("mapping-page-write-complete-{page_id}"))?;
-        candidate.mapping_page_block[page_id as usize] = record.header.boundary;
-        descriptor.checkpoint_lsn = record.header.lsn;
-        descriptor.last_record_boundary = record.header.boundary;
     }
     Ok(())
 }
@@ -112,28 +149,33 @@ pub(crate) fn persist_root(
 ) -> io::Result<()> {
     let geometry = candidate.descriptor.geometry()?;
     candidate.descriptor.index_checksum = candidate.checksum()?;
-    let mut bytes = AlignedBlock([0; BLOCK_SIZE]);
-    for block in 0..geometry.index_blocks {
-        candidate.encode_block(block, &mut bytes.0)?;
-        storage::write_block(
+    let mut blocks = [const { AlignedBlock([0; BLOCK_SIZE]) }; storage::CHECKPOINT_BATCH_BLOCKS];
+    for start in (0..geometry.index_blocks).step_by(blocks.len()) {
+        let count = (geometry.index_blocks - start).min(blocks.len() as u32) as usize;
+        for (offset, block) in blocks[..count].iter_mut().enumerate() {
+            candidate.encode_block(start + offset as u32, &mut block.0)?;
+        }
+        storage::write_blocks(
             backing_io,
             backing,
-            candidate.descriptor.slot.body_start(geometry) + block,
-            &bytes,
+            candidate.descriptor.slot.body_start(geometry) + start,
+            &blocks[..count],
         )?;
-        backing_io.mapping_io.index_bytes_written += BLOCK_SIZE as u64;
+        backing_io.mapping_io.index_bytes_written += (count * BLOCK_SIZE) as u64;
         #[cfg(any(test, feature = "test-failpoints"))]
-        crate::pause_at_test_failpoint(&format!("checkpoint-body-block-complete-{block}"))?;
+        for block in start..start + count as u32 {
+            crate::pause_at_test_failpoint(&format!("checkpoint-body-block-complete-{block}"))?;
+        }
     }
     storage::sync(backing_io, backing)?;
     #[cfg(any(test, feature = "test-failpoints"))]
     crate::pause_at_test_failpoint(crate::CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT)?;
-    candidate.descriptor.encode(&mut bytes.0)?;
-    storage::write_block(
+    candidate.descriptor.encode(&mut blocks[0].0)?;
+    storage::write_blocks(
         backing_io,
         backing,
         candidate.descriptor.slot as u32,
-        &bytes,
+        &blocks[..1],
     )?;
     #[cfg(any(test, feature = "test-failpoints"))]
     crate::pause_at_test_failpoint(crate::DESCRIPTOR_WRITE_COMPLETE_FAILPOINT)?;
