@@ -10,9 +10,12 @@ use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 pub(crate) mod data_record;
 pub(crate) mod descriptor;
 pub(crate) mod geometry;
+pub(crate) mod heads;
 pub(crate) mod index_page;
+pub(crate) mod mapping_index;
 pub(crate) mod mapping_page;
 pub(crate) mod segment_table;
+pub(crate) mod segments;
 pub(crate) mod small_records;
 
 pub(crate) use geometry::Geometry;
