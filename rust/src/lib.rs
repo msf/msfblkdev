@@ -10,6 +10,7 @@ use xxhash_rust::xxh3::Xxh3;
 
 mod accounted_io;
 mod format_v3;
+mod format_v4;
 mod mapping_cache;
 
 pub mod io_accounting;
