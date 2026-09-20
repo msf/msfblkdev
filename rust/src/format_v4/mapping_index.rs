@@ -71,6 +71,14 @@ impl MappingIndex {
         self.indirect_block[indirect as usize]
     }
 
+    pub(crate) fn is_direct_dirty(&self, direct: u32) -> bool {
+        self.direct_dirty[direct as usize]
+    }
+
+    pub(crate) fn is_indirect_dirty(&self, indirect: u32) -> bool {
+        self.indirect_dirty[indirect as usize]
+    }
+
     pub(crate) fn mark_direct_dirty(&mut self, direct: u32) {
         self.direct_dirty[direct as usize] = true;
     }

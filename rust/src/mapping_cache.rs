@@ -308,6 +308,23 @@ impl MappingCache {
         Ok(true)
     }
 
+    /// Forgets every resident page without reallocating. Recovery windows use this between
+    /// passes after their snapshots are appended; dirty pages are discarded deliberately.
+    pub(super) fn reset(&mut self) {
+        self.lookup.clear();
+        self.clock = Clock::new(self.sizing.capacity).expect("validated capacity");
+        self.resident = 0;
+        for slot in self.slots.iter_mut() {
+            slot.dirty = false;
+            slot.prefetched = false;
+        }
+        assert_eq!(
+            self.lookup.allocation_size(),
+            self.sizing.lookup_bytes,
+            "clearing keeps the lookup allocation"
+        );
+    }
+
     /// The caller must invoke this only after successful checkpoint publication.
     pub(super) fn checkpoint_published(&mut self) {
         for slot in self.slots.iter_mut().take(self.resident) {
