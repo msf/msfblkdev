@@ -1,0 +1,13 @@
+scope=KVM boot prerequisite probe; not a benchmark image
+kernel=7.0.0-31-generic
+package_url=https://archive.ubuntu.com/ubuntu/pool/main/l/linux-signed/linux-image-7.0.0-31-generic_7.0.0-31.31_amd64.deb
+QEMU emulator version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)
+Copyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers
+f144b113c6957c186c404f31646ca749bf30107b12d78ad30d04ff1f3beb08ef  /home/miguel/play/msfblkdev/tools/build/vm/linux-image-7.0.0-31-generic_7.0.0-31.31_amd64.deb
+19fd789cd5e6b4adfe18c9c6b92a1ce8c8b2eef6ff88456cef80ee2dca9b3f72  /home/miguel/play/msfblkdev/tools/build/vm/vmlinuz
+b7f0a0a8f1de5318096e9046d8b00d17ff8120d08a24ee5f24172a1be1b36d2a  /home/miguel/play/msfblkdev/tools/build/vm/initramfs.gz
+df12634c17fcdca839ae5dc47d7627b7558511f7645de7c99ccf097a0f28ed5b  /usr/bin/busybox
+8c4dc0d455067701754510227479f6534065b2103cf88ad6e76f2b18d00f8243  /home/miguel/play/msfblkdev/tools/vm/init
+883cb41df0201db6694318a9ad460a0e13d04a8cdae5732633be71d73ed60947  /home/miguel/play/msfblkdev/tools/vm/setup.sh
+04fbdedbbdf5fe54d617d5ba8b1a83747b91d54d6c6f1970ed352f84aa3e400f  /lib/modules/7.0.0-31-generic/kernel/drivers/block/ublk_drv.ko.zst
+ea090f488e9f93512c35f2b8f5cf92bfca1db018e6bb5d584a64d94ec227252e  /lib/modules/7.0.0-31-generic/kernel/fs/xfs/xfs.ko.zst

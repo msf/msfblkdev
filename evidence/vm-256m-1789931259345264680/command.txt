@@ -1,0 +1,1 @@
+qemu-system-x86_64 -machine q35\,accel=kvm -cpu host -m 256M -smp 1 -nodefaults -display none -monitor none -serial stdio -no-reboot -kernel /home/miguel/play/msfblkdev/tools/build/vm-256m/vmlinuz -initrd /home/miguel/play/msfblkdev/tools/build/vm-256m/initramfs.gz -append console=ttyS0\ rdinit=/init\ panic=1 
