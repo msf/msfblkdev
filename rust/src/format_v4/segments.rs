@@ -32,7 +32,6 @@ pub(crate) struct Segments {
 
 /// The persistent image of one segment table page, ready for encoding.
 pub(crate) struct TablePageImage {
-    pub(crate) page_id: u32,
     pub(crate) entries: [SegmentEntry; TABLE_ENTRIES],
 }
 
@@ -125,10 +124,6 @@ impl Segments {
     /// Free segments the allocator can hand out now.
     pub(crate) fn allocatable_count(&self) -> u32 {
         self.free_count - self.discard_pending_count
-    }
-
-    pub(crate) fn is_discard_pending(&self, segment: u32) -> bool {
-        self.discard_pending[segment as usize]
     }
 
     pub(crate) fn table_block(&self, table: u32) -> u32 {
@@ -293,7 +288,6 @@ impl Segments {
             return Err(invalid_data("table page out of range"));
         }
         let mut image = TablePageImage {
-            page_id: table,
             entries: [SegmentEntry::FREE; TABLE_ENTRIES],
         };
         let first = table * TABLE_ENTRIES as u32;
