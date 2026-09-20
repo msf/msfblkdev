@@ -130,6 +130,7 @@ pub enum Mode {
     XfsVerify,
     SqliteProbe,
     SqliteExt4(Option<SqliteSelector>),
+    SqliteXfs(Option<SqliteSelector>),
     DatabaseSnapshot(DatabaseSnapshotRequest),
 }
 
@@ -154,7 +155,10 @@ where
         return parse_database_snapshot(&program, &mut args);
     }
     if subcommand.as_deref() == Some(OsStr::new("sqlite-ext4")) {
-        return parse_sqlite_ext4(&program, &mut args);
+        return parse_sqlite_selector(&program, &mut args).map(Mode::SqliteExt4);
+    }
+    if subcommand.as_deref() == Some(OsStr::new("sqlite-xfs")) {
+        return parse_sqlite_selector(&program, &mut args).map(Mode::SqliteXfs);
     }
     if args.next().is_some() {
         return Err(usage(&program));
@@ -176,12 +180,15 @@ where
     }
 }
 
-fn parse_sqlite_ext4<I>(program: &OsString, args: &mut I) -> Result<Mode, String>
+fn parse_sqlite_selector<I>(
+    program: &OsString,
+    args: &mut I,
+) -> Result<Option<SqliteSelector>, String>
 where
     I: Iterator<Item = OsString>,
 {
     let Some(case) = args.next() else {
-        return Ok(Mode::SqliteExt4(None));
+        return Ok(None);
     };
     let profile = args.next().ok_or_else(|| usage(program))?;
     let repetition = args.next().ok_or_else(|| usage(program))?;
@@ -204,11 +211,11 @@ where
     if case == SqliteCase::KvLongWalCheckpointStress && profile == SqliteProfile::DeleteExtra {
         return Err(usage(program));
     }
-    Ok(Mode::SqliteExt4(Some(SqliteSelector {
+    Ok(Some(SqliteSelector {
         case,
         profile,
         repetition,
-    })))
+    }))
 }
 
 fn parse_database_snapshot<I>(program: &OsString, args: &mut I) -> Result<Mode, String>
@@ -257,7 +264,7 @@ where
         | Mode::XfsPopulate
         | Mode::XfsVerify => (60, 600),
         Mode::SqliteProbe => (60, 600),
-        Mode::SqliteExt4(_) => (60, 600),
+        Mode::SqliteExt4(_) | Mode::SqliteXfs(_) => (60, 600),
         Mode::DatabaseSnapshot(_) => (1, 1),
     };
     Ok(Config {
@@ -313,7 +320,7 @@ fn invalid_env(name: &str, value: &OsString, allow_zero: bool) -> String {
 
 fn usage(program: &OsString) -> String {
     format!(
-        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight | xfs | xfs-preflight | sqlite-probe | sqlite-ext4 [<case> <profile> <repetition 1..3>] | database-snapshot drain-start|drain-end <connection-id>",
+        "usage: {} test | engine-crash | ublk-fio | ext4 | ext4-preflight | xfs | xfs-preflight | sqlite-probe | sqlite-ext4 [<case> <profile> <repetition 1..3>] | sqlite-xfs [<case> <profile> <repetition 1..3>] | database-snapshot drain-start|drain-end <connection-id>",
         program.to_string_lossy()
     )
 }
@@ -380,6 +387,42 @@ mod tests {
         ] {
             assert!(parse_args(args.into_iter().map(OsString::from)).is_err());
         }
+    }
+
+    #[test]
+    fn validates_sqlite_xfs_arguments_and_defaults() {
+        assert_eq!(
+            parse_args(["lab", "sqlite-xfs"].map(OsString::from)),
+            Ok(Mode::SqliteXfs(None))
+        );
+        assert_eq!(
+            parse_args(
+                ["lab", "sqlite-xfs", "speedtest-main", "wal-full", "2"].map(OsString::from)
+            ),
+            Ok(Mode::SqliteXfs(Some(SqliteSelector {
+                case: SqliteCase::SpeedtestMain,
+                profile: SqliteProfile::WalFull,
+                repetition: 2,
+            })))
+        );
+        for args in [
+            vec!["lab", "sqlite-xfs", "/dev/sda"],
+            vec!["lab", "sqlite-xfs", "unknown", "wal-full", "1"],
+            vec!["lab", "sqlite-xfs", "speedtest-main", "bad", "1"],
+            vec!["lab", "sqlite-xfs", "speedtest-main", "wal-full", "4"],
+            vec![
+                "lab",
+                "sqlite-xfs",
+                "kv-long-wal-checkpoint-stress",
+                "delete-extra",
+                "1",
+            ],
+        ] {
+            assert!(parse_args(args.into_iter().map(OsString::from)).is_err());
+        }
+        let config = from_env(Mode::SqliteXfs(None), |_| None).unwrap();
+        assert_eq!(config.per_test, Duration::from_secs(60));
+        assert_eq!(config.suite, Duration::from_secs(600));
     }
 
     #[test]

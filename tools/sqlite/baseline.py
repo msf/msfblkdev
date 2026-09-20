@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select and compare complete SQLite/ext4 measurement matrices."""
+"""Select and compare complete SQLite measurement matrices on ext4 or XFS."""
 
 import argparse
 import hashlib
@@ -22,6 +22,7 @@ CASES = ("speedtest-main", "kv-sequential-read-small", "kv-random-read-small",
          "kv-random-update-large-single-transaction",
          "kv-random-update-large-per-op-commit")
 LONG = "kv-long-wal-checkpoint-stress"
+FILESYSTEMS = {"ext4_matrix": "Ext4", "xfs_matrix": "Xfs"}
 
 
 def catalog():
@@ -84,12 +85,12 @@ def metric(record, name):
     raise Invalid(f"{name} is neither available nor explicitly unavailable")
 
 
-def validate_result(record, identity):
+def validate_result(record, identity, scope):
     labels = record.get("labels", {})
     expected = f"{labels.get('case')}--{labels.get('profile')}--repetition-{labels.get('repetition')}"
     if (record.get("schema"), record.get("schema_version"), record.get("scope"),
             record.get("status"), labels.get("fs"), labels.get("expected")) != (
-            "block-storage-sqlite", 2, "ext4_matrix", "pass", "Ext4", 3):
+            "block-storage-sqlite", 2, scope, "pass", FILESYSTEMS[scope], 3):
         raise Invalid(f"invalid or non-passing result: {identity}")
     if expected != identity or record.get("errors") != []:
         raise Invalid(f"result identity or errors invalid: {identity}")
@@ -209,6 +210,11 @@ def validate_run(root):
     root = root.resolve()
     manifest_path, summary_path = root / "manifest.json", root / "summary.json"
     manifest, summary = read_json(manifest_path), read_json(summary_path)
+    scope = summary.get("scope")
+    if scope not in FILESYSTEMS:
+        raise Invalid("unsupported SQLite matrix scope")
+    if manifest.get("filesystem", FILESYSTEMS[scope]) != FILESYSTEMS[scope]:
+        raise Invalid("manifest filesystem differs from summary")
     actual = manifest.get("actual", {})
     planned = manifest.get("planned_selections")
     completed = manifest.get("completed_selections")
@@ -222,7 +228,7 @@ def validate_run(root):
     if ((summary.get("schema"), summary.get("schema_version"), summary.get("scope"),
          summary.get("status"), summary.get("selected"), summary.get("planned_full"),
          summary.get("expected_selections"), summary.get("manifest")) !=
-            ("block-storage-sqlite-summary", 2, "ext4_matrix", "pass", RUNS, RUNS,
+            ("block-storage-sqlite-summary", 2, scope, "pass", RUNS, RUNS,
              planned, "manifest.json")):
         raise Invalid("summary does not describe the exact full matrix")
     samples = summary.get("samples")
@@ -236,7 +242,7 @@ def validate_run(root):
             raise Invalid("unsafe or duplicate result identity")
         path = root / identity / "result.jsonl"
         record = read_json(path, MAX_RESULT, True)
-        validate_result(record, identity)
+        validate_result(record, identity, scope)
         records[identity] = record
         artifacts.append((path, digest(path)))
     groups = {}
@@ -272,7 +278,7 @@ def select(run_directory, baseline_json):
     relative = lambda path: os.path.relpath(path, anchor)
     value = {
         "schema": "block-storage-sqlite-baseline", "schema_version": 1,
-        "scope": "ext4_matrix", "selected_explicitly": True,
+        "scope": read_json(summary)["scope"], "selected_explicitly": True,
         "run_directory": relative(root),
         "artifacts": {
             "manifest": {"path": relative(manifest), "sha256": digest(manifest)},
@@ -293,9 +299,12 @@ def select(run_directory, baseline_json):
 def load_baseline(path):
     path = path.resolve()
     pointer = read_json(path)
+    scope = pointer.get("scope")
+    if scope not in FILESYSTEMS:
+        raise Invalid("unsupported baseline filesystem")
     if ((pointer.get("schema"), pointer.get("schema_version"), pointer.get("scope"),
          pointer.get("selected_explicitly")) !=
-            ("block-storage-sqlite-baseline", 1, "ext4_matrix", True)):
+            ("block-storage-sqlite-baseline", 1, scope, True)):
         raise Invalid("invalid baseline pointer schema")
     expected = pointer.get("artifacts", {})
     listed = [expected.get("manifest"), expected.get("summary")] + expected.get("results", [])
@@ -307,6 +316,8 @@ def load_baseline(path):
             raise Invalid(f"selected baseline artifact changed: {artifact}")
     root = (path.parent / pointer["run_directory"]).resolve()
     validated = validate_run(root)
+    if read_json(validated[2])["scope"] != scope:
+        raise Invalid("baseline scope differs from selected run")
     identities = [item["identity"] for item in expected["results"]]
     canonical = [validated[1], validated[2], *[item[0] for item in validated[4]]]
     pointer_paths = [(path.parent / item["path"]).resolve() for item in listed]

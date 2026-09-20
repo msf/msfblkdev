@@ -20,10 +20,17 @@ mod telemetry;
 use params::{CACHE_PAGES, Case, MMAP_BYTES, PAGE_BYTES, PROFILE_ENV, Profile, SEED};
 use parser::{filter_evidence_directory, parse_sha256sum, parse_validation, parse_workload_stdout};
 
-pub(crate) use runner::{run, run_ext4};
+pub(crate) use runner::{run, run_matrix};
+
+fn matrix_scope(filesystem: Filesystem) -> &'static str {
+    match filesystem {
+        Filesystem::Ext4 => "ext4_matrix",
+        Filesystem::Xfs => "xfs_matrix",
+    }
+}
 
 const LEDGER_NAME: &str = "io-ledger";
-const TOOL_ROOT: &str = ".tools/sqlite-3.51.3";
+const TOOL_ROOT: &str = "tools/build/sqlite-3.51.3";
 const WRITE_LIMIT_BYTES: u64 = 512 * 1024 * 1024;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct LedgerCounters {
@@ -42,6 +49,7 @@ struct IoPoint {
 }
 
 pub(super) struct State {
+    filesystem: Filesystem,
     profile: Profile,
     case: Case,
     repetition: u8,
@@ -74,7 +82,11 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn new(fixture: &Path, evidence_directory: &Path) -> io::Result<Self> {
+    pub(super) fn new(
+        filesystem: Filesystem,
+        fixture: &Path,
+        evidence_directory: &Path,
+    ) -> io::Result<Self> {
         let ledger_path = fixture.join(LEDGER_NAME);
         // SAFETY: State owns the private fixture and keeps the inode unchanged until
         // every daemon is stopped and the reader is dropped by finalize_ledger.
@@ -89,6 +101,7 @@ impl State {
             .parent()
             .ok_or_else(|| io::Error::other("crate has no repository parent"))?;
         Ok(Self {
+            filesystem,
             profile: Profile::WalFull,
             case: Case::ProbeSeededRandomUpdate,
             repetition: 1,
@@ -193,10 +206,10 @@ impl State {
         json!({
             "schema": "block-storage-sqlite",
             "schema_version": 2,
-            "scope": if self.matrix_run { "ext4_matrix" } else { "probe" },
+            "scope": if self.matrix_run { matrix_scope(self.filesystem) } else { "probe" },
             "status": status,
             "labels": {
-                "fs": "Ext4", "case": self.case.name(), "profile": self.profile.name(),
+                "fs": format!("{:?}", self.filesystem), "case": self.case.name(), "profile": self.profile.name(),
                 "repetition": self.repetition, "expected": self.repetitions,
             },
             "parameters": self.case.parameters(),
@@ -268,14 +281,15 @@ impl Lab<'_> {
             .iter()
             .map(|profile| profile.name())
             .collect();
+        let filesystem = self.filesystem;
         self.sqlite_state_mut()?.metadata.insert(
             "tested_source".into(),
             json!({"commit": commit.trim(), "dirty": !dirty.trim().is_empty(), "status_short": dirty,
                    "kernel": kernel.trim(), "backing_medium": medium.trim(),
                    "hardware": hardware::read()?,
                    "geometry": {"logical_block_bytes": 4096, "physical_block_bytes": 4096,
-                                "max_request_bytes": super::DAEMON_MAX_REQUEST_BYTES, "volume_bytes": Filesystem::Ext4.volume_bytes(),
-                                "backing_bytes": Filesystem::Ext4.backing_bytes()},
+                                "max_request_bytes": super::DAEMON_MAX_REQUEST_BYTES, "volume_bytes": filesystem.volume_bytes(),
+                                "backing_bytes": filesystem.backing_bytes()},
                    "profiles_available_for_later_matrix": profiles}),
         );
         self.validate_tools()?;
@@ -698,7 +712,7 @@ impl Lab<'_> {
         let location = if label.starts_with("reference-") || label == "sqlite-version" {
             "owned_fixture_outside_tested_filesystem"
         } else {
-            "database_parent_on_tested_ext4_filesystem"
+            "database_parent_on_tested_filesystem"
         };
         self.evidence.line(&format!(
             "sqlite-tool-environment: label={label} cwd={} SQLITE_TMPDIR={} database_parent={} database_parent_location={location}; cwd_and_SQLITE_TMPDIR_equal_database_parent=true",
@@ -1030,6 +1044,7 @@ mod tests {
 
     fn test_state(case: Case) -> State {
         State {
+            filesystem: Filesystem::Ext4,
             profile: Profile::WalFull,
             case,
             repetition: 1,
@@ -1075,6 +1090,10 @@ mod tests {
         assert_eq!(result["labels"]["repetition"], 2);
         assert_eq!(result["labels"]["expected"], 3);
         assert_eq!(result["parameters"]["tool"], "speedtest1");
+        focused.filesystem = Filesystem::Xfs;
+        let result = focused.result("pass");
+        assert_eq!(result["scope"], "xfs_matrix");
+        assert_eq!(result["labels"]["fs"], "Xfs");
     }
 
     #[test]

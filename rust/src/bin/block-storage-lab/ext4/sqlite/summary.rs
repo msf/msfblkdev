@@ -2,6 +2,7 @@ use super::*;
 use std::collections::BTreeSet;
 
 pub(super) struct SuiteIndex {
+    filesystem: Filesystem,
     planned: Vec<matrix::Selection>,
     attempted: usize,
     completed: Vec<String>,
@@ -10,9 +11,14 @@ pub(super) struct SuiteIndex {
 }
 
 impl SuiteIndex {
-    pub(super) fn create(directory: &Path, planned: &[matrix::Selection]) -> io::Result<Self> {
+    pub(super) fn create(
+        directory: &Path,
+        filesystem: Filesystem,
+        planned: &[matrix::Selection],
+    ) -> io::Result<Self> {
         validate_expected_set(planned)?;
         let index = Self {
+            filesystem,
             planned: planned.to_vec(),
             attempted: 0,
             completed: Vec::with_capacity(planned.len()),
@@ -59,6 +65,7 @@ impl SuiteIndex {
         let value = json!({
             "schema": "block-storage-sqlite-suite-index",
             "schema_version": 1,
+            "filesystem": format!("{:?}", self.filesystem),
             "planned_full": matrix::MATRIX_RUNS,
             "selected": self.planned.len(),
             "actual": {
@@ -85,17 +92,18 @@ pub(super) fn selection_directory(root: &Path, selection: matrix::Selection) -> 
 
 pub(super) fn write(
     directory: &Path,
+    filesystem: Filesystem,
     expected: &[matrix::Selection],
     elapsed: Duration,
 ) -> io::Result<()> {
     validate_expected_set(expected)?;
-    let records = read_expected_records(directory, expected)?;
+    let records = read_expected_records(directory, filesystem, expected)?;
     let aggregates = aggregate(&records)?;
     let identities: Vec<_> = expected.iter().copied().map(identity).collect();
     let value = json!({
         "schema": "block-storage-sqlite-summary",
         "schema_version": 2,
-        "scope": "ext4_matrix",
+        "scope": matrix_scope(filesystem),
         "status": "pass",
         "fail_fast": true,
         "selected": expected.len(),
@@ -141,6 +149,7 @@ fn validate_expected_set(expected: &[matrix::Selection]) -> io::Result<()> {
 
 fn read_expected_records(
     directory: &Path,
+    filesystem: Filesystem,
     expected: &[matrix::Selection],
 ) -> io::Result<Vec<Value>> {
     let mut records = Vec::with_capacity(expected.len());
@@ -155,19 +164,23 @@ fn read_expected_records(
             return Err(io::Error::other("SQLite selection has multiple results"));
         }
         let record: Value = serde_json::from_str(line).map_err(io::Error::other)?;
-        validate_record(&record, *selection)?;
+        validate_record(&record, filesystem, *selection)?;
         records.push(record);
     }
     Ok(records)
 }
 
-fn validate_record(record: &Value, selection: matrix::Selection) -> io::Result<()> {
+fn validate_record(
+    record: &Value,
+    filesystem: Filesystem,
+    selection: matrix::Selection,
+) -> io::Result<()> {
     let labels = &record["labels"];
     let valid = record["schema"] == "block-storage-sqlite"
         && record["schema_version"] == 2
-        && record["scope"] == "ext4_matrix"
+        && record["scope"] == matrix_scope(filesystem)
         && record["status"] == "pass"
-        && labels["fs"] == "Ext4"
+        && labels["fs"] == format!("{filesystem:?}")
         && labels["case"] == selection.case.name()
         && labels["profile"] == selection.profile.name()
         && labels["repetition"] == selection.repetition
@@ -318,9 +331,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn summary_rejects_results_from_another_filesystem() {
+        let selection = matrix::full()[0];
+        let mut record = json!({
+            "schema": "block-storage-sqlite", "schema_version": 2,
+            "scope": "xfs_matrix", "status": "pass",
+            "labels": {"fs": "Xfs", "case": selection.case.name(),
+                       "profile": selection.profile.name(), "repetition": selection.repetition,
+                       "expected": matrix::REPETITIONS},
+        });
+        assert!(validate_record(&record, Filesystem::Xfs, selection).is_ok());
+        assert!(validate_record(&record, Filesystem::Ext4, selection).is_err());
+        record["labels"]["fs"] = json!("Ext4");
+        assert!(validate_record(&record, Filesystem::Xfs, selection).is_err());
+    }
+
+    #[test]
     fn timeout_preserves_partial_suite_counts() {
         let mut owned = OwnedTempDir::create(Path::new("/tmp")).unwrap();
-        let mut index = SuiteIndex::create(owned.path(), &matrix::full()).unwrap();
+        let mut index =
+            SuiteIndex::create(owned.path(), Filesystem::Ext4, &matrix::full()).unwrap();
         index.timed_out(owned.path()).unwrap();
         let value: Value =
             serde_json::from_slice(&fs::read(owned.path().join("manifest.json")).unwrap()).unwrap();
@@ -350,7 +380,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("sqlite-index-{}", std::process::id()));
         fs::create_dir(&root).unwrap();
         let selection = matrix::full()[0];
-        let mut index = SuiteIndex::create(&root, &[selection]).unwrap();
+        let mut index = SuiteIndex::create(&root, Filesystem::Ext4, &[selection]).unwrap();
         index.attempted(&root).unwrap();
         index.failed(&root, selection).unwrap();
         let manifest: Value =

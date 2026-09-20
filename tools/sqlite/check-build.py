@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT / ".tools/sqlite-3.51.3"
+TOOLS = ROOT / "tools/build/sqlite-3.51.3"
 
 
 def check_digest(path, expected):

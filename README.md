@@ -8,7 +8,7 @@ Goals 1 and 2 are complete. ADR-03's engine, serialized ublk frontend and live r
 
 ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem passed three fresh-image lifecycles, all 12 filesystem checks, exact content verification, clean daemon restarts and cleanup. The final `make lint test` passed. This does not establish crash or power-loss durability.
 
-The SQLite/ext4 portion of Delivery 3 passed 87 fresh runs across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. All 348 filesystem checks and 174 logical validations passed. [SQLITE-EXT4.md](SQLITE-EXT4.md) records the suite and selected initial baseline. SQLite on XFS and RocksDB remain unimplemented.
+SQLite passed 87 fresh runs on each of ext4 and XFS across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. Each matrix passed 348 filesystem checks and 174 logical validations. [SQLite/ext4](SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and selected baselines. RocksDB and PostgreSQL remain unimplemented.
 
 ADR-07 is complete. The latest release is **v1.2.3**, with 336-entry mapping pages,
 sorted snapshot publication, and adjacent-page prefetch after sequential demand.
@@ -45,7 +45,7 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5 through V0.8.
 - [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
 - [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
-- [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 are complete. Delivery 3 has accepted SQLite/ext4 coverage; SQLite/XFS and RocksDB remain open.
+- [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 and SQLite on both filesystems are complete. RocksDB and PostgreSQL remain open.
 - [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the implemented version-3 format, mapping cache, checkpoint publication, and bounded recovery.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
@@ -163,6 +163,7 @@ make test-xfs
 make setup-sqlite
 make test-sqlite                # one fresh ext4 WAL/FULL probe
 make test-sqlite-ext4           # 87-run fail-fast matrix
+make test-sqlite-xfs            # the same 87-run matrix on XFS
 ```
 
 | Target | Requires | Creates |
@@ -172,12 +173,12 @@ make test-sqlite-ext4           # 87-run fail-fast matrix
 | `lint-zig`, `test-zig` | downloads pinned Zig on first use | nothing |
 | `test-ublk-fio` | ublk, `fio` | ublk device, regular-file backing |
 | `test-ext4`, `test-xfs` | mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
-| `test-sqlite`, `test-sqlite-ext4` | the above plus `make setup-sqlite` | ublk device, ext4, mount, databases |
+| `test-sqlite`, `test-sqlite-ext4`, `test-sqlite-xfs` | the above plus `make setup-sqlite` | ublk device, selected filesystem, mount, databases |
 
 Check prerequisites without creating anything:
 
 ```sh
-make check-ext4 check-xfs check-sqlite check-sqlite-ext4
+make check-ext4 check-xfs check-sqlite check-sqlite-ext4 check-sqlite-xfs
 ```
 
 To repeat one matrix member instead of all 87:
@@ -317,19 +318,20 @@ The committed implementation `0a5af77` passed in 6783 ms with XFS tools 6.18.0 o
 
 Evidence includes actual mount options and bounded counts for every ublk operation/flag combination from queue startup through shutdown. Reports distinguish real I/O errors from drain-rejected shutdown cancellations. Missing, inconsistent or truncated reports fail acceptance, as do real I/O errors. Both live targets retain failed images and raw output and use the existing 60-second command and 600-second suite limits.
 
-### SQLite on ext4
+### SQLite on ext4 and XFS
 
-After the existing ext4 prerequisites and operator approval, run:
+After the existing filesystem prerequisites and operator approval, run:
 
 ```sh
 make setup-sqlite
 make check-sqlite
 make test-sqlite-ext4
+make test-sqlite-xfs
 ```
 
 SQLite builds are explicit and pinned to 3.51.3. Normal `make test` needs neither SQLite tools nor mounts. The 87-run gate uses three fresh repetitions, a 512 MiB cumulative backing-write limit per run, and the existing 60-second command / 600-second suite limits. The accepted run took 131.696 seconds with tmpfs backing. The helper and filesystem defaults are unchanged.
 
-See [SQLITE-EXT4.md](SQLITE-EXT4.md) for cases, single-run selectors, measurement limits, baseline comparison, and the upstream multiprocess audit. [The final audit](evidence/sqlite-ext4-audit.json) verifies checks, accounting, restart results and cleanup. These are clean-restart correctness results and an initial timing baseline, not crash, power-loss or sustainable-throughput claims.
+See [SQLite/ext4](SQLITE-EXT4.md) for cases, single-run selectors, measurement limits, baseline comparison, and the upstream multiprocess audit. [SQLite/XFS](docs/SQLITE-XFS.md) records its 160.073-second acceptance run, audit and separate baseline. These are clean-restart correctness results and initial timing baselines, not crash, power-loss or sustainable-throughput claims.
 
 ### Normal-user ublk setup
 
@@ -382,4 +384,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, 4 KiB payloads, a finite log, and no compaction or wraparound. Version 3 packs up to 338 buffered payloads per data record after sorting the complete buffer by LBA. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 clean-restart matrix. Medium-write faults, compaction and wraparound remain outside ADR-03.
+The engine has one serialized writer, 4 KiB payloads, a finite log, and no compaction or wraparound. Version 3 packs up to 338 buffered payloads per data record after sorting the complete buffer by LBA. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 and XFS clean-restart matrices. The remaining ADR-06 acceptance targets v1.3; RocksDB and PostgreSQL are still open. Medium-write faults, compaction and wraparound remain outside ADR-03.

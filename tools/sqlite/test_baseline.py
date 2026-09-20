@@ -148,6 +148,26 @@ class BaselineTest(unittest.TestCase):
                          ["median_percentage_change"], 0.0)
         self.cli("select", self.run, self.pointer, ok=False)
 
+    def test_xfs_baseline_rejects_mixed_filesystems(self):
+        xfs = make_run(self.root / "xfs")
+        def change(value):
+            value["scope"] = "xfs_matrix"
+            value["labels"]["fs"] = "Xfs"
+        rewrite_results(xfs, change)
+        summary_path = xfs / "summary.json"
+        summary = json.loads(summary_path.read_text())
+        summary["scope"] = "xfs_matrix"
+        summary_path.write_text(json.dumps(summary))
+        selected = self.cli("select", xfs, self.pointer)
+        self.assertEqual(selected["baseline_pointer"]["scope"], "xfs_matrix")
+        self.cli("compare", self.pointer, xfs)
+        self.cli("compare", self.pointer, self.run, ok=False)
+        mixed = next(xfs.glob("*/result.jsonl"))
+        record = json.loads(mixed.read_text())
+        record["labels"]["fs"] = "Ext4"
+        mixed.write_text(json.dumps(record) + "\n")
+        self.cli("select", xfs, self.root / "mixed.json", ok=False)
+
     def test_tampering_and_incomplete_matrix_are_rejected(self):
         self.cli("select", self.run, self.pointer)
         artifact = next(self.run.glob("*/result.jsonl"))

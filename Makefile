@@ -1,5 +1,5 @@
 ZIG_VERSION := 0.16.0
-ZIG_DIR := .tools/zig-x86_64-linux-$(ZIG_VERSION)
+ZIG_DIR := tools/build/zig-x86_64-linux-$(ZIG_VERSION)
 ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
@@ -19,8 +19,8 @@ setup:
 		echo "setup supports Linux x86_64 only"; exit 1; \
 	fi; \
 	if [ -x "$(ZIG)" ] && [ "$$($(ZIG) version 2>/dev/null)" = "$(ZIG_VERSION)" ]; then exit 0; fi; \
-	mkdir -p .tools; \
-	tmp="$$(mktemp -d .tools/zig-setup.XXXXXX)"; \
+	mkdir -p tools/build; \
+	tmp="$$(mktemp -d tools/build/zig-setup.XXXXXX)"; \
 	trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
 	echo "Downloading Zig $(ZIG_VERSION)"; \
 	curl --fail --silent --show-error --location "$(ZIG_URL)" -o "$$tmp/zig.tar.xz"; \
@@ -63,11 +63,11 @@ test-ext4: build-ext4
 
 # Optional SQLite tooling is deliberately outside the normal setup/test path.
 setup-sqlite:
-	@timeout --kill-after=5s 300s bash scripts/setup-sqlite.sh
+	@timeout --kill-after=5s 300s bash tools/sqlite/setup.sh
 
 check-sqlite: build-ext4
 	@timeout --kill-after=5s 30s uv run --quiet python tools/sqlite/check-build.py
-	@.tools/sqlite-3.51.3/build/sqlite3 --version
+	@tools/build/sqlite-3.51.3/build/sqlite3 --version
 
 # Explicit operator opt-in; runs one fresh ext4 WAL/FULL probe, not acceptance.
 test-sqlite: check-sqlite
@@ -85,6 +85,18 @@ test-sqlite-ext4-one: check-sqlite-ext4
 	@test -n "$(SQLITE_CASE)" -a -n "$(SQLITE_PROFILE)" -a -n "$(SQLITE_REPETITION)" || \
 		{ echo "set SQLITE_CASE, SQLITE_PROFILE, and SQLITE_REPETITION"; exit 2; }
 	@rust/target/debug/block-storage-lab sqlite-ext4 \
+		"$(SQLITE_CASE)" "$(SQLITE_PROFILE)" "$(SQLITE_REPETITION)"
+
+.PHONY: check-sqlite-xfs test-sqlite-xfs test-sqlite-xfs-one
+check-sqlite-xfs: check-sqlite check-xfs
+
+test-sqlite-xfs: check-sqlite-xfs
+	@rust/target/debug/block-storage-lab sqlite-xfs
+
+test-sqlite-xfs-one: check-sqlite-xfs
+	@test -n "$(SQLITE_CASE)" -a -n "$(SQLITE_PROFILE)" -a -n "$(SQLITE_REPETITION)" || \
+		{ echo "set SQLITE_CASE, SQLITE_PROFILE, and SQLITE_REPETITION"; exit 2; }
+	@rust/target/debug/block-storage-lab sqlite-xfs \
 		"$(SQLITE_CASE)" "$(SQLITE_PROFILE)" "$(SQLITE_REPETITION)"
 
 # Checks XFS prerequisites and capacity without creating a backing image, device, or mount.

@@ -67,7 +67,10 @@ fn execute_mode(config: config::Config, repo: &Path) -> io::Result<ExitCode> {
         Mode::UblkFio => ublk_fio::run(repo, config.per_test)?,
         Mode::SqliteProbe => ext4::sqlite::run(repo, config.per_test, config.suite)?,
         Mode::SqliteExt4(selector) => {
-            ext4::sqlite::run_ext4(repo, config.per_test, config.suite, *selector)?;
+            ext4::sqlite::run_matrix(repo, Ext4, config.per_test, config.suite, *selector)?;
+        }
+        Mode::SqliteXfs(selector) => {
+            ext4::sqlite::run_matrix(repo, Xfs, config.per_test, config.suite, *selector)?;
         }
         Mode::Test | Mode::EngineCrash => return run_suite(config, repo),
         Mode::DatabaseSnapshot(_) => unreachable!("snapshot mode returned before configuration"),

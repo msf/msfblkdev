@@ -1,0 +1,32 @@
+{
+  "status": "pass",
+  "run": "evidence/sqlite-1789917155929943435",
+  "tested_commit": "bc801ad7a39340609e672d2992f8cbc5275aa6ec",
+  "dirty": true,
+  "filesystem": "Xfs",
+  "runs": 87,
+  "case_profile_pairs": 29,
+  "repetitions": 3,
+  "elapsed_seconds": 160.073408551,
+  "unmounted_filesystem_checks": 348,
+  "clean_daemon_stops": 174,
+  "logical_validations": 174,
+  "max_reserved_write_bytes": 169025536,
+  "write_limit_bytes_per_run": 536870912,
+  "automatic_passive_checkpoints_in_stress_runs": {
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-1": 12,
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-2": 12,
+    "kv-long-wal-checkpoint-stress--wal-full--repetition-3": 12,
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-1": 12,
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-2": 12,
+    "kv-long-wal-checkpoint-stress--wal-normal--repetition-3": 12
+  },
+  "owned_fixture_directories_remaining": 0,
+  "recorded_daemon_pids_remaining": 0,
+  "live_ublk_devices_observed": 0,
+  "built_installed_helper_identical": true,
+  "raw_request_reports_complete": true,
+  "real_io_errors": 0,
+  "baseline": "sqlite-xfs-baseline-2026-09-20.json",
+  "performance_claim": "initial baseline only; self-comparison is not an independent candidate"
+}

@@ -42,6 +42,7 @@ impl<'a> Lab<'a> {
         let workload = match workload_mode {
             WorkloadMode::RealFiles => Workload::RealFiles,
             WorkloadMode::Sqlite => Workload::Sqlite(Box::new(sqlite::State::new(
+                filesystem,
                 owned.path(),
                 evidence
                     .path()

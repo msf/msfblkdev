@@ -2,7 +2,7 @@
 set -euo pipefail
 
 readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-readonly BUILD="${ROOT}/.tools/sqlite-3.51.3/build"
+readonly BUILD="${ROOT}/tools/build/sqlite-3.51.3/build"
 readonly LOG="${1:-/tmp/sqlite-standalone-$(date +%s).log}"
 readonly CASE_ROOT="$(mktemp -d /tmp/sqlite-standalone.XXXXXX)"
 unset BLOCK_STORAGE_SQLITE_SNAPSHOT_CONNECTION BLOCK_STORAGE_LAB_EXECUTABLE
@@ -26,7 +26,7 @@ printf 'standalone log=%s\n' "${LOG}"
 exec >> "${LOG}" 2>&1
 printf 'standalone functional probes; no benchmark performance claim\n'
 printf 'case_root=%s\nmanifest=%s\n' "${CASE_ROOT}" \
-  "${ROOT}/.tools/sqlite-3.51.3/build-manifest.json"
+  "${ROOT}/tools/build/sqlite-3.51.3/build-manifest.json"
 
 if env -u BLOCK_STORAGE_SQLITE_PROFILE timeout 20 "${BUILD}/kvtest" init \
     "${CASE_ROOT}/missing.db" --count 1 --size 1 > "${CASE_ROOT}/missing-profile.out" 2>&1; then

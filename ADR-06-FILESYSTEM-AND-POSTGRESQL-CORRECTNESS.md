@@ -3,8 +3,9 @@
 Date: 2026-08-30
 Author: Miguel Filipe
 Status: proposed
-Goal status: V0.9 and V1.0 complete; V1.1 partially complete (SQLite/ext4); V1.2 not started
-On-disk format: 1 (unchanged)
+Release target: v1.3, following v1.2.3; the V0.9–V1.2 labels below identify historical delivery stages, not current release versions
+Goal status: filesystem acceptance complete; SQLite accepted on ext4 and XFS; RocksDB and PostgreSQL acceptance remain open
+On-disk format: originally 1; current SQLite/XFS acceptance uses ADR-07 format 3
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
 Updates: the ADR-01 delivery order when accepted
 
@@ -34,7 +35,7 @@ ADR-03 complete
 
 This order supersedes the numbered goal order in ADR-01 and the ordering statement in ADR-04. Supporting ext4 and XFS is a hard prerequisite for both ADR-04 and ADR-05.
 
-This ADR keeps on-disk format version 1. It does not add thin provisioning, block-engine compaction, medium-fault injection or engine concurrency optimizations. It adds only the ublk semantics required by the accepted functional workloads.
+This ADR introduces no on-disk format changes. The original filesystem acceptance used version 1; subsequent ADR-07 work introduced version 3 before the remaining database acceptance. This ADR does not add thin provisioning, block-engine compaction, medium-fault injection or engine concurrency optimizations. It adds only the ublk semantics required by the accepted functional workloads.
 
 Optional block operations remain unadvertised until the engine implements their semantics. The daemon must reject an unsupported operation instead of returning false success. An implementation may accept a request hint only after proving that the hint does not change data or durability semantics.
 
@@ -151,7 +152,9 @@ Only correctness-passing runs qualify for a performance baseline. Keep an explic
 
 V1.1 starts after V1.0 and validates SQLite and RocksDB on both accepted filesystems before PostgreSQL integration. SQLite runs first, followed by RocksDB. It reuses upstream workload tools and the existing clean filesystem lifecycle.
 
-SQLite/ext4 status (2026-09-13): the [87-run matrix](SQLITE-EXT4.md) passed all three profiles and repetitions, 348 unmounted filesystem checks and 174 logical validations. Each of the six WAL stress runs completed 12 automatic PASSIVE checkpoints. The largest cumulative backing-write reservation was 218,533,888 bytes against a 536,870,912-byte limit. All owned resources were removed. [The audit](evidence/sqlite-ext4-audit.json) and [explicit initial baseline](evidence/sqlite-ext4-baseline.json) retain the evidence. This is partial Delivery 3 acceptance only: SQLite/XFS and RocksDB remain open and were outside this implementation's scope.
+SQLite/ext4 status (2026-09-13): the [87-run matrix](SQLITE-EXT4.md) passed all three profiles and repetitions, 348 unmounted filesystem checks and 174 logical validations. Each of the six WAL stress runs completed 12 automatic PASSIVE checkpoints. The largest cumulative backing-write reservation was 218,533,888 bytes against a 536,870,912-byte limit. All owned resources were removed. [The audit](evidence/sqlite-ext4-audit.json) and [explicit initial baseline](evidence/sqlite-ext4-baseline.json) retain the evidence.
+
+SQLite/XFS acceptance (2026-09-20): the same 87-case matrix passed in 160.073 seconds with fresh 512 MiB devices and 4 GiB regular-file backing on tmpfs. All 348 unmounted `xfs_repair -n` checks and 174 logical validations passed. Each WAL stress run completed 12 automatic PASSIVE checkpoints. The largest cumulative write reservation was 169,025,536 bytes, below the unchanged 536,870,912-byte limit. The [audit](evidence/sqlite-xfs-audit-2026-09-20.json) confirms cleanup and zero real I/O errors; the [selected baseline](evidence/sqlite-xfs-baseline-2026-09-20.json) pins the results. The tested tree was dirty, based on `bc801ad`. [SQLite/XFS instructions](docs/SQLITE-XFS.md) describe the gate. RocksDB remains open; Delivery 3 is not complete.
 
 The workload plans are recorded in [tests-with-sqlite.txt](tests-with-sqlite.txt) and [tests-with-rocksdb.txt](tests-with-rocksdb.txt). This ADR owns the acceptance requirements; those files describe workloads and measurement details.
 
@@ -161,8 +164,8 @@ Run and validate the workload, close the database cleanly, unmount, restart the 
 
 Acceptance tests:
 
-- [ ] SQLite completes bounded `speedtest1` and `kvtest` cases on ext4 and XFS under DELETE/EXTRA, WAL/FULL and WAL/NORMAL.
-- [ ] SQLite `integrity_check`, `foreign_key_check` where applicable, and logical-content verification pass before and after the clean restart.
+- [x] SQLite completes bounded `speedtest1` and `kvtest` cases on ext4 and XFS under DELETE/EXTRA, WAL/FULL and WAL/NORMAL.
+- [x] SQLite `integrity_check`, `foreign_key_check` where applicable, and logical-content verification pass before and after the clean restart.
 - [ ] RocksDB completes bounded `db_bench` cases and `db_stress` on ext4 and XFS with WAL enabled, covering synchronous and asynchronous writes. Tool fault injection is disabled.
 - [ ] RocksDB checksum and expected-content checks pass before and after the clean restart. Deterministic cases compare logical contents; concurrent stress cases use the tool's expected-state checker. Checksums alone do not prove logical contents.
 - [ ] Selected SQLite WAL cases cross the automatic checkpoint threshold; selected RocksDB write cases demonstrably trigger memtable flushes and automatic compactions. Final drain completes within the case limits.
@@ -189,7 +192,7 @@ The PostgreSQL scenario uses this lifecycle:
 10. Run `pg_amcheck` and application-level row checks.
 11. Stop PostgreSQL, unmount the filesystem and run the final filesystem check.
 
-The implementation must set explicit limits for database scale, clients, runtime and total physical writes. These limits must keep the test below the finite format-version-1 log capacity. Evidence must record the selected values and actual write budget.
+The implementation must set explicit limits for database scale, clients, runtime and total physical writes. These limits must keep the test below the current format's finite log capacity. Evidence must record the selected values and actual write budget.
 
 Acceptance tests:
 

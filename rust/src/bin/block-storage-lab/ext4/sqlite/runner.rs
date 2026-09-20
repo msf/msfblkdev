@@ -6,18 +6,31 @@ pub(crate) fn run(repo: &Path, per_command: Duration, suite: Duration) -> io::Re
     println!("evidence: {}", directory.display());
     evidence
         .line("sqlite probe: one ext4 WAL/FULL seeded-random kvtest case; not ADR acceptance")?;
-    let mut lab = match new_sqlite_lab(&mut evidence, per_command, started + suite, started) {
+    let mut lab = match new_sqlite_lab(
+        Filesystem::Ext4,
+        &mut evidence,
+        per_command,
+        started + suite,
+        started,
+    ) {
         Ok(lab) => lab,
         Err(error) => {
-            write_fallback_result(&directory, started.elapsed(), &error, None)?;
+            write_fallback_result(
+                &directory,
+                Filesystem::Ext4,
+                started.elapsed(),
+                &error,
+                None,
+            )?;
             return Err(error);
         }
     };
     execute_case(&mut lab, repo, "bounded probe only")
 }
 
-pub(crate) fn run_ext4(
+pub(crate) fn run_matrix(
     repo: &Path,
+    filesystem: Filesystem,
     per_command: Duration,
     suite: Duration,
     selector: Option<crate::config::SqliteSelector>,
@@ -35,18 +48,19 @@ pub(crate) fn run_ext4(
     let (mut evidence, directory) = Evidence::create_sqlite(repo)?;
     println!("evidence: {}", directory.display());
     evidence.line(&format!(
-        "sqlite ext4 matrix: selected={} planned_full={} fail_fast=true",
+        "sqlite {} matrix: selected={} planned_full={} fail_fast=true",
+        filesystem.name(),
         selections.len(),
         matrix::MATRIX_RUNS
     ))?;
-    let mut index = summary::SuiteIndex::create(&directory, &selections)?;
+    let mut index = summary::SuiteIndex::create(&directory, filesystem, &selections)?;
     for (ordinal, selection) in selections.iter().copied().enumerate() {
         if Instant::now() >= deadline {
             index.timed_out(&directory)?;
             evidence.line("result: TIMEOUT; suite deadline reached before next selection")?;
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "SQLite ext4 suite deadline reached before next selection",
+                "SQLite suite deadline reached before next selection",
             ));
         }
         evidence.line(&format!(
@@ -56,49 +70,67 @@ pub(crate) fn run_ext4(
             summary::identity(selection)
         ))?;
         index.attempted(&directory)?;
-        if let Err(error) =
-            execute_selection(repo, &directory, selection, per_command, deadline, started)
-        {
+        if let Err(error) = execute_selection(
+            repo,
+            &directory,
+            filesystem,
+            selection,
+            per_command,
+            deadline,
+        ) {
             index.failed(&directory, selection)?;
             return Err(error);
         }
         index.completed(&directory, selection)?;
     }
-    summary::write(&directory, &selections, started.elapsed())?;
-    evidence.line("result: PASS; every exact selected SQLite ext4 case passed")
+    summary::write(&directory, filesystem, &selections, started.elapsed())?;
+    evidence.line("result: PASS; every exact selected SQLite case passed")
 }
 
 fn execute_selection(
     repo: &Path,
     root: &Path,
+    filesystem: Filesystem,
     selection: matrix::Selection,
     per_command: Duration,
     deadline: Instant,
-    started: Instant,
 ) -> io::Result<()> {
     let case_started = Instant::now();
     let directory = summary::selection_directory(root, selection);
     let mut evidence = Evidence::create_in_directory(&directory)?;
     evidence.line(&format!("selection: {}", summary::identity(selection)))?;
-    let mut lab = match new_sqlite_lab(&mut evidence, per_command, deadline, started) {
+    let mut lab = match new_sqlite_lab(
+        filesystem,
+        &mut evidence,
+        per_command,
+        deadline,
+        case_started,
+    ) {
         Ok(lab) => lab,
         Err(error) => {
-            write_fallback_result(&directory, case_started.elapsed(), &error, Some(selection))?;
+            write_fallback_result(
+                &directory,
+                filesystem,
+                case_started.elapsed(),
+                &error,
+                Some(selection),
+            )?;
             return Err(error);
         }
     };
     lab.sqlite_state_mut()?.select(selection);
-    execute_case(&mut lab, repo, "SQLite ext4 matrix selection")
+    execute_case(&mut lab, repo, "SQLite matrix selection")
 }
 
 fn new_sqlite_lab<'a>(
+    filesystem: Filesystem,
     evidence: &'a mut Evidence,
     per_command: Duration,
     deadline: Instant,
     started: Instant,
 ) -> io::Result<Lab<'a>> {
     Lab::new(
-        Filesystem::Ext4,
+        filesystem,
         WorkloadMode::Sqlite,
         evidence,
         per_command,
@@ -153,20 +185,28 @@ fn record_failed_case(lab: &mut Lab<'_>, error: &io::Error) -> io::Result<()> {
 
 fn write_fallback_result(
     directory: &Path,
+    filesystem: Filesystem,
     elapsed: Duration,
     error: &io::Error,
     selection: Option<matrix::Selection>,
 ) -> io::Result<()> {
     let (scope, case, profile, repetition) = selection.map_or(
         ("probe", Case::ProbeSeededRandomUpdate, Profile::WalFull, 1),
-        |value| ("ext4_matrix", value.case, value.profile, value.repetition),
+        |value| {
+            (
+                matrix_scope(filesystem),
+                value.case,
+                value.profile,
+                value.repetition,
+            )
+        },
     );
     let path = directory.join("result.jsonl");
     let mut file = OpenOptions::new().create_new(true).write(true).open(path)?;
     let value = json!({
         "schema": "block-storage-sqlite", "schema_version": 2, "scope": scope,
         "status": status_for(error),
-        "labels": {"fs": "Ext4", "case": case.name(), "profile": profile.name(),
+        "labels": {"fs": format!("{filesystem:?}"), "case": case.name(), "profile": profile.name(),
                    "repetition": repetition,
                    "expected": if selection.is_some() { matrix::REPETITIONS } else { 1 }},
         "full_case_elapsed_ns": duration_ns(elapsed), "errors": [error.to_string()],
@@ -192,7 +232,14 @@ mod tests {
             let directory =
                 std::env::temp_dir().join(format!("sqlite-result-{label}-{}", std::process::id()));
             fs::create_dir(&directory).unwrap();
-            write_fallback_result(&directory, Duration::from_nanos(7), &error, None).unwrap();
+            write_fallback_result(
+                &directory,
+                Filesystem::Ext4,
+                Duration::from_nanos(7),
+                &error,
+                None,
+            )
+            .unwrap();
             let line = fs::read_to_string(directory.join("result.jsonl")).unwrap();
             let value: Value = serde_json::from_str(line.trim()).unwrap();
             assert_eq!(value["status"], expected);
