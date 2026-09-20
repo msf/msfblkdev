@@ -1,0 +1,31 @@
+{
+  "schema": "workbench-matrix",
+  "schema_version": 1,
+  "environment": {
+    "hypervisor": "qemu-kvm",
+    "stack_location": "guest",
+    "initial_ram_mib": 320,
+    "common_ram_mib": null,
+    "vcpus": 1,
+    "swap": false,
+    "logical_capacity_mib": 4096,
+    "logical_sector_bytes": 4096,
+    "backing_capacity_mib": null
+  },
+  "databases": ["sqlite", "rocksdb"],
+  "workloads": ["a", "f", "e75"],
+  "operations_per_case": 131072,
+  "value_bytes": 4096,
+  "filesystems": ["ext4", "xfs"],
+  "storage_versions": {
+    "lvm-vdo": ["baseline"],
+    "ours": ["candidate", "v1.0", "v1.1"]
+  },
+  "execution_status": "not_ready",
+  "remaining": [
+    "Complete ADR-06 RocksDB and PostgreSQL acceptance",
+    "Integrate guest OS/test disks and database workloads",
+    "Calibrate one common RAM size, dataset and backing capacity",
+    "Implement content verification, device I/O and occupied-space collection"
+  ]
+}

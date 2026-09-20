@@ -1,0 +1,424 @@
+{
+  "schema": "workbench-report",
+  "schema_version": 1,
+  "runs": [
+    {
+      "id": "raw-ext4-timing-1789929219527797136",
+      "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136",
+      "kind": "ycsb-host-calibration",
+      "status": "incomplete",
+      "issues": [
+        "Cached host ext4, 512-byte sectors; not a VM or storage comparison. Throughput uses process elapsed time, including open/close. Device I/O and occupied space unavailable.",
+        "Fixture cleanup is not confirmed."
+      ],
+      "rows": [
+        {
+          "run": "raw-ext4-timing-1789929219527797136",
+          "case": "a",
+          "profile": "sync-writes",
+          "repetition": 1,
+          "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/report.json",
+          "status": "calibration",
+          "database": "sqlite",
+          "filesystem": "ext4-host",
+          "commit": null,
+          "dirty": null,
+          "load_s": 2.4186506900005043,
+          "workload_s": 18.90420341899153,
+          "workload_drain_s": null,
+          "operations": 131072,
+          "ops_s": 6933.48442644891,
+          "backing_read_mib": null,
+          "backing_write_mib": null,
+          "backing_requests": null,
+          "backing_flushes": null,
+          "peak_rss_mib": 86.453125,
+          "p99_api_us": 355,
+          "p9999_api_us": 5543,
+          "physical_used_mib": null,
+          "api_latencies": {
+            "READ": {
+              "count": 65494,
+              "p99_us": 86,
+              "p9999_us": 510,
+              "upper_tail_samples": 6.5494
+            },
+            "TOTAL": {
+              "count": 131072,
+              "p99_us": 355,
+              "p9999_us": 5543,
+              "upper_tail_samples": 13.1072
+            },
+            "UPDATE": {
+              "count": 65578,
+              "p99_us": 449,
+              "p9999_us": 6631,
+              "upper_tail_samples": 6.5578
+            }
+          },
+          "parameters": {
+            "recordcount": 8192,
+            "operationcount": 131072,
+            "field_bytes": 4096,
+            "threads": 1,
+            "seed": 123
+          },
+          "issues": [],
+          "cache": "cached host-ext4 timing calibration",
+          "configuration": {
+            "filesystem": "/ /dev/mapper/ubuntu--vg-ubuntu--lv ext4 rw,relatime",
+            "kernel": "7.0.0-31-generic",
+            "binary_sha256": "b1c2f233d0b1b3fd95986d565d55f9901cfe2956608c448f82a50418e3430141",
+            "memory_max": "268435456",
+            "swap_max": "0"
+          }
+        },
+        {
+          "run": "raw-ext4-timing-1789929219527797136",
+          "case": "f",
+          "profile": "sync-writes",
+          "repetition": 1,
+          "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/report.json",
+          "status": "calibration",
+          "database": "sqlite",
+          "filesystem": "ext4-host",
+          "commit": null,
+          "dirty": null,
+          "load_s": 2.3688715809839778,
+          "workload_s": 19.850110134051647,
+          "workload_drain_s": null,
+          "operations": 131072,
+          "ops_s": 6603.086789687581,
+          "backing_read_mib": null,
+          "backing_write_mib": null,
+          "backing_requests": null,
+          "backing_flushes": null,
+          "peak_rss_mib": 88.46875,
+          "p99_api_us": 290,
+          "p9999_api_us": 4795,
+          "physical_used_mib": null,
+          "api_latencies": {
+            "READ": {
+              "count": 131072,
+              "p99_us": 78,
+              "p9999_us": 501,
+              "upper_tail_samples": 13.1072
+            },
+            "READ_MODIFY_WRITE": {
+              "count": 65578,
+              "p99_us": 521,
+              "p9999_us": 5327,
+              "upper_tail_samples": 6.5578
+            },
+            "TOTAL": {
+              "count": 196650,
+              "p99_us": 290,
+              "p9999_us": 4795,
+              "upper_tail_samples": 19.665
+            },
+            "UPDATE": {
+              "count": 65578,
+              "p99_us": 430,
+              "p9999_us": 5287,
+              "upper_tail_samples": 6.5578
+            }
+          },
+          "parameters": {
+            "recordcount": 8192,
+            "operationcount": 131072,
+            "field_bytes": 4096,
+            "threads": 1,
+            "seed": 123
+          },
+          "issues": [],
+          "cache": "cached host-ext4 timing calibration",
+          "configuration": {
+            "filesystem": "/ /dev/mapper/ubuntu--vg-ubuntu--lv ext4 rw,relatime",
+            "kernel": "7.0.0-31-generic",
+            "binary_sha256": "b1c2f233d0b1b3fd95986d565d55f9901cfe2956608c448f82a50418e3430141",
+            "memory_max": "268435456",
+            "swap_max": "0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "raw-ext4-timing-1789929366350639320",
+      "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929366350639320",
+      "kind": "ycsb-host-calibration",
+      "status": "calibration",
+      "issues": [
+        "Cached host ext4, 512-byte sectors; not a VM or storage comparison. Throughput uses process elapsed time, including open/close. Device I/O and occupied space unavailable."
+      ],
+      "rows": [
+        {
+          "run": "raw-ext4-timing-1789929366350639320",
+          "case": "a",
+          "profile": "sync-writes",
+          "repetition": 1,
+          "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929366350639320/report.json",
+          "status": "calibration",
+          "database": "rocksdb",
+          "filesystem": "ext4-host",
+          "commit": null,
+          "dirty": null,
+          "load_s": 3.8711053450242616,
+          "workload_s": 32.13170968502527,
+          "workload_drain_s": null,
+          "operations": 131072,
+          "ops_s": 4079.210265648736,
+          "backing_read_mib": null,
+          "backing_write_mib": null,
+          "backing_requests": null,
+          "backing_flushes": null,
+          "peak_rss_mib": 221.76953125,
+          "p99_api_us": 583,
+          "p9999_api_us": 4303,
+          "physical_used_mib": null,
+          "api_latencies": {
+            "READ": {
+              "count": 65494,
+              "p99_us": 106,
+              "p9999_us": 450,
+              "upper_tail_samples": 6.5494
+            },
+            "TOTAL": {
+              "count": 131072,
+              "p99_us": 583,
+              "p9999_us": 4303,
+              "upper_tail_samples": 13.1072
+            },
+            "UPDATE": {
+              "count": 65578,
+              "p99_us": 646,
+              "p9999_us": 4559,
+              "upper_tail_samples": 6.5578
+            }
+          },
+          "parameters": {
+            "recordcount": 8192,
+            "operationcount": 131072,
+            "field_bytes": 4096,
+            "threads": 1,
+            "seed": 123
+          },
+          "issues": [],
+          "cache": "cached host-ext4 timing calibration",
+          "configuration": {
+            "filesystem": "/ /dev/mapper/ubuntu--vg-ubuntu--lv ext4 rw,relatime",
+            "kernel": "7.0.0-31-generic",
+            "binary_sha256": "b1c2f233d0b1b3fd95986d565d55f9901cfe2956608c448f82a50418e3430141",
+            "memory_max": "268435456",
+            "swap_max": "0"
+          }
+        },
+        {
+          "run": "raw-ext4-timing-1789929366350639320",
+          "case": "f",
+          "profile": "sync-writes",
+          "repetition": 1,
+          "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929366350639320/report.json",
+          "status": "calibration",
+          "database": "rocksdb",
+          "filesystem": "ext4-host",
+          "commit": null,
+          "dirty": null,
+          "load_s": 3.820916605007369,
+          "workload_s": 32.677721240965184,
+          "workload_drain_s": null,
+          "operations": 131072,
+          "ops_s": 4011.0508022721783,
+          "backing_read_mib": null,
+          "backing_write_mib": null,
+          "backing_requests": null,
+          "backing_flushes": null,
+          "peak_rss_mib": 223.16015625,
+          "p99_api_us": 523,
+          "p9999_api_us": 3649,
+          "physical_used_mib": null,
+          "api_latencies": {
+            "READ": {
+              "count": 131072,
+              "p99_us": 106,
+              "p9999_us": 487,
+              "upper_tail_samples": 13.1072
+            },
+            "READ_MODIFY_WRITE": {
+              "count": 65578,
+              "p99_us": 693,
+              "p9999_us": 4347,
+              "upper_tail_samples": 6.5578
+            },
+            "TOTAL": {
+              "count": 196650,
+              "p99_us": 523,
+              "p9999_us": 3649,
+              "upper_tail_samples": 19.665
+            },
+            "UPDATE": {
+              "count": 65578,
+              "p99_us": 604,
+              "p9999_us": 4303,
+              "upper_tail_samples": 6.5578
+            }
+          },
+          "parameters": {
+            "recordcount": 8192,
+            "operationcount": 131072,
+            "field_bytes": 4096,
+            "threads": 1,
+            "seed": 123
+          },
+          "issues": [],
+          "cache": "cached host-ext4 timing calibration",
+          "configuration": {
+            "filesystem": "/ /dev/mapper/ubuntu--vg-ubuntu--lv ext4 rw,relatime",
+            "kernel": "7.0.0-31-generic",
+            "binary_sha256": "b1c2f233d0b1b3fd95986d565d55f9901cfe2956608c448f82a50418e3430141",
+            "memory_max": "268435456",
+            "swap_max": "0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "raw-ext4-timing-1789930051819327082",
+      "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082",
+      "kind": "ycsb-host-calibration",
+      "status": "calibration",
+      "issues": [
+        "Cached host ext4, 512-byte sectors; not a VM or storage comparison. Throughput uses process elapsed time, including open/close. Device I/O and occupied space unavailable."
+      ],
+      "rows": [
+        {
+          "run": "raw-ext4-timing-1789930051819327082",
+          "case": "e75",
+          "profile": "sync-writes",
+          "repetition": 1,
+          "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/report.json",
+          "status": "calibration",
+          "database": "sqlite",
+          "filesystem": "ext4-host",
+          "commit": null,
+          "dirty": null,
+          "load_s": 2.3185010319575667,
+          "workload_s": 19.703164105012547,
+          "workload_drain_s": null,
+          "operations": 131072,
+          "ops_s": 6652.332554376628,
+          "backing_read_mib": null,
+          "backing_write_mib": null,
+          "backing_requests": null,
+          "backing_flushes": null,
+          "peak_rss_mib": 87.4375,
+          "p99_api_us": 511,
+          "p9999_api_us": 2781,
+          "physical_used_mib": null,
+          "api_latencies": {
+            "INSERT": {
+              "count": 32790,
+              "p99_us": 540,
+              "p9999_us": 4093,
+              "upper_tail_samples": 3.279
+            },
+            "SCAN": {
+              "count": 98282,
+              "p99_us": 496,
+              "p9999_us": 933,
+              "upper_tail_samples": 9.8282
+            },
+            "TOTAL": {
+              "count": 131072,
+              "p99_us": 511,
+              "p9999_us": 2781,
+              "upper_tail_samples": 13.1072
+            }
+          },
+          "parameters": {
+            "recordcount": 8192,
+            "operationcount": 131072,
+            "field_bytes": 4096,
+            "threads": 1,
+            "seed": 123
+          },
+          "issues": [],
+          "cache": "cached host-ext4 timing calibration",
+          "configuration": {
+            "filesystem": "/ /dev/mapper/ubuntu--vg-ubuntu--lv ext4 rw,relatime",
+            "kernel": "7.0.0-31-generic",
+            "binary_sha256": "977bd95ea008fd0658110ede60d7969dce18c5a8ffee23463ee4020f09eb8786",
+            "memory_max": "268435456",
+            "swap_max": "0"
+          }
+        },
+        {
+          "run": "raw-ext4-timing-1789930051819327082",
+          "case": "e75",
+          "profile": "sync-writes",
+          "repetition": 1,
+          "source": "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/report.json",
+          "status": "calibration",
+          "database": "rocksdb",
+          "filesystem": "ext4-host",
+          "commit": null,
+          "dirty": null,
+          "load_s": 3.770871985005215,
+          "workload_s": 22.706006394000724,
+          "workload_drain_s": null,
+          "operations": 131072,
+          "ops_s": 5772.569501021158,
+          "backing_read_mib": null,
+          "backing_write_mib": null,
+          "backing_requests": null,
+          "backing_flushes": null,
+          "peak_rss_mib": 214.17578125,
+          "p99_api_us": 522,
+          "p9999_api_us": 4083,
+          "physical_used_mib": null,
+          "api_latencies": {
+            "INSERT": {
+              "count": 32790,
+              "p99_us": 610,
+              "p9999_us": 6211,
+              "upper_tail_samples": 3.279
+            },
+            "SCAN": {
+              "count": 98282,
+              "p99_us": 243,
+              "p9999_us": 675,
+              "upper_tail_samples": 9.8282
+            },
+            "TOTAL": {
+              "count": 131072,
+              "p99_us": 522,
+              "p9999_us": 4083,
+              "upper_tail_samples": 13.1072
+            }
+          },
+          "parameters": {
+            "recordcount": 8192,
+            "operationcount": 131072,
+            "field_bytes": 4096,
+            "threads": 1,
+            "seed": 123
+          },
+          "issues": [],
+          "cache": "cached host-ext4 timing calibration",
+          "configuration": {
+            "filesystem": "/ /dev/mapper/ubuntu--vg-ubuntu--lv ext4 rw,relatime",
+            "kernel": "7.0.0-31-generic",
+            "binary_sha256": "977bd95ea008fd0658110ede60d7969dce18c5a8ffee23463ee4020f09eb8786",
+            "memory_max": "268435456",
+            "swap_max": "0"
+          }
+        }
+      ]
+    }
+  ],
+  "comparison": "descriptive only; no automatic regression or equivalence verdict",
+  "units": {
+    "times": "seconds",
+    "latency": "microseconds",
+    "sizes": "MiB"
+  }
+}
