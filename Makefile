@@ -65,6 +65,16 @@ test-ext4: build-ext4
 setup-sqlite:
 	@timeout --kill-after=5s 300s bash tools/sqlite/setup.sh
 
+.PHONY: setup-native setup-rocksdb setup-go-ycsb
+setup-native:
+	@timeout --kill-after=5s 600s bash tools/native/setup.sh
+
+setup-rocksdb:
+	@timeout --kill-after=10s 1000s bash tools/rocksdb/setup.sh
+
+setup-go-ycsb: setup-native
+	@timeout --kill-after=5s 300s bash tools/go-ycsb/setup.sh
+
 check-sqlite: build-ext4
 	@timeout --kill-after=5s 30s uv run --quiet python tools/sqlite/check-build.py
 	@tools/build/sqlite-3.51.3/build/sqlite3 --version

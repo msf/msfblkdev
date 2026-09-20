@@ -1,0 +1,142 @@
+--- a/pkg/workload/core.go
++++ b/pkg/workload/core.go
+@@ -139,8 +139,8 @@
+ }
+ 
+ // InitThread implements the Workload InitThread interface.
+-func (c *core) InitThread(ctx context.Context, _ int, _ int) context.Context {
+-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
++func (c *core) InitThread(ctx context.Context, threadID int, _ int) context.Context {
++	r := rand.New(rand.NewSource(c.p.GetInt64("workload.seed", time.Now().UnixNano()) + int64(threadID)))
+ 	fieldNames := make([]string, len(c.fieldNames))
+ 	copy(fieldNames, c.fieldNames)
+ 	state := &coreState{
+--- a/db/sqlite/db.go
++++ b/db/sqlite/db.go
+@@ -79,6 +79,7 @@
+ 	v.Set("cache", cache)
+ 	v.Set("mode", mode)
+ 	v.Set("_journal_mode", journalMode)
++	v.Set("_synchronous", "FULL")
+ 	dsn := fmt.Sprintf("file:%s?%s", dbPath, v.Encode())
+ 	var err error
+ 	db, err := sql.Open("sqlite3", dsn)
+@@ -93,6 +94,9 @@
+ 	d.backoffMs = p.GetInt(sqliteOptimisticBackoffMs, 5)
+ 	d.verbose = p.GetBool(prop.Verbose, prop.VerboseDefault)
+ 	d.db = db
++	if err := d.configureLab(); err != nil {
++		return nil, err
++	}
+ 
+ 	d.bufPool = util.NewBufPool()
+ 
+@@ -237,9 +241,9 @@
+ func (db *sqliteDB) doScan(ctx context.Context, tx *sql.Tx, table string, startKey string, count int, fields []string) ([]map[string][]byte, error) {
+ 	var query string
+ 	if len(fields) == 0 {
+-		query = fmt.Sprintf(`SELECT * FROM %s WHERE YCSB_KEY >= ? LIMIT ?`, table)
++		query = fmt.Sprintf(`SELECT * FROM %s WHERE YCSB_KEY >= ? ORDER BY YCSB_KEY LIMIT ?`, table)
+ 	} else {
+-		query = fmt.Sprintf(`SELECT %s FROM %s WHERE YCSB_KEY >= ? LIMIT ?`, strings.Join(fields, ","), table)
++		query = fmt.Sprintf(`SELECT %s FROM %s WHERE YCSB_KEY >= ? ORDER BY YCSB_KEY LIMIT ?`, strings.Join(fields, ","), table)
+ 	}
+ 
+ 	rows, err := db.doQueryRows(ctx, tx, query, count, startKey, count)
+@@ -398,3 +402,33 @@
+ }
+ 
+ var _ ycsb.BatchDB = (*sqliteDB)(nil)
++
++func (db *sqliteDB) configureLab() error {
++	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
++	defer cancel()
++	if _, err := db.db.ExecContext(ctx, "PRAGMA page_size=4096; PRAGMA cache_size=-16384; PRAGMA mmap_size=0;"); err != nil {
++		return err
++	}
++	for _, setting := range []struct {
++		name string
++		want int
++	}{
++		{"page_size", 4096},
++		{"cache_size", -16384},
++		{"mmap_size", 0},
++		{"synchronous", 2},
++		{"wal_autocheckpoint", 1000},
++	} {
++		var actual int
++		if err := db.db.QueryRowContext(ctx, "PRAGMA "+setting.name).Scan(&actual); err != nil {
++			return err
++		}
++		if actual != setting.want {
++			return fmt.Errorf("lab setting %s=%d, want %d", setting.name, actual, setting.want)
++		}
++		if _, err := fmt.Fprintf(os.Stderr, "lab-setting %s=%d\n", setting.name, actual); err != nil {
++			return err
++		}
++	}
++	return nil
++}
+--- a/db/rocksdb/db.go
++++ b/db/rocksdb/db.go
+@@ -20,11 +20,11 @@
+ 	"fmt"
+ 	"os"
+ 
++	gorocksdb "github.com/linxGnu/grocksdb"
+ 	"github.com/magiconair/properties"
+ 	"github.com/pingcap/go-ycsb/pkg/prop"
+ 	"github.com/pingcap/go-ycsb/pkg/util"
+ 	"github.com/pingcap/go-ycsb/pkg/ycsb"
+-	gorocksdb "github.com/linxGnu/grocksdb"
+ )
+ 
+ // properties
+@@ -93,18 +93,21 @@
+ 		return nil, err
+ 	}
+ 
++	writeOptions := gorocksdb.NewDefaultWriteOptions()
++	writeOptions.SetSync(true)
+ 	return &rocksDB{
+ 		p:         p,
+ 		db:        db,
+ 		r:         util.NewRowCodec(p),
+ 		bufPool:   util.NewBufPool(),
+ 		readOpts:  gorocksdb.NewDefaultReadOptions(),
+-		writeOpts: gorocksdb.NewDefaultWriteOptions(),
++		writeOpts: writeOptions,
+ 	}, nil
+ }
+ 
+ func getTableOptions(p *properties.Properties) *gorocksdb.BlockBasedTableOptions {
+ 	tblOpts := gorocksdb.NewDefaultBlockBasedTableOptions()
++	tblOpts.SetBlockCache(gorocksdb.NewLRUCache(16 << 20))
+ 
+ 	tblOpts.SetBlockSize(p.GetInt(rocksdbBlockSize, 4<<10))
+ 	tblOpts.SetBlockSizeDeviation(p.GetInt(rocksdbBlockSizeDeviation, 10))
+@@ -136,6 +139,7 @@
+ func getOptions(p *properties.Properties) *gorocksdb.Options {
+ 	opts := gorocksdb.NewDefaultOptions()
+ 	opts.SetCreateIfMissing(true)
++	opts.SetCompression(gorocksdb.NoCompression)
+ 
+ 	opts.SetAllowConcurrentMemtableWrites(p.GetBool(rocksdbAllowConcurrentMemtableWrites, true))
+ 	opts.SetAllowMmapReads(p.GetBool(rocsdbAllowMmapReads, false))
+@@ -204,6 +208,7 @@
+ 	for it = it; it.Valid() && i < count; it.Next() {
+ 		value := it.Value()
+ 		m, err := db.r.Decode(cloneValue(value), fields)
++		value.Free()
+ 		if err != nil {
+ 			return nil, err
+ 		}
+@@ -215,7 +220,7 @@
+ 		return nil, err
+ 	}
+ 
+-	return res, nil
++	return res[:i], nil
+ }
+ 
+ func (db *rocksDB) Update(ctx context.Context, table string, key string, values map[string][]byte) error {
