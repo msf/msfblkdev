@@ -1,0 +1,103 @@
+{
+  "status": "pass",
+  "scope": "native driver smoke on temporary host filesystem; not ublk acceptance or a performance baseline",
+  "source_revision": "427715abeef2186b123cc93ced4acb385ff59ce1",
+  "cases": [
+    {
+      "driver": "sqlite",
+      "case": "a",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "sqlite",
+      "case": "b",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "sqlite",
+      "case": "c",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "sqlite",
+      "case": "d",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "sqlite",
+      "case": "e",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "sqlite",
+      "case": "f",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 184,
+      "status": "pass"
+    },
+    {
+      "driver": "rocksdb",
+      "case": "a",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "rocksdb",
+      "case": "b",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "rocksdb",
+      "case": "c",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "rocksdb",
+      "case": "d",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "rocksdb",
+      "case": "e",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 128,
+      "status": "pass"
+    },
+    {
+      "driver": "rocksdb",
+      "case": "f",
+      "loaded_records": 32,
+      "logical_operations": 128,
+      "database_calls": 189,
+      "status": "pass"
+    }
+  ]
+}

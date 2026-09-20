@@ -1,0 +1,45 @@
+Using request distribution 'uniform' a keyrange of [0 8191]
+***************** properties *****************
+"fieldlength"="4096"
+"rocksdb.cache_index_and_filter_blocks"="true"
+"minscanlength"="16"
+"dotransactions"="true"
+"fieldlengthdistribution"="constant"
+"table"="usertable"
+"insertorder"="ordered"
+"zeropadding"="20"
+"readproportion"="0"
+"readmodifywriteproportion"="0"
+"keyprefix"="user"
+"readallfields"="true"
+"target"="0"
+"maxscanlength"="16"
+"rocksdb.write_buffer_size"="16777216"
+"rocksdb.dir"="/var/tmp/msfblkdev-raw-ext4-10lxnio7/rocksdb-e75"
+"recordcount"="8192"
+"updateproportion"="0"
+"fieldcount"="1"
+"command"="run"
+"scanlengthdistribution"="uniform"
+"workload.seed"="123"
+"rocksdb.max_write_buffer_number"="2"
+"operationcount"="131072"
+"dataintegrity"="false"
+"requestdistribution"="uniform"
+"workload"="core"
+"threadcount"="1"
+"insertproportion"="0.25"
+"writeallfields"="true"
+"scanproportion"="0.75"
+**********************************************
+INSERT - Takes(s): 10.0, Count: 14601, OPS: 1460.1, Avg(us): 441, Min(us): 352, Max(us): 16319, 50th(us): 428, 90th(us): 483, 95th(us): 515, 99th(us): 626, 99.9th(us): 1909, 99.99th(us): 7287
+SCAN   - Takes(s): 10.0, Count: 43177, OPS: 4317.5, Avg(us): 71, Min(us): 21, Max(us): 989, 50th(us): 63, 90th(us): 103, 95th(us): 132, 99th(us): 249, 99.9th(us): 410, 99.99th(us): 625
+TOTAL  - Takes(s): 10.0, Count: 57778, OPS: 5777.3, Avg(us): 164, Min(us): 21, Max(us): 16319, 50th(us): 75, 90th(us): 436, 95th(us): 459, 99th(us): 530, 99.9th(us): 831, 99.99th(us): 4083
+INSERT - Takes(s): 20.0, Count: 29167, OPS: 1458.3, Avg(us): 441, Min(us): 352, Max(us): 28287, 50th(us): 428, 90th(us): 479, 95th(us): 509, 99th(us): 609, 99.9th(us): 1717, 99.99th(us): 6211
+SCAN   - Takes(s): 20.0, Count: 87296, OPS: 4364.6, Avg(us): 70, Min(us): 21, Max(us): 989, 50th(us): 63, 90th(us): 98, 95th(us): 127, 99th(us): 244, 99.9th(us): 410, 99.99th(us): 672
+TOTAL  - Takes(s): 20.0, Count: 116463, OPS: 5822.8, Avg(us): 163, Min(us): 21, Max(us): 28287, 50th(us): 74, 90th(us): 435, 95th(us): 456, 99th(us): 522, 99.9th(us): 740, 99.99th(us): 4083
+**********************************************
+Run finished, takes 22.476562501s
+INSERT - Takes(s): 22.5, Count: 32790, OPS: 1458.9, Avg(us): 441, Min(us): 352, Max(us): 28287, 50th(us): 429, 90th(us): 480, 95th(us): 509, 99th(us): 610, 99.9th(us): 1717, 99.99th(us): 6211
+SCAN   - Takes(s): 22.5, Count: 98282, OPS: 4372.7, Avg(us): 70, Min(us): 21, Max(us): 989, 50th(us): 62, 90th(us): 98, 95th(us): 126, 99th(us): 243, 99.9th(us): 411, 99.99th(us): 675
+TOTAL  - Takes(s): 22.5, Count: 131072, OPS: 5831.6, Avg(us): 163, Min(us): 21, Max(us): 28287, 50th(us): 74, 90th(us): 435, 95th(us): 456, 99th(us): 522, 99.9th(us): 733, 99.99th(us): 4083

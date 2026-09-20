@@ -1,0 +1,351 @@
+{
+  "scope": "duration calibration; existing host ext4; not ADR acceptance or final I/O-limited comparison",
+  "filesystem": "/ /dev/mapper/ubuntu--vg-ubuntu--lv ext4 rw,relatime",
+  "kernel": "7.0.0-31-generic",
+  "binary_sha256": "b1c2f233d0b1b3fd95986d565d55f9901cfe2956608c448f82a50418e3430141",
+  "recordcount": 8192,
+  "operationcount": 131072,
+  "field_bytes": 4096,
+  "threads": 1,
+  "seed": 123,
+  "memory_max": "268435456",
+  "swap_max": "0",
+  "sync_probes": [
+    {
+      "command": [
+        "/usr/bin/time",
+        "-o",
+        "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/sqlite-a-load-probe.usage.json",
+        "-f",
+        "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+        "strace",
+        "-f",
+        "-qq",
+        "-o",
+        "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/sqlite-a-load-probe.strace",
+        "-e",
+        "trace=fsync,fdatasync",
+        "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+        "load",
+        "sqlite",
+        "-P",
+        "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+        "-P",
+        "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/a.properties",
+        "-p",
+        "recordcount=64",
+        "-p",
+        "operationcount=128",
+        "-p",
+        "sqlite.db=/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-sync-probe"
+      ],
+      "process_elapsed_seconds": 0.17559207795420662,
+      "usage": {
+        "wall_seconds": 0.11,
+        "user_seconds": 0.04,
+        "system_seconds": 0.07,
+        "max_rss_kib": 58956,
+        "fs_inputs": 432,
+        "fs_outputs": 3384
+      },
+      "reported_counts": {
+        "INSERT": 64,
+        "TOTAL": 64
+      },
+      "successful_sync_calls": 73
+    },
+    {
+      "command": [
+        "/usr/bin/time",
+        "-o",
+        "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/rocksdb-a-load-probe.usage.json",
+        "-f",
+        "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+        "strace",
+        "-f",
+        "-qq",
+        "-o",
+        "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/rocksdb-a-load-probe.strace",
+        "-e",
+        "trace=fsync,fdatasync",
+        "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+        "load",
+        "rocksdb",
+        "-P",
+        "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+        "-P",
+        "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/a.properties",
+        "-p",
+        "recordcount=64",
+        "-p",
+        "operationcount=128",
+        "-p",
+        "rocksdb.dir=/var/tmp/msfblkdev-raw-ext4-ll72y3kx/rocksdb-sync-probe",
+        "-p",
+        "rocksdb.write_buffer_size=16777216",
+        "-p",
+        "rocksdb.max_write_buffer_number=2",
+        "-p",
+        "rocksdb.cache_index_and_filter_blocks=true"
+      ],
+      "process_elapsed_seconds": 0.16464052605442703,
+      "usage": {
+        "wall_seconds": 0.12,
+        "user_seconds": 0.04,
+        "system_seconds": 0.06,
+        "max_rss_kib": 60904,
+        "fs_inputs": 0,
+        "fs_outputs": 1176
+      },
+      "reported_counts": {
+        "INSERT": 64,
+        "TOTAL": 64
+      },
+      "successful_sync_calls": 75
+    }
+  ],
+  "cases": [
+    {
+      "driver": "sqlite",
+      "workload": "a",
+      "load": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/sqlite-a-load.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "load",
+          "sqlite",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/a.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "sqlite.db=/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-a"
+        ],
+        "process_elapsed_seconds": 2.4186506900005043,
+        "usage": {
+          "wall_seconds": 2.38,
+          "user_seconds": 0.56,
+          "system_seconds": 0.31,
+          "max_rss_kib": 81444,
+          "fs_inputs": 0,
+          "fs_outputs": 433776
+        },
+        "reported_counts": {
+          "INSERT": 8192,
+          "TOTAL": 8192
+        }
+      },
+      "run": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/sqlite-a-run.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "run",
+          "sqlite",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/a.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "sqlite.db=/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-a"
+        ],
+        "process_elapsed_seconds": 18.90420341899153,
+        "usage": {
+          "wall_seconds": 18.88,
+          "user_seconds": 7.47,
+          "system_seconds": 2.3,
+          "max_rss_kib": 88528,
+          "fs_inputs": 0,
+          "fs_outputs": 2502008
+        },
+        "reported_counts": {
+          "READ": 65494,
+          "TOTAL": 131072,
+          "UPDATE": 65578
+        }
+      },
+      "verification": {
+        "rows": 8192,
+        "integrity": "ok",
+        "value_bytes": 4096
+      }
+    },
+    {
+      "driver": "sqlite",
+      "workload": "f",
+      "load": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/sqlite-f-load.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "load",
+          "sqlite",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/f.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "sqlite.db=/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-f"
+        ],
+        "process_elapsed_seconds": 2.3688715809839778,
+        "usage": {
+          "wall_seconds": 2.33,
+          "user_seconds": 0.53,
+          "system_seconds": 0.28,
+          "max_rss_kib": 80812,
+          "fs_inputs": 16,
+          "fs_outputs": 433776
+        },
+        "reported_counts": {
+          "INSERT": 8192,
+          "TOTAL": 8192
+        }
+      },
+      "run": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/sqlite-f-run.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "run",
+          "sqlite",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/f.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "sqlite.db=/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-f"
+        ],
+        "process_elapsed_seconds": 19.850110134051647,
+        "usage": {
+          "wall_seconds": 19.82,
+          "user_seconds": 9.32,
+          "system_seconds": 2.42,
+          "max_rss_kib": 90592,
+          "fs_inputs": 0,
+          "fs_outputs": 2502008
+        },
+        "reported_counts": {
+          "READ": 131072,
+          "READ_MODIFY_WRITE": 65578,
+          "TOTAL": 196650,
+          "UPDATE": 65578
+        }
+      },
+      "verification": {
+        "rows": 8192,
+        "integrity": "ok",
+        "value_bytes": 4096
+      }
+    },
+    {
+      "driver": "sqlite",
+      "workload": "e95",
+      "load": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/sqlite-e95-load.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "load",
+          "sqlite",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/e95.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "sqlite.db=/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-e95"
+        ],
+        "process_elapsed_seconds": 2.3687254669493996,
+        "usage": {
+          "wall_seconds": 2.33,
+          "user_seconds": 0.48,
+          "system_seconds": 0.28,
+          "max_rss_kib": 80624,
+          "fs_inputs": 0,
+          "fs_outputs": 424848
+        },
+        "reported_counts": {
+          "INSERT": 8192,
+          "TOTAL": 8192
+        }
+      },
+      "run": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789929219527797136/sqlite-e95-run.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "run",
+          "sqlite",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/e95.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "sqlite.db=/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-e95"
+        ],
+        "process_elapsed_seconds": 14.640328202978708,
+        "usage": {
+          "wall_seconds": 14.59,
+          "user_seconds": 23.53,
+          "system_seconds": 3.84,
+          "max_rss_kib": 90896,
+          "fs_inputs": 0,
+          "fs_outputs": 338312
+        },
+        "reported_counts": {
+          "INSERT": 6516,
+          "SCAN": 124556,
+          "TOTAL": 131072
+        }
+      },
+      "verification": {
+        "rows": 14708,
+        "integrity": "ok",
+        "value_bytes": 4096
+      }
+    }
+  ],
+  "fixture": "/var/tmp/msfblkdev-raw-ext4-ll72y3kx"
+}

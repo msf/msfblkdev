@@ -1,0 +1,46 @@
+Using request distribution 'uniform' a keyrange of [0 8191]
+lab-setting page_size=4096
+lab-setting cache_size=-16384
+lab-setting mmap_size=0
+lab-setting synchronous=2
+lab-setting wal_autocheckpoint=1000
+***************** properties *****************
+"maxscanlength"="16"
+"readproportion"="0.50"
+"insertproportion"="0"
+"dataintegrity"="false"
+"keyprefix"="user"
+"scanlengthdistribution"="uniform"
+"writeallfields"="true"
+"readmodifywriteproportion"="0.50"
+"recordcount"="8192"
+"insertorder"="hashed"
+"workload"="core"
+"readallfields"="true"
+"scanproportion"="0"
+"minscanlength"="16"
+"dotransactions"="true"
+"command"="run"
+"threadcount"="1"
+"zeropadding"="20"
+"fieldlengthdistribution"="constant"
+"operationcount"="131072"
+"target"="0"
+"updateproportion"="0"
+"table"="usertable"
+"fieldcount"="1"
+"fieldlength"="4096"
+"sqlite.db"="/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-f"
+"workload.seed"="123"
+"requestdistribution"="uniform"
+**********************************************
+READ   - Takes(s): 10.0, Count: 66873, OPS: 6687.3, Avg(us): 24, Min(us): 12, Max(us): 629, 50th(us): 21, 90th(us): 32, 95th(us): 38, 99th(us): 77, 99.9th(us): 302, 99.99th(us): 485
+READ_MODIFY_WRITE - Takes(s): 10.0, Count: 33339, OPS: 3335.8, Avg(us): 273, Min(us): 205, Max(us): 6559, 50th(us): 257, 90th(us): 300, 95th(us): 333, 99th(us): 536, 99.9th(us): 3973, 99.99th(us): 5523
+TOTAL  - Takes(s): 10.0, Count: 100212, OPS: 10021.2, Avg(us): 90, Min(us): 12, Max(us): 6463, 50th(us): 26, 90th(us): 216, 95th(us): 233, 99th(us): 320, 99.9th(us): 623, 99.99th(us): 4507
+UPDATE - Takes(s): 10.0, Count: 33339, OPS: 3335.7, Avg(us): 224, Min(us): 168, Max(us): 6463, 50th(us): 207, 90th(us): 244, 95th(us): 263, 99th(us): 455, 99.9th(us): 3917, 99.99th(us): 5455
+**********************************************
+Run finished, takes 19.670586657s
+READ   - Takes(s): 19.7, Count: 131072, OPS: 6663.4, Avg(us): 24, Min(us): 12, Max(us): 679, 50th(us): 22, 90th(us): 32, 95th(us): 38, 99th(us): 78, 99.9th(us): 314, 99.99th(us): 501
+READ_MODIFY_WRITE - Takes(s): 19.7, Count: 65578, OPS: 3334.8, Avg(us): 273, Min(us): 205, Max(us): 6699, 50th(us): 258, 90th(us): 302, 95th(us): 328, 99th(us): 521, 99.9th(us): 4025, 99.99th(us): 5327
+TOTAL  - Takes(s): 19.7, Count: 196650, OPS: 9997.2, Avg(us): 90, Min(us): 12, Max(us): 6663, 50th(us): 26, 90th(us): 216, 95th(us): 234, 99th(us): 290, 99.9th(us): 601, 99.99th(us): 4795
+UPDATE - Takes(s): 19.7, Count: 65578, OPS: 3334.7, Avg(us): 223, Min(us): 168, Max(us): 6663, 50th(us): 207, 90th(us): 244, 95th(us): 261, 99th(us): 430, 99.9th(us): 3975, 99.99th(us): 5287

@@ -1,0 +1,40 @@
+Using request distribution 'uniform' a keyrange of [0 63]
+lab-setting page_size=4096
+lab-setting cache_size=-16384
+lab-setting mmap_size=0
+lab-setting synchronous=2
+lab-setting wal_autocheckpoint=1000
+***************** properties *****************
+"dataintegrity"="false"
+"fieldlength"="4096"
+"target"="0"
+"command"="load"
+"table"="usertable"
+"threadcount"="1"
+"minscanlength"="16"
+"keyprefix"="user"
+"scanlengthdistribution"="uniform"
+"updateproportion"="0.50"
+"insertproportion"="0"
+"requestdistribution"="uniform"
+"writeallfields"="true"
+"readmodifywriteproportion"="0"
+"readallfields"="true"
+"workload"="core"
+"sqlite.db"="/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-sync-probe"
+"maxscanlength"="16"
+"readproportion"="0.50"
+"fieldlengthdistribution"="constant"
+"zeropadding"="20"
+"insertorder"="hashed"
+"workload.seed"="123"
+"operationcount"="128"
+"dotransactions"="false"
+"recordcount"="64"
+"fieldcount"="1"
+"scanproportion"="0"
+**********************************************
+**********************************************
+Run finished, takes 47.959751ms
+INSERT - Takes(s): 0.0, Count: 64, OPS: 1360.3, Avg(us): 711, Min(us): 625, Max(us): 919, 50th(us): 702, 90th(us): 777, 95th(us): 830, 99th(us): 899, 99.9th(us): 919, 99.99th(us): 919
+TOTAL  - Takes(s): 0.0, Count: 64, OPS: 1364.3, Avg(us): 711, Min(us): 625, Max(us): 919, 50th(us): 702, 90th(us): 777, 95th(us): 830, 99th(us): 899, 99.9th(us): 919, 99.99th(us): 919

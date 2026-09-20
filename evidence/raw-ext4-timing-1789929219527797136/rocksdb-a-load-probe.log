@@ -1,0 +1,38 @@
+Using request distribution 'uniform' a keyrange of [0 63]
+***************** properties *****************
+"fieldlength"="4096"
+"table"="usertable"
+"fieldlengthdistribution"="constant"
+"writeallfields"="true"
+"recordcount"="64"
+"readmodifywriteproportion"="0"
+"dataintegrity"="false"
+"workload.seed"="123"
+"dotransactions"="false"
+"rocksdb.cache_index_and_filter_blocks"="true"
+"target"="0"
+"readallfields"="true"
+"minscanlength"="16"
+"threadcount"="1"
+"scanproportion"="0"
+"zeropadding"="20"
+"rocksdb.max_write_buffer_number"="2"
+"operationcount"="128"
+"scanlengthdistribution"="uniform"
+"command"="load"
+"updateproportion"="0.50"
+"insertorder"="hashed"
+"keyprefix"="user"
+"rocksdb.dir"="/var/tmp/msfblkdev-raw-ext4-ll72y3kx/rocksdb-sync-probe"
+"insertproportion"="0"
+"rocksdb.write_buffer_size"="16777216"
+"workload"="core"
+"requestdistribution"="uniform"
+"fieldcount"="1"
+"maxscanlength"="16"
+"readproportion"="0.50"
+**********************************************
+**********************************************
+Run finished, takes 34.082728ms
+INSERT - Takes(s): 0.0, Count: 64, OPS: 1920.1, Avg(us): 496, Min(us): 455, Max(us): 686, 50th(us): 481, 90th(us): 577, 95th(us): 592, 99th(us): 638, 99.9th(us): 686, 99.99th(us): 686
+TOTAL  - Takes(s): 0.0, Count: 64, OPS: 1916.6, Avg(us): 496, Min(us): 455, Max(us): 686, 50th(us): 481, 90th(us): 577, 95th(us): 592, 99th(us): 638, 99.9th(us): 686, 99.99th(us): 686

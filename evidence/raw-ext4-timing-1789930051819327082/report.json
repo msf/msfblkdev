@@ -1,0 +1,286 @@
+{
+  "scope": "duration calibration; existing host ext4; not ADR acceptance or final I/O-limited comparison",
+  "filesystem": "/ /dev/mapper/ubuntu--vg-ubuntu--lv ext4 rw,relatime",
+  "kernel": "7.0.0-31-generic",
+  "binary_sha256": "977bd95ea008fd0658110ede60d7969dce18c5a8ffee23463ee4020f09eb8786",
+  "recordcount": 8192,
+  "operationcount": 131072,
+  "field_bytes": 4096,
+  "threads": 1,
+  "seed": 123,
+  "memory_max": "268435456",
+  "swap_max": "0",
+  "sync_probes": [
+    {
+      "command": [
+        "/usr/bin/time",
+        "-o",
+        "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/sqlite-a-load-probe.usage.json",
+        "-f",
+        "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+        "strace",
+        "-f",
+        "-qq",
+        "-o",
+        "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/sqlite-a-load-probe.strace",
+        "-e",
+        "trace=fsync,fdatasync",
+        "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+        "load",
+        "sqlite",
+        "-P",
+        "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+        "-P",
+        "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/a.properties",
+        "-p",
+        "recordcount=64",
+        "-p",
+        "operationcount=128",
+        "-p",
+        "sqlite.db=/var/tmp/msfblkdev-raw-ext4-10lxnio7/sqlite-sync-probe"
+      ],
+      "process_elapsed_seconds": 0.16419311799108982,
+      "usage": {
+        "wall_seconds": 0.12,
+        "user_seconds": 0.04,
+        "system_seconds": 0.07,
+        "max_rss_kib": 59624,
+        "fs_inputs": 392,
+        "fs_outputs": 3448
+      },
+      "reported_counts": {
+        "INSERT": 64,
+        "TOTAL": 64
+      },
+      "successful_sync_calls": 73
+    },
+    {
+      "command": [
+        "/usr/bin/time",
+        "-o",
+        "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/rocksdb-a-load-probe.usage.json",
+        "-f",
+        "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+        "strace",
+        "-f",
+        "-qq",
+        "-o",
+        "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/rocksdb-a-load-probe.strace",
+        "-e",
+        "trace=fsync,fdatasync",
+        "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+        "load",
+        "rocksdb",
+        "-P",
+        "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+        "-P",
+        "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/a.properties",
+        "-p",
+        "recordcount=64",
+        "-p",
+        "operationcount=128",
+        "-p",
+        "rocksdb.dir=/var/tmp/msfblkdev-raw-ext4-10lxnio7/rocksdb-sync-probe",
+        "-p",
+        "rocksdb.write_buffer_size=16777216",
+        "-p",
+        "rocksdb.max_write_buffer_number=2",
+        "-p",
+        "rocksdb.cache_index_and_filter_blocks=true"
+      ],
+      "process_elapsed_seconds": 0.11396810202859342,
+      "usage": {
+        "wall_seconds": 0.11,
+        "user_seconds": 0.04,
+        "system_seconds": 0.07,
+        "max_rss_kib": 60820,
+        "fs_inputs": 16,
+        "fs_outputs": 1184
+      },
+      "reported_counts": {
+        "INSERT": 64,
+        "TOTAL": 64
+      },
+      "successful_sync_calls": 75
+    }
+  ],
+  "cases": [
+    {
+      "driver": "sqlite",
+      "workload": "e75",
+      "load": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/sqlite-e75-load.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "load",
+          "sqlite",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/e75.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "sqlite.db=/var/tmp/msfblkdev-raw-ext4-10lxnio7/sqlite-e75"
+        ],
+        "process_elapsed_seconds": 2.3185010319575667,
+        "usage": {
+          "wall_seconds": 2.31,
+          "user_seconds": 0.47,
+          "system_seconds": 0.28,
+          "max_rss_kib": 80168,
+          "fs_inputs": 0,
+          "fs_outputs": 424848
+        },
+        "reported_counts": {
+          "INSERT": 8192,
+          "TOTAL": 8192
+        }
+      },
+      "run": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/sqlite-e75-run.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "run",
+          "sqlite",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/e75.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "sqlite.db=/var/tmp/msfblkdev-raw-ext4-10lxnio7/sqlite-e75"
+        ],
+        "process_elapsed_seconds": 19.703164105012547,
+        "usage": {
+          "wall_seconds": 19.66,
+          "user_seconds": 22.16,
+          "system_seconds": 4.01,
+          "max_rss_kib": 89536,
+          "fs_inputs": 24,
+          "fs_outputs": 1703832
+        },
+        "reported_counts": {
+          "INSERT": 32790,
+          "SCAN": 98282,
+          "TOTAL": 131072
+        }
+      },
+      "verification": {
+        "rows": 40982,
+        "integrity": "ok",
+        "value_bytes": 4096
+      }
+    },
+    {
+      "driver": "rocksdb",
+      "workload": "e75",
+      "load": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/rocksdb-e75-load.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "load",
+          "rocksdb",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/e75.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "rocksdb.dir=/var/tmp/msfblkdev-raw-ext4-10lxnio7/rocksdb-e75",
+          "-p",
+          "rocksdb.write_buffer_size=16777216",
+          "-p",
+          "rocksdb.max_write_buffer_number=2",
+          "-p",
+          "rocksdb.cache_index_and_filter_blocks=true"
+        ],
+        "process_elapsed_seconds": 3.770871985005215,
+        "usage": {
+          "wall_seconds": 3.73,
+          "user_seconds": 0.37,
+          "system_seconds": 0.18,
+          "max_rss_kib": 82932,
+          "fs_inputs": 16,
+          "fs_outputs": 197224
+        },
+        "reported_counts": {
+          "INSERT": 8192,
+          "TOTAL": 8192
+        }
+      },
+      "run": {
+        "command": [
+          "/usr/bin/time",
+          "-o",
+          "/home/miguel/play/msfblkdev/evidence/raw-ext4-timing-1789930051819327082/rocksdb-e75-run.usage.json",
+          "-f",
+          "{\"wall_seconds\":%e,\"user_seconds\":%U,\"system_seconds\":%S,\"max_rss_kib\":%M,\"fs_inputs\":%I,\"fs_outputs\":%O}",
+          "/home/miguel/play/msfblkdev/tools/build/go-ycsb-427715a/bin/go-ycsb",
+          "run",
+          "rocksdb",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/common.properties",
+          "-P",
+          "/home/miguel/play/msfblkdev/tools/go-ycsb/workloads/e75.properties",
+          "-p",
+          "recordcount=8192",
+          "-p",
+          "operationcount=131072",
+          "-p",
+          "rocksdb.dir=/var/tmp/msfblkdev-raw-ext4-10lxnio7/rocksdb-e75",
+          "-p",
+          "rocksdb.write_buffer_size=16777216",
+          "-p",
+          "rocksdb.max_write_buffer_number=2",
+          "-p",
+          "rocksdb.cache_index_and_filter_blocks=true"
+        ],
+        "process_elapsed_seconds": 22.706006394000724,
+        "usage": {
+          "wall_seconds": 22.66,
+          "user_seconds": 13.64,
+          "system_seconds": 2.11,
+          "max_rss_kib": 219316,
+          "fs_inputs": 856,
+          "fs_outputs": 791216
+        },
+        "reported_counts": {
+          "INSERT": 32790,
+          "SCAN": 98282,
+          "TOTAL": 131072
+        }
+      },
+      "verification": {
+        "row_count_output": "Keys in range: 40982\nValue size distribution: \nCount: 40982 Average: 4101.0000  StdDev: 0.00\nMin: 4101  Median: 4101.0000  Max: 4101\nPercentiles: P50: 4101.00 P75: 4101.00 P99: 4101.00 P99.9: 4101.00 P99.99: 4101.00\n------------------------------------------------------\n(    2900,    4400 ]    40982 100.000% 100.000% ####################"
+      }
+    }
+  ],
+  "fixture": "/var/tmp/msfblkdev-raw-ext4-10lxnio7",
+  "cgroup_memory_peak": "268443648",
+  "cgroup_memory_events": "low 0\nhigh 0\nmax 750\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+  "fixture_removed": true,
+  "total_elapsed_seconds": 49.02603786002146,
+  "measured_phase_seconds": 48.49854351597605,
+  "status": "pass"
+}

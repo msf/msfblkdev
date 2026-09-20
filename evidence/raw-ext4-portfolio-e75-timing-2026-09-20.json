@@ -1,0 +1,144 @@
+{
+  "status": "six_case_duration_calibration_complete",
+  "scope": "rough duration calibration on host ext4, 4096-byte filesystem blocks over a 512-byte-sector LV; cached reads, synchronous writes; no ublk or VDO",
+  "cases": [
+    {
+      "database": "sqlite",
+      "workload": "a",
+      "load_seconds": 2.4186506900005043,
+      "run_seconds": 18.90420341899153,
+      "total_seconds": 21.322854108992033,
+      "verification": {
+        "rows": 8192,
+        "integrity": "ok",
+        "value_bytes": 4096
+      },
+      "run_usage": {
+        "wall_seconds": 18.88,
+        "user_seconds": 7.47,
+        "system_seconds": 2.3,
+        "max_rss_kib": 88528,
+        "fs_inputs": 0,
+        "fs_outputs": 2502008
+      }
+    },
+    {
+      "database": "sqlite",
+      "workload": "f",
+      "load_seconds": 2.3688715809839778,
+      "run_seconds": 19.850110134051647,
+      "total_seconds": 22.218981715035625,
+      "verification": {
+        "rows": 8192,
+        "integrity": "ok",
+        "value_bytes": 4096
+      },
+      "run_usage": {
+        "wall_seconds": 19.82,
+        "user_seconds": 9.32,
+        "system_seconds": 2.42,
+        "max_rss_kib": 90592,
+        "fs_inputs": 0,
+        "fs_outputs": 2502008
+      }
+    },
+    {
+      "database": "rocksdb",
+      "workload": "a",
+      "load_seconds": 3.8711053450242616,
+      "run_seconds": 32.13170968502527,
+      "total_seconds": 36.00281503004953,
+      "verification": {
+        "row_count_output": "Keys in range: 8192\nValue size distribution: \nCount: 8192 Average: 4101.0000  StdDev: 0.00\nMin: 4101  Median: 4101.0000  Max: 4101\nPercentiles: P50: 4101.00 P75: 4101.00 P99: 4101.00 P99.9: 4101.00 P99.99: 4101.00\n------------------------------------------------------\n(    2900,    4400 ]     8192 100.000% 100.000% ####################"
+      },
+      "run_usage": {
+        "wall_seconds": 32.09,
+        "user_seconds": 5.27,
+        "system_seconds": 1.69,
+        "max_rss_kib": 227092,
+        "fs_inputs": 147016,
+        "fs_outputs": 1739480
+      }
+    },
+    {
+      "database": "rocksdb",
+      "workload": "f",
+      "load_seconds": 3.820916605007369,
+      "run_seconds": 32.677721240965184,
+      "total_seconds": 36.49863784597255,
+      "verification": {
+        "row_count_output": "Keys in range: 8192\nValue size distribution: \nCount: 8192 Average: 4101.0000  StdDev: 0.00\nMin: 4101  Median: 4101.0000  Max: 4101\nPercentiles: P50: 4101.00 P75: 4101.00 P99: 4101.00 P99.9: 4101.00 P99.99: 4101.00\n------------------------------------------------------\n(    2900,    4400 ]     8192 100.000% 100.000% ####################"
+      },
+      "run_usage": {
+        "wall_seconds": 32.64,
+        "user_seconds": 6.08,
+        "system_seconds": 1.78,
+        "max_rss_kib": 228516,
+        "fs_inputs": 242464,
+        "fs_outputs": 1739512
+      }
+    },
+    {
+      "database": "sqlite",
+      "workload": "e75",
+      "load_seconds": 2.3185010319575667,
+      "run_seconds": 19.703164105012547,
+      "total_seconds": 22.021665136970114,
+      "verification": {
+        "rows": 40982,
+        "integrity": "ok",
+        "value_bytes": 4096
+      },
+      "run_usage": {
+        "wall_seconds": 19.66,
+        "user_seconds": 22.16,
+        "system_seconds": 4.01,
+        "max_rss_kib": 89536,
+        "fs_inputs": 24,
+        "fs_outputs": 1703832
+      }
+    },
+    {
+      "database": "rocksdb",
+      "workload": "e75",
+      "load_seconds": 3.770871985005215,
+      "run_seconds": 22.706006394000724,
+      "total_seconds": 26.47687837900594,
+      "verification": {
+        "row_count_output": "Keys in range: 40982\nValue size distribution: \nCount: 40982 Average: 4101.0000  StdDev: 0.00\nMin: 4101  Median: 4101.0000  Max: 4101\nPercentiles: P50: 4101.00 P75: 4101.00 P99: 4101.00 P99.9: 4101.00 P99.99: 4101.00\n------------------------------------------------------\n(    2900,    4400 ]    40982 100.000% 100.000% ####################"
+      },
+      "run_usage": {
+        "wall_seconds": 22.66,
+        "user_seconds": 13.64,
+        "system_seconds": 2.11,
+        "max_rss_kib": 219316,
+        "fs_inputs": 856,
+        "fs_outputs": 791216
+      }
+    }
+  ],
+  "source_reports": [
+    "evidence/raw-ext4-timing-1789929219527797136/report.json",
+    "evidence/raw-ext4-timing-1789929366350639320/report.json",
+    "evidence/raw-ext4-timing-1789930051819327082/report.json"
+  ],
+  "binary_sha256_by_batch": {
+    "a_f": "b1c2f233d0b1b3fd95986d565d55f9901cfe2956608c448f82a50418e3430141",
+    "e75": "977bd95ea008fd0658110ede60d7969dce18c5a8ffee23463ee4020f09eb8786"
+  },
+  "build_difference": "E75 used the subsequent build adding a timeout to SQLite setup checks; A/F timings were reused. Exact build manifests remain with each run.",
+  "initial_records": 8192,
+  "logical_requests_per_case": 131072,
+  "value_bytes": 4096,
+  "threads": 1,
+  "seed": 123,
+  "load_and_run_seconds": 164.5418322160258,
+  "four_scenarios_same_speed_seconds": 658.1673288641032,
+  "planning_allowance_minutes": [
+    15,
+    20
+  ],
+  "estimate_limit": "Only host ext4 measured, with cached reads. Full correctness gates and PostgreSQL timings excluded. The planning allowance is provisional, not an upper bound.",
+  "e75_fixture_removed": true,
+  "e75_memory_events": "low 0\nhigh 0\nmax 750\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n"
+}

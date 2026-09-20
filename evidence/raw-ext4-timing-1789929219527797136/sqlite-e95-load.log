@@ -1,0 +1,40 @@
+Using request distribution 'uniform' a keyrange of [0 8191]
+lab-setting page_size=4096
+lab-setting cache_size=-16384
+lab-setting mmap_size=0
+lab-setting synchronous=2
+lab-setting wal_autocheckpoint=1000
+***************** properties *****************
+"command"="load"
+"scanproportion"="0.95"
+"fieldlengthdistribution"="constant"
+"maxscanlength"="16"
+"operationcount"="131072"
+"fieldlength"="4096"
+"scanlengthdistribution"="uniform"
+"readproportion"="0"
+"table"="usertable"
+"dataintegrity"="false"
+"workload.seed"="123"
+"sqlite.db"="/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-e95"
+"target"="0"
+"insertproportion"="0.05"
+"recordcount"="8192"
+"threadcount"="1"
+"fieldcount"="1"
+"requestdistribution"="uniform"
+"readmodifywriteproportion"="0"
+"updateproportion"="0"
+"workload"="core"
+"readallfields"="true"
+"keyprefix"="user"
+"insertorder"="ordered"
+"zeropadding"="20"
+"minscanlength"="16"
+"writeallfields"="true"
+"dotransactions"="false"
+**********************************************
+**********************************************
+Run finished, takes 2.161218868s
+INSERT - Takes(s): 2.2, Count: 8192, OPS: 3791.6, Avg(us): 240, Min(us): 170, Max(us): 3113, 50th(us): 219, 90th(us): 261, 95th(us): 316, 99th(us): 537, 99.9th(us): 2411, 99.99th(us): 3043
+TOTAL  - Takes(s): 2.2, Count: 8192, OPS: 3791.5, Avg(us): 240, Min(us): 170, Max(us): 3113, 50th(us): 219, 90th(us): 261, 95th(us): 316, 99th(us): 537, 99.9th(us): 2411, 99.99th(us): 3043

@@ -1,0 +1,42 @@
+Using request distribution 'uniform' a keyrange of [0 8191]
+***************** properties *****************
+"command"="run"
+"target"="0"
+"maxscanlength"="16"
+"workload"="core"
+"updateproportion"="0"
+"dotransactions"="true"
+"minscanlength"="16"
+"recordcount"="8192"
+"rocksdb.dir"="/var/tmp/msfblkdev-raw-ext4-g26gvak_/rocksdb-e95"
+"fieldlengthdistribution"="constant"
+"insertproportion"="0.05"
+"readallfields"="true"
+"rocksdb.cache_index_and_filter_blocks"="true"
+"insertorder"="ordered"
+"scanlengthdistribution"="uniform"
+"keyprefix"="user"
+"dataintegrity"="false"
+"rocksdb.write_buffer_size"="16777216"
+"rocksdb.max_write_buffer_number"="2"
+"fieldlength"="4096"
+"table"="usertable"
+"threadcount"="1"
+"requestdistribution"="uniform"
+"workload.seed"="123"
+"operationcount"="131072"
+"readproportion"="0"
+"scanproportion"="0.95"
+"readmodifywriteproportion"="0"
+"fieldcount"="1"
+"writeallfields"="true"
+"zeropadding"="20"
+**********************************************
+INSERT - Takes(s): 10.0, Count: 5604, OPS: 560.5, Avg(us): 469, Min(us): 377, Max(us): 3165, 50th(us): 452, 90th(us): 533, 95th(us): 565, 99th(us): 644, 99.9th(us): 1443, 99.99th(us): 2397
+SCAN   - Takes(s): 10.0, Count: 106162, OPS: 10615.6, Avg(us): 66, Min(us): 18, Max(us): 1645, 50th(us): 59, 90th(us): 92, 95th(us): 117, 99th(us): 205, 99.9th(us): 320, 99.99th(us): 439
+TOTAL  - Takes(s): 10.0, Count: 111766, OPS: 11176.1, Avg(us): 86, Min(us): 18, Max(us): 3165, 50th(us): 61, 90th(us): 115, 95th(us): 401, 99th(us): 501, 99.9th(us): 603, 99.99th(us): 1048
+**********************************************
+Run finished, takes 11.7643305s
+INSERT - Takes(s): 11.8, Count: 6516, OPS: 554.0, Avg(us): 470, Min(us): 377, Max(us): 4395, 50th(us): 452, 90th(us): 534, 95th(us): 564, 99th(us): 643, 99.9th(us): 1443, 99.99th(us): 3165
+SCAN   - Takes(s): 11.8, Count: 124556, OPS: 10587.8, Avg(us): 66, Min(us): 18, Max(us): 1645, 50th(us): 60, 90th(us): 92, 95th(us): 117, 99th(us): 204, 99.9th(us): 320, 99.99th(us): 450
+TOTAL  - Takes(s): 11.8, Count: 131072, OPS: 11141.7, Avg(us): 86, Min(us): 18, Max(us): 4395, 50th(us): 61, 90th(us): 114, 95th(us): 380, 99th(us): 501, 99.9th(us): 603, 99.99th(us): 914

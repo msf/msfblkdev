@@ -1,0 +1,46 @@
+{
+  "status": "pass",
+  "scope": "property-file parsing and tiny native driver probes; no seed/cache/durability/cgroup enforcement or scan-result validation; not filesystem acceptance or a performance baseline",
+  "initial_records": 64,
+  "logical_requests": 256,
+  "cases": [
+    {
+      "driver": "sqlite",
+      "profile": "e95",
+      "reported_operation_counts": {
+        "INSERT": 12,
+        "SCAN": 244,
+        "TOTAL": 256
+      },
+      "sqlite_integrity_keys_and_value_lengths": "pass"
+    },
+    {
+      "driver": "sqlite",
+      "profile": "e50",
+      "reported_operation_counts": {
+        "INSERT": 110,
+        "SCAN": 146,
+        "TOTAL": 256
+      },
+      "sqlite_integrity_keys_and_value_lengths": "pass"
+    },
+    {
+      "driver": "rocksdb",
+      "profile": "e95",
+      "reported_operation_counts": {
+        "INSERT": 7,
+        "SCAN": 249,
+        "TOTAL": 256
+      }
+    },
+    {
+      "driver": "rocksdb",
+      "profile": "e50",
+      "reported_operation_counts": {
+        "INSERT": 132,
+        "SCAN": 124,
+        "TOTAL": 256
+      }
+    }
+  ]
+}

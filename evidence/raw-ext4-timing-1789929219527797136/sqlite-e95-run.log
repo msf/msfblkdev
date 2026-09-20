@@ -1,0 +1,44 @@
+Using request distribution 'uniform' a keyrange of [0 8191]
+lab-setting page_size=4096
+lab-setting cache_size=-16384
+lab-setting mmap_size=0
+lab-setting synchronous=2
+lab-setting wal_autocheckpoint=1000
+***************** properties *****************
+"threadcount"="1"
+"insertorder"="ordered"
+"table"="usertable"
+"writeallfields"="true"
+"dataintegrity"="false"
+"fieldlengthdistribution"="constant"
+"readallfields"="true"
+"readproportion"="0"
+"target"="0"
+"recordcount"="8192"
+"updateproportion"="0"
+"scanlengthdistribution"="uniform"
+"maxscanlength"="16"
+"workload.seed"="123"
+"sqlite.db"="/var/tmp/msfblkdev-raw-ext4-ll72y3kx/sqlite-e95"
+"insertproportion"="0.05"
+"operationcount"="131072"
+"fieldcount"="1"
+"scanproportion"="0.95"
+"minscanlength"="16"
+"readmodifywriteproportion"="0"
+"fieldlength"="4096"
+"workload"="core"
+"dotransactions"="true"
+"zeropadding"="20"
+"requestdistribution"="uniform"
+"command"="run"
+"keyprefix"="user"
+**********************************************
+INSERT - Takes(s): 10.0, Count: 4561, OPS: 456.4, Avg(us): 298, Min(us): 187, Max(us): 5427, 50th(us): 262, 90th(us): 392, 95th(us): 493, 99th(us): 616, 99.9th(us): 2187, 99.99th(us): 5427
+SCAN   - Takes(s): 10.0, Count: 86063, OPS: 8606.4, Avg(us): 97, Min(us): 36, Max(us): 1016, 50th(us): 82, 90th(us): 129, 95th(us): 219, 99th(us): 443, 99.9th(us): 651, 99.99th(us): 816
+TOTAL  - Takes(s): 10.0, Count: 90624, OPS: 9062.8, Avg(us): 107, Min(us): 36, Max(us): 5427, 50th(us): 83, 90th(us): 206, 95th(us): 289, 99th(us): 477, 99.9th(us): 672, 99.99th(us): 2089
+**********************************************
+Run finished, takes 14.459675279s
+INSERT - Takes(s): 14.5, Count: 6516, OPS: 450.8, Avg(us): 294, Min(us): 187, Max(us): 5427, 50th(us): 262, 90th(us): 379, 95th(us): 477, 99th(us): 607, 99.9th(us): 2177, 99.99th(us): 2513
+SCAN   - Takes(s): 14.5, Count: 124556, OPS: 8614.3, Avg(us): 97, Min(us): 36, Max(us): 1183, 50th(us): 82, 90th(us): 129, 95th(us): 220, 99th(us): 443, 99.9th(us): 646, 99.99th(us): 811
+TOTAL  - Takes(s): 14.5, Count: 131072, OPS: 9065.1, Avg(us): 107, Min(us): 36, Max(us): 5427, 50th(us): 83, 90th(us): 205, 95th(us): 288, 99th(us): 470, 99.9th(us): 663, 99.99th(us): 2103
