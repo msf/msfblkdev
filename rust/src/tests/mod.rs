@@ -588,6 +588,7 @@ mod format_v3_storage;
 mod format_v3_tail;
 mod format_v3_volume;
 mod format_v3_write;
+mod format_v4_protocol;
 mod io_uring;
 mod mapping_prefetch;
 mod packed_writes;

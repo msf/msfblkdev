@@ -7,16 +7,22 @@ use crate::{BLOCK_SIZE, MAXIMUM_PAYLOAD_BLOCKS, invalid_data, read_u32, read_u64
 use std::io;
 use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
+pub(crate) mod checkpoint_load;
+pub(crate) mod checkpoint_publish;
 pub(crate) mod data_record;
 pub(crate) mod descriptor;
 pub(crate) mod geometry;
 pub(crate) mod heads;
 pub(crate) mod index_page;
+pub(crate) mod log;
 pub(crate) mod mapping_index;
 pub(crate) mod mapping_page;
+pub(crate) mod recovery;
 pub(crate) mod segment_table;
 pub(crate) mod segments;
 pub(crate) mod small_records;
+pub(crate) mod storage;
+pub(crate) mod tail;
 
 pub(crate) use geometry::Geometry;
 
