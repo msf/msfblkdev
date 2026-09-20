@@ -119,7 +119,7 @@ A root is usable only when:
 - the checkpoint's provisioned bound contains the complete arena;
 - the complete checkpoint body is valid.
 
-Startup evaluates each root independently. It selects the usable checkpoint with the highest checkpoint local sequence number (LSN). Equal-LSN roots must encode equivalent logical size, provisioned bound and mapping state; startup rejects a conflict.
+Startup evaluates each root independently. It selects the usable checkpoint with the highest checkpoint logical sequence number (LSN). Equal-LSN roots must encode equivalent logical size, provisioned bound and mapping state; startup rejects a conflict.
 
 A normal checkpoint does not update blocks zero or one. Root pointers change only when checkpoint slots relocate.
 

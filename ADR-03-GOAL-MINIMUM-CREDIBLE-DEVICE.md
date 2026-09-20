@@ -90,8 +90,8 @@ Acceptance tests:
   Evidence (2026-08-29): `cargo test repeated_overwrite_returns_only_latest_value` passes after three distinct non-zero writes to one LBA, reading each latest completed value, then explicitly flushing, cleanly closing, reopening through `open`, and reading only the third value.
 - [x] Overwriting an LBA with zeroes returns zeroes before and after reopen.
   Evidence (2026-08-29): `cargo test overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen` passes after a normal zero-block overwrite, both before and after a clean reopen.
-- [x] Raw footer linkage and local sequence numbers are contiguous.
-  Evidence (2026-08-29): `cargo test raw_footer_linkage_and_lsns_are_contiguous` passes after three public API writes. It verifies each footer's previous-footer link, self-position and contiguous local sequence numbers (LSNs) 1 through 3.
+- [x] Raw footer linkage and logical sequence numbers are contiguous.
+  Evidence (2026-08-29): `cargo test raw_footer_linkage_and_lsns_are_contiguous` passes after three public API writes. It verifies each footer's previous-footer link, self-position and contiguous logical sequence numbers (LSNs) 1 through 3.
 - [x] The clean checkpoint maps each LBA to its latest payload and checksum.
   Evidence (2026-08-29): `cargo test clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum` passes after public writes and an overwrite. It inspects the raw clean-checkpoint body and verifies each LBA's latest physical payload and corresponding checksum.
 - [x] An out-of-range write leaves mapping and cursors unchanged.
@@ -107,13 +107,13 @@ Acceptance tests:
 
 ## Delivery 2: V0.6 crash recovery
 
-Recovery starts from the newest usable checkpoint and scans records in local sequence number (LSN) order.
+Recovery starts from the newest usable checkpoint and scans records in logical sequence number (LSN) order.
 
 For each candidate footer, recovery validates:
 
 - magic, format version and record kind;
 - footer checksum and zero padding;
-- volume identity and expected local sequence number;
+- volume identity and expected logical sequence number;
 - previous-footer link and expected footer position;
 - payload count and backing-store bounds;
 - LBA range and uniqueness;

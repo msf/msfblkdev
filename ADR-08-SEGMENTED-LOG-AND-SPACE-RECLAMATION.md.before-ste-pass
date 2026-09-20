@@ -1,0 +1,705 @@
+# ADR-08 Segmented log, space reclamation and compression at relocation
+
+Date: 2026-09-19, approach decided 2026-09-20
+Author: Miguel Filipe
+Status: draft. The approach is decided; sizes, thresholds and encodings are open until the workbench measures them. Nothing in it is implemented.
+On-disk format: 4 (proposed)
+Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md), [prior art review](papers/README.md), [workbench memo](TMD-WORKBENCH.md)
+Would update: ADR-07 (the log stops being finite), ADR-04 (segment reclamation replaces replacement-image compaction as the space-recovery path), ADR-03 (the frontend advertises discard)
+
+Every paper section cited below was read for this draft from the PDFs in `papers/`. When a claim extrapolates from a paper, the text says so.
+
+## Terms
+
+| Term            | Meaning in this document                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------- |
+| Segment         | A fixed-size region of the log.                                                                 |
+| Head            | The open segment that a writer appends to.                                                      |
+| Sealed segment  | A segment that receives no more records.                                                        |
+| Live record     | A payload that the current mapping references, or a snapshot that the current index references. |
+| Utilization `u` | The live fraction of one segment. LFS uses this term.                                           |
+| Fill factor `F` | Live bytes divided by physical capacity. Lomet and Luo use this term.                           |
+| Garbage ratio   | Dead bytes divided by used bytes. EBS2 calls it the garbage percentage.                         |
+| Free ratio      | Free bytes divided by physical capacity. `F + garbage + free = 1` over capacity.                |
+| Victim          | A sealed segment selected for cleaning.                                                         |
+| Relocation      | Copying a victim's live records to a head.                                                      |
+| Chunk           | A fixed number of payloads compressed together as one zstd frame.                              |
+| Publication     | The act of writing a new checkpoint, as ADR-07 defines it.                                      |
+| Root            | One of the two checkpoint descriptors. Recovery selects the newest valid root.                  |
+| LSN             | Logical sequence number. Every record has one. They never repeat.                               |
+
+## Context
+
+Format 3 appends every write and never reuses space. An overwrite leaves two kinds of dead bytes behind. The first is the old payload block. The second is the old mapping snapshot of every page that the write dirtied, because each publication appends a fresh snapshot per dirty page. Repeated overwrites of a small working set fill the log, and the device returns `ENOSPC` (ADR-03 exhaustion scenario, README "Current limits"). A database on this device has a lifetime measured in bytes written, not in data stored.
+
+ADR-04 proposed replacement-image compaction: quiesce the volume, copy live blocks to a new image, switch. That is an offline operation. ADR-04 says segment reuse is a separate decision. The [prior art review](papers/README.md#2-segment-the-log-and-add-a-serialized-cleaner) sketched a segmented log with a serialized greedy cleaner. It did not choose a concurrency model and did not settle where metadata lives.
+
+One requirement shapes this ADR: reclamation must not stop the world. User writes continue into one segment while other segments are cleaned and later freed. This is the first time the engine needs any concurrency.
+
+Two ideas arrived during review and are now part of the design. The first is to compress data when we relocate it. Alibaba's EBS2 did exactly this in production. The second is discard: without it, live bytes never fall when a filesystem deletes a file, and the cleaner can reclaim only overwrites.
+
+The device targets stateful systems: databases, key-value stores and indexing engines. General filesystem use is a blind-spot check, not the design target.
+
+## What must reclamation preserve?
+
+These invariants come from ADR-04's compaction section and the prior art review. The design below must satisfy them.
+
+1. Never overwrite a physical block while either valid root references it. The replay path from either root counts as a reference.
+2. A relocated copy replaces a mapping entry only if that entry still points at the source block at the moment of replacement. Otherwise the cleaner could replace a newer write with an older value.
+3. Recovery never applies a record left from a segment's earlier use.
+4. User writes never consume the space that the cleaner needs to make progress.
+5. One thread mutates the mapping cache, the index, the segment table and the log. ADR-07's dirty-page protection, CLOCK policy and publication all assume this.
+
+## What do the papers establish?
+
+Five results decide the shape of this ADR more than any mechanism does.
+
+### Cleaning cost depends on the victim's utilization
+
+LFS derives the write cost of cleaning as `2 / (1 - u)` for a victim with utilization `u` (§3.4, eq. 1). The factor 2 counts the read of the whole segment. Lomet and Luo write the same cost as `2 / E`, with `E = 1 - u`, and give the extra bytes written per user byte as `(1 - E) / E` (§2.1, eq. 2).
+
+The victim is emptier than the device. LFS §3.5 shows a greedy cleaner at 75% disk utilization cleaning segments that average 55% live (Fig. 4). Lomet and Luo compute, for uniform random overwrites with age-based cleaning, how empty the cleaned segment is at each fill factor (Table 1). Their §4.5 shows that age-based and greedy selection order segments identically in the uniform case.
+
+| Fill factor `F` | Empty fraction `E` of the cleaned segment | Total bytes written per user byte, `1 / E` |
+|---:|---:|---:|
+| 0.50 | 0.80 | 1.25 |
+| 0.70 | 0.53 | 1.89 |
+| 0.80 | 0.375 | 2.67 |
+| 0.90 | 0.19 | 5.26 |
+| 0.95 | 0.094 | 10.6 |
+
+These are analytic values for a harsh model: every page is equally likely to be overwritten. The paper's simulation reproduces them to two digits (§8.1). They set our over-provisioning budget. A device kept at `F ≤ 0.8` writes under 3 bytes per user byte. At `F = 0.95` it writes more than 10.
+
+### Greedy selection is wrong for skewed workloads
+
+LFS §3.5 reports a result that surprised its authors. With 90% of writes going to 10% of files, greedy selection performs *worse* than with uniform writes. Cold segments sit just above the cleaning threshold for a long time and are never cleaned. Cost-benefit selection fixes this. It ranks segments by `(1 - u) × age / (1 + u)`, where age is the modification time of the youngest block. It cleans cold segments at about 75% utilization and hot ones at about 15%, produces the bimodal distribution the cleaner wants (Fig. 6), and cuts write cost by up to 50% versus greedy above 60% disk utilization (Fig. 7).
+
+Lomet and Luo confirm this on 80/20 and 90/10 Zipf distributions and on TPC-C traces, whose skew they measure at roughly 80/20 (§6.2.2, §6.3, Figs. 5 and 6). Under uniform updates all policies coincide (§6.2.1). F2FS uses greedy only for foreground cleaning, to bound latency, and cost-benefit in the background (§2.5). Our seal LSN gives age for free. Cost-benefit belongs in the first delivery, not in a later refinement.
+
+### Background work on the I/O thread drives tail latency
+
+Seltzer et al. measured LFS in a TPC-B workload at 48% disk utilization. LFS was 50% faster than FFS without the cleaner and comparable to FFS with it, a 34% degradation. They attribute the steady-state overhead to segment read time and note that the cleaner cannot run at its optimal rate because transaction response time would be unacceptable (§4, Fig. 7).
+
+Alibaba's EBS paper says the same thing about a modern system. In EBS2 and EBS3 the I/O flow and background tasks ran on the same thread, and "the principal driver of the tail latency is the contention between the IO and the background tasks" (§3.1). Moving I/O to independent threads cut the 99.999th percentile write latency to 1 ms and the read latency to 2.5 ms. Their Base+Burst scheme lets the I/O path preempt bandwidth, CPU and memory from the GC worker under load (§3.2).
+
+Whoever reads the victim pays. If it is the request thread, requests pay.
+
+### Cleaners batch victims and sort what they copy
+
+Nobody cleans one segment at a time in the background. LFS reads "a number of segments into memory, identifies the live data, and writes the live data back to a smaller number of clean segments" (§3.4), tens of segments per pass. With cost-benefit selection it also sorts the live blocks by age before writing them, to keep blocks of different ages apart (§3.5). Lomet and Luo clean 64 segments per cycle, which "amortizes the cost of running the cleaning algorithm over a batch of segments, and also enables more effective separation of pages by update frequency" (§6.1.1). They sort collected pages by estimated update frequency before packing them (§5.3), and their Fig. 4 shows a 16-segment sort buffer reaching near-optimal amplification. EBS2 collects valid data "from the dirtiest DataFiles under the same segment and combining them as new DataFiles" (§2.2). Bitcask merges over all closed files at once. F2FS is the exception, one section per pass, because its foreground cleaner runs on the request path (§2.5).
+
+### Compression at relocation works, and compression on the write path is expensive
+
+EBS2 appends user writes uncompressed with three-way replication. Its garbage collector reads valid data from the dirtiest files and rewrites it as erasure-coded, LZ4-compressed files with an offset table from LBA to compressed location (§2.2, "GC with EC/Compression"). The measured LZ4 ratio was 43.3% to 54.7%, 50.1% on average. Space per byte fell from 3 replicas to 0.69 after GC and 1.29 on average, because data awaiting GC is still replicated. The garbage collector prefers replicated files over already-compressed ones as victims, "to make up more storage space for incoming writes".
+
+The same paper explains why they did not compress on the write path at first. Compressing a 16 KiB block with latency-optimized LZ4 costs 25 µs of CPU, 25.6% of their 100 µs write latency target, and 4,000 MiB/s of throughput needs at least 8 cores (§2.2 "Limitations", §5.2). EBS3 moved compression online only with an FPGA and a Fusion Write Engine that merges writes from many disks until 16 KiB accumulate (§2.3). Even then, in clusters where 4 KiB writes are rare they append them uncompressed, because merging raised the 99th percentile write latency by 220%. Their later ARM-based servers use hardware compression units, and their cold-data experiments with zstd gained a further 17% over LZ4 (§5.2).
+
+Logical Disk made the same suggestion in 1993: "it may be a better strategy to only compress cold files during cleaning; under such a strategy writes and reads of recently written data can be performed at the maximum disk bandwidth" (§2.2).
+
+## Which approach?
+
+Three approaches were compared. They differ on one axis: who does the cleaner's I/O and who mutates state.
+
+| | 1. Serialized steps | 2. Cleaner thread, single writer | 3. Concurrent cleaner |
+|---|---|---|---|
+| Who reads victims | foreground thread, in bounded steps | cleaner thread | cleaner thread |
+| Who compresses | foreground thread | cleaner thread | cleaner thread |
+| Who writes copies and updates mappings | foreground thread | foreground thread | cleaner thread, under a lock |
+| Open segments | 1 | 2 (user head, relocation head) | 2 or more |
+| Shared state | none | one immutable read view plus one bounded channel | mapping cache, index, segment table, LSN counter, both rings |
+| Foreground cost | victim reads, compression and copy writes on the request path | copy writes only | lock contention |
+| Cleaning while idle | needs a timer | needs a wake-up for the apply step | free |
+| A cleaner bug can corrupt data | yes | no: the writer re-validates every proposal | yes |
+| Closest prior art | Sprite LFS cleaner (§3.4) | F2FS background cleaning (§2.5); EBS2 frontend/backend split (§2.2) | F2FS multi-head logging (§2.4), extrapolated to a second writer |
+
+**Decision: approach 2.** A cleaner thread reads victims, decides liveness, compresses and batches. The single writer thread validates and applies. The cleaner behaves like a client of the engine that submits large conditional write batches.
+
+**Approach 1 is rejected** because every victim read and every compression lands on the request path. Seltzer measured the cost in 1995 and Alibaba measured it again in 2024. Modern hosts have many CPUs; the hot path should stay on one and the background work should use another. Approach 1's apply path is still built first, because it is approach 2's apply path with the reads done inline; see the deliveries.
+
+**Approach 3 is rejected** because it breaks invariant 5. Two writers mean locks around the mapping cache, the index, the segment table and the LSN counter, and a recovery that merges two independently written streams. Nothing measured says the single writer is the bottleneck.
+
+## Where do mapping snapshots and the segment table live?
+
+Three placements are possible for the metadata that the cleaner has to keep consistent.
+
+- **Mixed segments.** Snapshot records and segment-table records go through the same heads as data, as they do today. The cleaner relocates live snapshots exactly like payloads. Metadata is a small share of bytes: one 4 KiB snapshot per 336 payload blocks when pages fill. Under scattered writes with a small cache it approaches one snapshot per payload (ADR-07 consequences). Either way it dies quickly and mostly sits in good victims. LFS writes its inode map and segment usage table into the log and points to them from the checkpoint region (§3.6, §4.1). This is that design.
+- **Dedicated metadata segments.** F2FS separates node and data logs because they have different update frequencies (§2.4, Table 1). Here it would mean a third head, per-kind segment accounting, and a cleaner that handles two segment classes. It removes no mechanism; it duplicates one. INFLOW measured that going from 2 to 6 append streams in F2FS raised filesystem write amplification by up to 33% and device-level GC amplification from 1.82 to 2.19 under Zipf 0.8 (§4.1, Table 1). More streams are not free on a stacked log.
+- **In-place slots.** ADR-04's mutable arenas. F2FS does this for its NAT and SIT: two copies, selected per block by bitmaps in the checkpoint pack, plus a small journal of recent entries inside the pack to avoid rewriting 4 KiB blocks for a handful of changes (§2.7). This is incompatible with ADR-07's copy-on-write snapshot pages, which are why our checkpoints are cheap.
+
+Decision: mixed segments.
+
+### How is the segment table stored?
+
+This is the proposal. The segment table is an array with one small entry per segment. The entry holds the segment's state: `Free`, `Open`, `Sealed` or `PendingFree`. Nothing else is persistent; live bytes are RAM-only and rebuilt at open.
+
+The array is stored as `SegmentTablePage` records in the log, about a thousand entries per 4 KiB page. The exact entry width is a delivery detail. These pages work exactly like ADR-07's mapping pages:
+
+1. When a segment changes state, the writer updates the entry in RAM and marks that table page dirty.
+2. At publication, the writer appends each dirty table page as a new record and points the candidate descriptor at the new block.
+3. Unchanged pages keep their old pointers. Old page records stay where they are until the cleaner relocates or frees them.
+4. Recovery reads the pages that the selected descriptor points to.
+
+The pointers live inline in the checkpoint descriptor, which has 4,028 spare bytes in format 3. One `u32` pointer per page gives room for about a thousand pages, which is about a million segments. At 8 MiB per segment that covers 8 TiB of backing, the format maximum. No indirection is needed.
+
+The cost is one 4 KiB table-page write per dirty page per publication. A 128 MiB volume has one table page, so every publication that changed any segment state writes one extra block. A 4 TiB volume with 16 MiB segments has 256 pages; a publication touches the few pages that hold the segments that changed.
+
+### Refinement: a state-change journal in the descriptor
+
+This is not part of the proposal. It is a later optimization, to be added only if the checkpoint I/O counters show table-page writes mattering. It is written down here because it fits the same spare bytes and should not be designed out.
+
+The observation: between two publications, few segments change state. Each head seals one segment and opens one when it fills. The cleaner marks a few segments `PendingFree`, and a few move from `PendingFree` to `Free`. That is perhaps five to twenty changes, each one small integer. Writing a whole 4 KiB page to record twenty 4-byte changes is wasteful.
+
+F2FS has the same problem with its segment information table (SIT) and node address table (NAT), and solves it this way (§2.7). Its checkpoint pack has spare room. Recent SIT and NAT changes are written as a short list inside the checkpoint pack itself; F2FS calls the list a journal. The SIT and NAT blocks themselves are rewritten only when the journal is full. Recovery loads the blocks and then applies the journal entries on top of them.
+
+For us it would work like this:
+
+1. After the pointer array, the descriptor's remaining spare bytes hold a list of `(segment id, new state)` pairs. At 8 bytes per pair, a few hundred fit.
+2. At publication, the writer checks how many state changes have happened since the table pages were last written. If they fit in the journal, it writes them into the candidate descriptor and appends no table page. The descriptor is written anyway, so the journal costs no extra I/O.
+3. When the journal would overflow, the writer appends the dirty table pages, which already contain every journaled change, and empties the journal.
+4. Recovery loads the table pages, then applies the journal entries in order.
+
+One subtlety is why this stays a refinement. The two roots alternate, and each root must be recoverable on its own. So the journal in a descriptor must contain every change since the table pages *that descriptor points to* were written, not just the changes since the previous publication. The simplest rule is to let the journal accumulate until the next full page write, and to copy the whole accumulated journal into each descriptor. Both descriptors point at the same pages until pages are rewritten, so both journals are complete for their pages. That is a second encoding of the same state plus an ordering rule at recovery. The gain is one block per publication on a small volume and a few blocks on a large one. Measure first.
+
+### The mapping index moves into the log too
+
+Format 3 keeps two reserved index bodies after the descriptors, sized by logical capacity, and rewrites the complete body at every publication. ADR-07 accepted that cost and named the fix as future work: copy-on-write index pages in the log, published through the descriptor. The segment table pages above are exactly that mechanism, so format 4 applies it to the index as well.
+
+The index takes the shape of an ext2 inode's block map: a fixed array of direct pointers, then a small array of indirect pointers. Both arrays are present in every descriptor and are mostly zero.
+
+The pieces are these. A mapping page covers 336 blocks, which is 1.3 MiB of logical space. A leaf `IndexPage` lists 1,008 mapping pages, so one leaf covers 1.3 GiB. An indirect `IndexPage` lists 1,008 leaves, so one indirect page covers 1.3 TiB.
+
+The descriptor holds 64 direct pointers and 8 indirect pointers. The direct pointers reach the first 64 leaves, which cover 82.7 GiB. A volume up to that size never needs an indirect page. The 8 indirect pointers reach 8,064 more leaves, which cover 10.2 TiB. The index can therefore address 10.3 TiB of logical space, above the 8 TiB format maximum. The numbers 64 and 8 are choices. More direct pointers cover more space without indirect pages, but each one takes a slot from the segment table pointers described below.
+
+This shape is chosen over a depth field because nothing ever changes shape. A 128 MiB volume has 98 mapping pages, one leaf and one direct pointer, and pays one block per publication, as format 3 did. A volume that grows past the direct range fills the first indirect slot at its next publication; there is no transition from "root points at leaves" to "root points at indirect pages" for recovery to handle. The validator is two loops over one layout. ext4 replaced this map with extents, which is the wrong direction for a block map with a checksum per block; ext2 and ext3 are the reference.
+
+Publication changes in one way: instead of writing the whole body, it appends the dirty leaves, then the dirty indirect pages that point at them, then the descriptor. A leaf is dirty when any of its 1,008 mapping-page pointers changed since the last publication. The three fsync barriers stay where ADR-07 put them. Recovery loads the direct leaves and the indirect pages from the selected descriptor and validates them the way it validates mapping pages today, then streams the mapping pages as before. The resident index in RAM is unchanged.
+
+Three consequences follow:
+
+- The log starts at block 2. Nothing between the descriptors and the first segment depends on logical size. The minimum backing is two blocks plus the segments.
+- Publication cost at scale drops from the whole index to the dirty part of it. At 4 TiB, format 3 writes 12.8 MB of index per publication; format 4 writes 4 KiB per leaf touched, at most about 3,170 leaves and in practice the leaves that the publication's dirty mapping pages fall into.
+- The cleaner relocates live index pages like snapshots: a leaf or indirect page is live while the current tree references it. Relocating a leaf dirties its parent, which the next publication rewrites.
+
+ADR-04's logical growth then needs only a `GrowLogical` record and a larger tree at the next publication. Its fixed root pointers, `FORMAT` record and checkpoint arenas are not needed. That revision of ADR-04 is still separate; this ADR only makes it small.
+
+## Design
+
+Byte offsets and exact encodings belong to the delivery plan.
+
+### What is a segment?
+
+The log starts at block 2, right after the two descriptors, and is divided into whole segments of `segment_blocks` 4 KiB blocks, fixed at format time. Segment `s` starts at block `2 + s × segment_blocks`. The two-block offset means segments are not aligned to the device's erase blocks; if a discard measurement shows that this matters, the format can reserve the first segment for the descriptors instead. Records do not cross a segment boundary. When a record does not fit in the remaining space of a head's segment, the writer appends a **link record** and moves the head to a free segment.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Free: format or Provision record
+    Free --> Open: writer opens the segment as a head
+    Open --> Sealed: record does not fit, link record written
+    Sealed --> PendingFree: cleaner relocated every live record, publication G
+    Sealed --> PendingFree: live bytes reached zero without cleaning, publication G
+    PendingFree --> Free: publication G+1
+    Free --> Free: discard to the backing
+```
+
+`PendingFree` is F2FS's pre-free section (§2.5, step 3): "a victim section is registered as a candidate to become a new free section... After a checkpoint is made, the section finally becomes a free section, to be reallocated. We do this because if a pre-free section is reused before checkpointing, the file system may lose the data referenced by a previous checkpoint when unexpected power outage occurs." The zero-live shortcut is LFS §3.6: "If the count falls to zero then the segment can be reused without cleaning." The writer allocates only `Free` segments.
+
+Segment size is a backing-derived constant, not a logical one. The literature spans 512 KiB to 1 MiB for Sprite on 1990 disks (§3.2), 2 MiB in Lomet and Luo's simulator (§6.1.1), 4 to 32 MiB objects in LSVD (§3.1), and 512 MiB data files inside 32 GiB segments in EBS2 (§2.2). INFLOW §4.2 adds that on a stacked log the upper layer's segment size should be chosen relative to the lower layer's. The [capacity floor](#how-much-backing-does-a-128-mib-volume-need) below argues for 8 or 16 MiB at small sizes. The largest record is 339 blocks, so even 8 MiB (2,048 blocks) holds six of them. A write-buffer group is already not atomic and may span segments.
+
+### Which records change?
+
+The types below are decoded Rust types, as in ADR-07. The offset in each comment is the on-disk layout: little-endian, every unused byte zero and covered by the checksum. The codec writes and reads every field explicitly. No type is `#[repr(C)]`, none is cast onto a disk buffer, and the compiler's field ordering is irrelevant because the compiler never sees the disk bytes. Enums are `#[repr(u8)]` for their stored values only; decoding matches on the number and rejects unknown values.
+
+```rust
+/// The first 32 bytes of every record, unchanged from format 3.
+pub struct RecordHeader {
+    // 0..4   magic "VBLF"
+    // 4      format version: 4
+    pub kind: RecordKind,       // 5
+    // 6..8   zero
+    pub volume_id: u64,         // 8
+    pub lsn: u64,               // 16: strictly increasing across both heads
+    pub previous_boundary: u32, // 24: footer block of the previous record, in any segment
+    pub boundary: u32,          // 28: footer block of this record
+}
+
+#[repr(u8)]
+pub enum RecordKind {
+    Data = 1,             // unchanged: 1 to 338 raw 4 KiB payloads, then a footer
+    MappingPage = 2,      // unchanged: one 336-entry snapshot
+    SegmentTablePage = 3, // one block: states of 504 consecutive segments
+    SegmentLink = 4,      // one block: a head moves to another segment
+    Provision = 5,        // one block: the backing grew (ADR-04)
+    CompressedData = 6,   // zstd chunks, then a footer that indexes them
+    Discard = 7,          // one block: LBA ranges the client released
+    IndexPage = 8,        // one block: a leaf or indirect page of the mapping index
+}
+
+// Every one-block metadata record ends the way a mapping page does:
+//   4072..4080  header checksum: XXH3-64 over bytes 0..40, so that recovery can
+//               traverse a record whose body is damaged
+//   4080..4088  zero
+//   4088..4096  record checksum: XXH3-64 over bytes 0..4088 with this field zero
+```
+
+```rust
+/// The persistent state of 504 consecutive segments. Page `p` covers segments
+/// `504 * p .. 504 * p + 504`. Entries past the last segment are zero.
+pub struct SegmentTablePage {
+    pub header: RecordHeader,         // 0..32, kind = SegmentTablePage
+    pub page_id: u32,                 // 32
+    // 36..40 zero
+    pub entries: [SegmentEntry; 504], // 40..4072, 8 bytes each
+    // 4072..4096 metadata trailer
+}
+
+pub struct SegmentEntry {
+    pub state: SegmentState,  // 0
+    pub head: u8,             // 1: 1-based head index while Open; 0 otherwise
+    // 2..4 zero
+    pub seal_generation: u32, // 4: checkpoint generation current when the segment was sealed;
+                              //    the cleaner's age input. Zero while Free or Open.
+}
+
+#[repr(u8)]
+pub enum SegmentState {
+    Free = 0,
+    Open = 1,
+    Sealed = 2,
+    PendingFree = 3,
+}
+```
+
+Live bytes are not in the entry. They are rebuilt at open from the mapping pages that recovery already streams. The seal generation is in the entry because nothing else records it: cost-benefit selection needs each sealed segment's age before the cleaner has read it, and ties within one generation are broken by segment number.
+
+```rust
+/// One page of the mapping index. A leaf points at MappingPage records; an
+/// indirect page points at leaves. Leaf `p` covers mapping pages
+/// `1008 * p .. 1008 * p + 1008`. Leaves 0..64 are reached through the
+/// descriptor's direct pointers; leaf `64 + 1008 * q + i` is entry `i` of the
+/// indirect page in descriptor slot `q`. Zero means "nothing below". Pointers
+/// past the volume's last page are zero.
+pub struct IndexPage {
+    pub header: RecordHeader,  // 0..32, kind = IndexPage
+    pub page_id: u32,          // 32: position within its level
+    pub level: IndexLevel,     // 36
+    // 37..40 zero
+    pub pointers: [u32; 1008], // 40..4072
+    // 4072..4096 metadata trailer
+}
+
+#[repr(u8)]
+pub enum IndexLevel {
+    Leaf = 1,
+    Indirect = 2,
+}
+```
+
+The 64 direct leaves cover 64,512 mapping pages, which is 82.7 GiB. The 8 indirect pages cover 8,064 leaves, which is 8.13 million mapping pages, or 10.2 TiB. The index is not the limit of format 4.
+
+```rust
+/// One 4 KiB block at physical block 0 or 1. Format 3's reserved index bodies
+/// and their checksum are gone; the index is a tree of IndexPage records
+/// rooted here. The log starts at block 2.
+pub struct CheckpointDescriptor {
+    // 0..4   magic "VBLC"
+    // 4      format version: 4
+    pub slot: CheckpointSlot,          // 5: green 0, blue 1
+    // 6..8   zero
+    pub volume_id: u64,                // 8
+    pub logical_block_size: u32,       // 16: 4096
+    pub volume_blocks: u32,            // 20: grows only through a future GrowLogical record
+    pub backing_blocks: u64,           // 24: the provisioned bound, grown by Provision records
+    pub checkpoint_lsn: u64,           // 32
+    pub generation: u64,               // 40
+    pub segment_blocks: u32,           // 48: segment size in blocks, fixed at format
+    pub head_count: u8,                // 52: 1 or 2 today, at most 4
+    // 53..56 zero
+    pub head_boundary: [u32; 4],       // 56..72: last record boundary of each head; zero = unused.
+                                       //         The head's open segment is (boundary - 2) / segment_blocks.
+    pub direct_leaf: [u32; 64],        // 72..328: blocks of leaf IndexPage records 0..64; zero = no leaf
+    pub indirect: [u32; 8],            // 328..360: blocks of indirect IndexPage records; zero = unused
+    pub table_page_count: u32,         // 360: ceil(segment count / 504)
+    // 364..368 zero
+    pub table_page_block: [u32; 930],  // 368..4088: block of each SegmentTablePage record
+    // 4088..4096 descriptor checksum
+}
+```
+
+The segment table is the limit of format 4. The 930 table pointers reach 930 pages. Each page holds 504 entries, so the table describes 468,720 segments. With 16 MiB segments that is 7.2 TiB of backing. With 8 MiB segments it is 3.6 TiB. With 32 MiB segments it is 14.3 TiB. A backing larger than the table allows needs a larger segment size, or a tree for the table like the one the index uses. Neither is needed now. The state-change journal described as a refinement above would take its bytes from the table pointer array, which is another reason it is not in the proposal.
+
+```rust
+/// Closes a head's segment and names the next one. It is the last record in
+/// the segment it closes. The first record of the next segment has
+/// `previous_boundary` equal to this record's `boundary`.
+pub struct SegmentLink {
+    pub header: RecordHeader, // 0..32, kind = SegmentLink
+    pub next_segment: u32,    // 32
+    pub head: u8,             // 36: 1-based head index
+    // 37..4072 zero
+    // 4072..4096 metadata trailer
+}
+
+/// Records that the backing grew. Replay applies it before any later record
+/// may reference a segment in the new range. Idempotent by target bound.
+pub struct Provision {
+    pub header: RecordHeader,          // 0..32, kind = Provision
+    pub previous_backing_blocks: u64,  // 32
+    pub new_backing_blocks: u64,       // 40
+    // 48..4072 zero
+    // 4072..4096 metadata trailer
+}
+
+/// LBA ranges the client released. Replay unmaps them in LSN order. A discard
+/// is durable after the next successful FLUSH, like a write.
+pub struct Discard {
+    pub header: RecordHeader,        // 0..32, kind = Discard
+    pub range_count: u32,            // 32: 1 to 504
+    // 36..40 zero
+    pub ranges: [DiscardRange; 504], // 40..4072, 8 bytes each; unused entries zero
+    // 4072..4096 metadata trailer
+}
+
+pub struct DiscardRange {
+    pub start_lba: u32,   // 0
+    pub block_count: u32, // 4
+}
+```
+
+```rust
+/// A CompressedData record is `chunk_count` zstd frames concatenated and padded
+/// to whole blocks, followed by this footer. Chunk `c` holds payloads
+/// `c * chunk_payloads .. (c + 1) * chunk_payloads` of the LBA array. LBAs are sorted.
+pub struct CompressedDataFooter {
+    pub header: RecordHeader,       // 0..32, kind = CompressedData
+    pub payload_count: u16,         // 32: 1 to 304
+    pub chunk_count: u16,           // 34: ceil(payload_count / chunk_payloads)
+    pub chunk_payloads: u8,         // 36: payloads per chunk, 4 to 32; 16 initially
+    pub algorithm: Compression,     // 37
+    // 38..40 zero
+    pub lbas: [u32; 304],           // 40..1256
+    pub checksums: [u64; 304],      // 1256..3688: XXH3-64 of the uncompressed payload, seeded by
+                                    //   volume_id, over LE(lba) || payload. Location-free, so the
+                                    //   cleaner computes it once and the writer copies it.
+    pub chunks: [ChunkEntry; 19],   // 3688..3992, 16 bytes each
+    // 3992..4072 zero
+    // 4072..4096 metadata trailer
+}
+
+pub struct ChunkEntry {
+    pub offset: u32,   // 0: byte offset of the zstd frame from the record's first block
+    pub length: u32,   // 4: compressed length in bytes
+    pub checksum: u64, // 8: XXH3-64 over the frame, seeded by volume_id, over
+                       //    LE(footer block, chunk index) || frame. Location-bound; the
+                       //    writer computes it at apply, when it knows the footer block.
+}
+
+#[repr(u8)]
+pub enum Compression {
+    Zstd = 1,
+}
+```
+
+Two checksums per chunk replace format 3's one location-bound checksum per payload. The payload checksum is bound to the LBA only, so the cleaner can compute it before anyone knows where the record will land. The chunk checksum is bound to the footer block and the chunk index, so a misdirected or torn write of the compressed bytes is detected before decompression, and the writer computes it at apply over the compressed bytes without decompressing anything. With 16-payload chunks the footer holds 304 payloads and 19 chunks. The record's data blocks hold `ceil(sum of length / 4096)` blocks, about half of 304 at 2:1. The two-block-footer alternative in the open questions would raise the payload count to about 630.
+
+```rust
+/// The mapping entry does not change size. Bit 31 of the physical address is new.
+pub const COMPRESSED_FLAG: u32 = 1 << 31;
+
+/// physical == 0:                     unmapped; checksum must be zero
+/// physical & COMPRESSED_FLAG == 0:   block `physical` holds the raw payload
+/// physical & COMPRESSED_FLAG != 0:   block `physical & !COMPRESSED_FLAG` is a
+///                                    CompressedDataFooter; find the LBA in it
+pub struct MappingEntry {
+    pub physical: u32,
+    pub checksum: u64,
+}
+```
+
+These are in RAM only. Containers are shown as `Vec` for clarity; the implementation preallocates them to the bounds the design states.
+
+```rust
+/// The writer's per-segment state. Persistent fields mirror SegmentEntry.
+pub struct SegmentInfo {
+    pub state: SegmentState,
+    pub head: u8,
+    pub seal_generation: u32,
+    pub live_bytes: u64,     // rebuilt at open, adjusted on every mapping update
+    pub on_replay_path: bool, // set at open for segments between a root's boundary and a head
+}
+
+/// What the cleaner thread reads from. Everything in it is immutable.
+pub struct View {
+    pub generation: u64,
+    pub index: Arc<[u32]>,             // the published mapping-page index, shared by reference
+    pub segments: Box<[SegmentEntry]>, // copy of the table at publication
+    pub live_bytes: Box<[u64]>,        // copy at publication
+}
+
+/// One message from the cleaner to the writer.
+pub struct Proposal {
+    pub view_generation: u64,
+    pub victims: Vec<u32>,
+    pub chunks: Vec<ProposedChunk>,
+    pub snapshots: Vec<ProposedSnapshot>,
+}
+
+/// One chunk and what the writer needs to validate and map each payload in it.
+pub struct ProposedChunk {
+    pub lbas: Vec<u32>,          // sorted; 1 to chunk_payloads entries
+    pub source_blocks: Vec<u32>, // mapping[lbas[i]] must still equal source_blocks[i] at apply
+    pub checksums: Vec<u64>,     // LBA-bound uncompressed payload checksums; copied unchanged at apply
+    pub body: ChunkBody,
+}
+
+/// A chunk that did not compress enough is proposed raw and lands in a Data record.
+pub enum ChunkBody {
+    Compressed(Box<[u8]>),          // one zstd frame of all payloads
+    Raw(Vec<Box<[u8; 4096]>>),
+}
+
+pub struct ProposedSnapshot {
+    pub page_id: u32,
+    pub source_block: u32,       // index[page_id] must still equal this at apply, and the page must be clean
+    pub bytes: Box<[u8; 4096]>,
+}
+```
+
+Every record keeps the format 3 framing: LSN, previous boundary, this boundary, header and record checksums. The previous boundary is a physical pointer, so a chain crosses segments without a new field. The first record of a freshly opened segment points back at the link record that opened it.
+
+The prior art review proposed two structures that I think we do not need. Both claims should be tested, not assumed.
+
+- **No segment header or reuse generation.** LSNs never repeat. A segment is freed only after both roots stop referencing it, so every record from an earlier use has an LSN below both roots' LSNs. Replay expects LSNs above the selected root's LSN, so earlier-use records can never match. LSN reissue after a truncated tail does not break this, because the reissued LSNs are also above the roots'. Stale-tail sanitation stays, at each head's append position.
+- **No segment summary.** LFS needs a summary block to learn what each block is and to check liveness through the inode map (§3.3). Logical Disk's summary carries a timestamp per block and is its only recovery structure (§2.2). F2FS keeps a per-segment validity bitmap in the SIT so the cleaner can find valid blocks without reading the segment (§2.5, step 2). Our records already describe themselves: a data footer lists its LBAs, a snapshot names its page. LSVD's object headers do the same (§3.1, Fig. 4). The cleaner walks a sealed segment forward by testing blocks for a valid footer chained to the previous one. It reads the whole victim, which is LFS's own conservative assumption in its cost model (§3.4). What we give up against F2FS is finding live blocks without the read. A summary or bitmap is a later optimization, not a correctness structure.
+
+### How do two heads replay?
+
+Each head has its own chain: `head_boundary[h]` in the descriptor, then contiguous records, then a link record, then the first record of the next segment. The foreground assigns LSNs from one counter and completes each record before it issues the next. The merged stream of both heads is therefore strictly consecutive. Recovery keeps one cursor per head, probes the next footer of each, and applies whichever carries the expected LSN. The first LSN found at neither cursor ends replay, as today. LSVD stops at the first gap in object sequence numbers for the same reason (§3.3). Link, provision and discard records are traversed and applied. Snapshot and table pages are traversed and never applied as logical writes, as ADR-07 already requires.
+
+With one head, this degenerates to format 3's replay plus link records. The head count is writer policy bounded by `MAX_HEADS`, not a format fork.
+
+### How does the cleaner thread work?
+
+The cleaner thread owns its own file descriptor, its own `io_uring` and bounded aligned buffers. It never writes the backing and never touches the mapping cache. It works from an immutable **view**: the published index, the segment table and the live counts as of one checkpoint generation. ADR-07 already keeps a candidate index at publication, so the view can share the published index by reference (`Arc<[u32]>`). Every byte the cleaner reads is immutable until freed: sealed segments and completed snapshot records. It does not read the reserved index bodies.
+
+One cleaning cycle takes `N` victims, not one. `N` is a small constant, initially 4, bounded by the cleaner's buffer. For each cycle the thread does this:
+
+1. Select `N` victims by the policy in [When does cleaning run?](#when-does-cleaning-run-and-which-victims).
+2. Read each victim in whole and walk its records.
+3. Decide liveness of each payload and snapshot against the view. Keep only live ones.
+4. Sort the live payloads across all `N` victims by the sort key, then group them into chunks.
+5. Compress each chunk with zstd.
+6. Batch the chunks, their LBAs and uncompressed checksums into proposals.
+7. Send **proposals** through a bounded channel. A payload proposal carries the LBAs, the source blocks, the compressed chunks and the uncompressed checksums. A snapshot proposal carries the page ID, the source block and the snapshot bytes. Each proposal names its view generation.
+
+Reading victims one at a time and keeping only compressed live payloads bounds memory. Four 16 MiB victims at 50% live and 2:1 compression hold 16 MiB. The channel capacity bounds the rest to a couple of records.
+
+The sort key is open. LFS sorts by age (§3.5) and Lomet and Luo by estimated update frequency (§5.3), to keep hot and cold apart in the output. Sorting by LBA buys something different: fewer distinct mapping pages per relocation record, which is why v1.2.1 sorts the write buffer by LBA, and sequential locality for later reads. It also puts adjacent pages of one table in one chunk, which helps the ratio. Every record carries its LSN, so the cleaner knows each live payload's write time exactly, not just the segment's seal time. A coarse age bucket first and LBA within the bucket gets both. The simulator compares the three keys.
+
+The foreground thread applies one proposal at a quiescent point, after it has completed a batch of ublk requests:
+
+1. For each payload, look up `mapping[lba]`. Drop the payload if the entry no longer equals the source block. Dirty pages are pinned in cache, so a changed mapping is always a cache hit.
+2. Append the survivors as `CompressedData` or `Data` records on the relocation head. Update their mappings through the existing publication rule.
+3. For each proposed snapshot, skip it if the page is dirty in cache, because the next publication rewrites it. Otherwise append the bytes as a new snapshot record and point the candidate index at it.
+
+The engine gains one entry point for this: a conditional batched write. It bypasses the write-back buffer and lands on the relocation head as its own packed records. Everything else is the existing append and publication path.
+
+The mapping check in step 1 makes the thread harmless. A stale view, a torn read, or a segment freed and reused under the cleaner all produce proposals that fail the check or fail the source checksum. They cost bandwidth only.
+
+The closest published precedent is F2FS background cleaning (§2.5, step 2). Its background cleaner identifies valid blocks but "does not issue actual I/Os to migrate" them. It loads them into the page cache, marks them dirty, and the normal writeback path writes them later into the cold log. Our version replaces the shared page cache with a message and adds the validate-at-apply step, which F2FS does not need because the page cache is its coherence point. EBS2's LSBD core splits traffic into a frontend (client I/O) and a backend (GC and compression) in the same way (§2.2). WiscKey's garbage collector validates each value against the LSM-tree before re-appending it (§3.3.2); our check is later, at the moment of the mapping update, which is the moment that matters.
+
+Costs: the copy writes still run on the foreground thread, roughly one write per step. The apply step needs a wake-up when the device is idle. An `eventfd` registered in the queue ring is the likely answer, unverified against libublk. A second open segment raises the minimum backing size by one segment. The cleaner thread needs CPU for zstd. That CPU is off the request path, which is the point.
+
+### When is a segment eligible, and when is it free?
+
+A sealed segment is eligible for cleaning only when it is off both roots' replay paths. LSVD states the same rule: "the garbage collector only deletes objects that are older than the most recent checkpoint; the holes created will not be seen during the recovery process" (§3.3). Recovery walks both paths at open, and the foreground knows them at run time. This excludes the last one or two segments each head touched.
+
+Freeing follows a two-publication barrier. This is WiscKey's order (fsync the appended copies, then persist their new addresses and the new tail, then free the space, §3.3.2), with one publication more than F2FS's pre-free:
+
+```mermaid
+flowchart TD
+    A[Cleaner proposes V's live payloads and snapshots] --> B[Writer applies them: mappings and index no longer reference V, in RAM]
+    B --> C[Publication G: table page marks V PendingFree]
+    C --> D{Roots are G-1 and G. Does G-1 reference V?}
+    D -- yes, always --> E[V stays PendingFree, not allocatable]
+    E --> F[Publication G+1 replaces G-1: table page marks V Free]
+    F --> G[Allocator may open V]
+    F --> H[Engine may discard V's blocks on the backing]
+    C -. crash, G+1 unusable, recovery selects G .-> E
+```
+
+Why two publications where F2FS needs one: F2FS treats a checkpoint pack as valid when its header and footer match (§2.7.1). A complete newest pack is always selected, and the older pack is never consulted. ADR-07 validates the full index body and streams every referenced mapping page, and it falls back to the older root on any failure, including a damaged snapshot that the newest descriptor still points at. After publication G the roots are G-1 and G, and G-1 still references V. V must survive until G+1 replaces G-1. If G+1 is unusable and recovery selects G, V is `PendingFree` there and stays unallocatable until the next publication lands in the dead slot. Recovery trusts `Free` only from the selected root and treats `PendingFree` as "repeat the barrier".
+
+The pending set batches for free. The cleaner finishes a cycle of `N` victims, and the two publications the foreground was going to make anyway (cache pressure, replay bound, close) free all of them.
+
+Live counts per segment are RAM-only, in bytes. Recovery already streams every referenced mapping page to validate a checkpoint candidate; counting live bytes per segment during that stream costs nothing. Afterwards, every mapping update knows the old physical block, because the page is in cache, and subtracts from that segment's count. Replay adjusts the counts the same way, as LFS roll-forward adjusts its segment usage table (§4.2). Logical Disk rebuilds its usage table from summaries at every start (§2.2). LSVD persists its per-object live table with the map checkpoint and updates it during recovery (§3.5). Rebuilding from a stream we already read needs no new persistent protocol.
+
+### How does compression at relocation work?
+
+Only the cleaner compresses. User writes stay uncompressed. The evidence for this split is in [Compression at relocation works](#compression-at-relocation-works-and-compression-on-the-write-path-is-expensive): EBS2 got a 50% ratio in background GC and rejected foreground compression on CPU cost; EBS3 needed an FPGA and a write-merging engine to move it online. Our engine has one request thread, and the cleaner thread has the CPU.
+
+**Algorithm.** zstd at level 1. EBS2 used LZ4; the EBS team measured zstd on cold blocks gaining a further 17% over LZ4 (§5.2). When data does not compress, zstd emits it as a raw block inside the frame, so incompressible input costs a few header bytes and no separate failure path. Compression speed at level 1 is unmeasured here; from recollection, several hundred MB/s per core to compress and over 1 GB/s to decompress. The workbench measures it on the target CPU.
+
+**Unit: a chunk of payloads, not one payload and not one record.** Three forces pull in different directions. The ratio wants big units, because zstd needs history to find matches; a 4 KiB page compresses on its own redundancy only, and EBS2's 50% at 4 KiB with LZ4 is a floor. Reads want small units, because a zstd frame has no random access: reading one LBA decompresses the frame from its start. One frame per 338-payload record would turn a cold 4 KiB read into a 650 KiB read and up to 1.3 MiB of decompression on the request thread. Dead space wants small units, because a unit stays live while any one payload in it is live. The candidate window is 16 to 128 KiB per chunk, that is 4 to 32 payloads. EBS3 settled on 16 KiB as its minimum unit (§2.3). Linux F2FS today compresses 16 KiB clusters, and btrfs and ZFS compress 128 KiB extents; those are kernel facts, not from the papers in this collection. The workbench measures ratio and per-chunk decompression time at 16, 32, 64 and 128 KiB on database pages and decides. My guess is that 64 KiB is the knee.
+
+**Routing.** After compressing a chunk, the cleaner knows its compressed length. If the saving is below a threshold, an unmeasured initial 12.5%, the chunk's payloads go into an ordinary `Data` record. Otherwise the chunk goes into a `CompressedData` record. Encrypted or pre-compressed data therefore costs CPU only and needs no special case.
+
+**Record.** The body of a `CompressedData` record is the concatenation of compressed chunks, padded to whole blocks. The footer lists every payload's LBA and uncompressed checksum, sorted by LBA as packed `Data` records already are, plus one offset and length per chunk. A payload's chunk is its index divided by the chunk size. The per-LBA checksum table limits a record to about 320 payloads with 16-payload chunks; with 2:1 compression the record's blocks could hold twice that. Either accept smaller compressed records or give them a two-block footer. That is a delivery decision; it sets how many payloads one relocation step moves.
+
+**Mapping entry.** The layout does not change. `physical_addr` gains a flag bit that means "this points at a `CompressedData` footer". The flag reduces the addressable backing to 2^31 blocks, 8 TiB. The logical maximum is also 8 TiB and the backing must exceed the logical size, so the largest configurations lose a little headroom. I accept that over widening every mapping entry.
+
+**Read path.** For a flagged entry, the reader loads the footer block and verifies its record checksum, finds the LBA by binary search, computes its chunk, reads the blocks holding that chunk, verifies the chunk checksum, decompresses the chunk, verifies the payload checksum, and returns the payload. With 64 KiB chunks at 2:1 that is one footer read plus about 32 KiB of data read and tens of microseconds of decompression. EBS2's read path is the same shape: "first locates data by querying OffsetTable, then reads and decompresses the data" (§2.2). Relocated data is cold by selection, so the extra cost lands on rarely read data. Replay applies a compressed footer's LBAs exactly as it applies a data footer's.
+
+**Checksums.** Format 3 has one checksum per payload, bound to the LBA and the physical block. A compressed record has two. The payload checksum covers the uncompressed payload and is bound to the LBA only, so the cleaner computes it before the record's location is known and the writer copies it. The chunk checksum covers the compressed bytes and is bound to the footer block and the chunk index, so a misdirected or torn write is detected before decompression; the writer computes it at apply, which costs a hash over the compressed bytes and no decompression. The footer's own record checksum covers the footer. zstd's frame checksum is disabled to save bytes. The cleaner can decompress what it compressed and compare it with the source before proposing; EBS3 does this after its FPGA compresses (§2.3). Whether we pay that CPU is a workbench measurement.
+
+**Accounting.** Live counts per segment are in bytes, as in LFS's segment usage table (§3.6). A dead payload inside a live chunk counts as dead: it is freed when the chunk is relocated and repacked. A raw victim yields more than its dead space, because its live payloads shrink when relocated. EBS2 prefers replicated files over erasure-coded ones as victims for this reason (§2.2). For us, the benefit term of cost-benefit selection for a raw segment becomes `(1 - u) + u × (1 - r)`, where `r` is the compression ratio observed so far. This is a heuristic for the simulator to evaluate.
+
+**Cleaning a compressed segment.** The cleaner decompresses each live chunk to verify it and to drop dead payloads, then recompresses the survivors with the rest of the cycle's output. A chunk with no dead payloads can be re-emitted unchanged.
+
+**Effect.** For data that compresses 2:1, each relocation writes half the bytes, and cold data occupies half the space. The second effect matters more than the first. Compression lowers the fill factor, and the [cost table](#cleaning-cost-depends-on-the-victims-utilization) says that moving `F` from 0.9 to 0.8 cuts total writes per user byte from 5.26 to 2.67. This is an extrapolation from EBS2's ratio; our data may compress differently. Database pages compress well; encrypted volumes do not compress at all.
+
+**What we do not compress.** The write buffer: EBS2's CPU numbers apply, and our request thread has no spare cores. Revisit when the engine is multi-queue. Mapping pages: checksums are 8 of every 12 bytes and do not compress, so the ceiling is about 30% of cache RAM and nothing on disk. Not worth a format change.
+
+**Dependency.** The `zstd` crate binds `libzstd`, which would be the engine's first C dependency. Default features off, as the project rules require. `ruzstd` is pure Rust but decompression only.
+
+### How does discard work?
+
+Two different operations share the name.
+
+**Discard from the client.** The frontend advertises discard and write-zeroes, which ADR-03 explicitly did not. A discard request appends a `Discard` record listing the LBA ranges, sets each mapping entry to unmapped, subtracts the old payloads from their segments' live bytes, and completes. Reads of a discarded LBA return zeros. The durability contract is the one writes have: a discard is durable after the next successful FLUSH, and recovery may show it applied or not applied before that. Replay applies `Discard` records in LSN order. Cleaning cannot resurrect a discarded block, because its mapping check fails. Logical Disk's authors modified MINIX to send exactly this notification, because otherwise the disk layer learns that a block is dead only when the filesystem reallocates it (§3). Without it, our cleaner reclaims overwrites only.
+
+**Discard to the backing.** When a segment reaches `Free`, the engine punches a hole in a file backing with `fallocate`, as WiscKey does for its value log (§3.5), or issues `BLKDISCARD` on a device. Then `SpaceUsage::allocated_bytes` actually falls. INFLOW §4.5.1 makes this a requirement for stacked logs rather than an option: without a TRIM equivalent flowing downward, the lower log keeps copying data that the upper log has already invalidated. The FAST '26 local-storage paper shows what that lower log costs: after preconditioning with 8 hours of 4 KiB random writes, the SSD's own GC roughly halves random write IOPS versus a fresh device (§7.2, Fig. 13). A punched hole reads as zeros, which are never a valid footer, so the earlier-use argument still holds.
+
+### How much backing does a 128 MiB volume need?
+
+A log-structured device cannot run at 100% physical utilization. Two separate constraints apply.
+
+The **progress floor** guarantees that a victim can always be relocated. With `H` open heads, `R` free segments held in reserve, and `m` the metadata share of live bytes (about 1/336 for filled pages plus table pages; call it 1% to be safe, unmeasured):
+
+```text
+minimum segments = ceil(live_max × (1 + m) / S) + H + R
+```
+
+For 128 MiB of live data and `R = 1`:
+
+| Segment size `S` | `H = 1` | `H = 2` |
+|---:|---:|---:|
+| 8 MiB | 19 segments, 152 MiB | 20 segments, 160 MiB |
+| 16 MiB | 11 segments, 176 MiB | 12 segments, 192 MiB |
+| 32 MiB | 7 segments, 224 MiB | 8 segments, 256 MiB |
+
+This corrects the "4 segments at 128 MiB" intuition. With 32 MiB segments, four segments hold at most two segments of sealed live data. A segment being cleaned is sealed, not open; it holds no reserve. The floor is `live + H + R`.
+
+The **efficiency budget** is Lomet and Luo's table. At the floor the fill factor is near 1 and write amplification is unbounded. To keep total writes under about 2.7 bytes per user byte under uniform overwrites, the fill factor must stay at or below 0.8. For 128 MiB of live data that means 160 MiB of segment capacity plus the heads. F2FS reserves 5% by default and switches to threaded logging, writing into holes without cleaning, below that (§2.6). Sprite kept tens of clean segments (§3.4). FFS keeps 10% free for its allocator (LFS §3.4). Under skewed workloads with cost-benefit selection the victim is much emptier than the device average (LFS Fig. 6: hot segments cleaned at about 15% live), so the same fill factor costs less. Compression at relocation lowers the fill factor for compressible data, which is the cheapest way to buy back this budget. When the volume is genuinely full, growth is the answer, not amplification; see the growth section.
+
+### When does cleaning run, and which victims?
+
+The papers use two different quantities as triggers, and they answer different questions.
+
+| Quantity | Who triggers on it | What it answers |
+|---|---|---|
+| Free ratio, or free segments | LFS: start below a few tens of clean segments, stop at 50 to 100 (§3.4). F2FS foreground: when free sections run out (§2.5). Lomet and Luo: below 32 free segments, clean 64 (§6.1.1). | Whether we *must* clean now. Running out of free segments stalls writes. |
+| Garbage ratio, per segment or device | LSVD: when live over total object size drops below 70% (§3.5). EBS2: per file, when stale data reaches a threshold that "varies" in production (§2.2). The prior art review's 33%. | Whether cleaning is *worth it* now. It is the victim's emptiness, and emptiness is the cost. |
+| Fill factor | Nobody. | How empty victims *can* be. It is a provisioning input, not a trigger. |
+
+One fact orders everything: cleaning early costs more, not less. Lomet and Luo's §4 is about this. A segment's cleaning cost declines the longer it waits, because more of its pages get overwritten. Cleaning at 30% used, when segments are young and almost fully live, copies nearly everything and frees almost nothing. The cheapest byte to free is in the oldest, deadest segment, and it gets cheaper by waiting. "Start cleaning at 60 to 70% free" is therefore the wrong rule. The right rules are these:
+
+- **Necessity, on free segments.** The cleaner keeps free segments inside a band. Below the low watermark it runs continuously. The low watermark sits far enough above the reserve `R` that the cleaner can outrun the writer at the maximum write rate: sustaining a write rate `W` against victims at utilization `u` needs `W × u / (1 - u)` of copy bandwidth. At `R`, the foreground applies pending proposals before it admits a write, and if the channel is empty it performs a serialized step itself. Writes stall for a bounded time and never receive `ENOSPC` while a victim with positive net gain exists. For a 12-segment volume the band is two or three segments wide and percentages are meaningless; think in segments. Sprite found performance "not very sensitive to the exact choice" of thresholds (§3.4).
+- **Opportunity, on cost-benefit score while idle.** When the device is idle and a victim's score is above a threshold, clean it even though free space is fine, because it is cheap now and the CPU and bandwidth are otherwise unused. F2FS's background cleaner "does not kick in when normal I/O or foreground cleaning is in progress" (§2.5). This is where a "more than 30% dead" rule belongs: as a per-victim worthiness test, not as a device-wide start signal.
+- **Compression, on raw cold segments while idle.** Relocating a fully live, cold, raw segment frees half of it at 2:1. That is worth doing at zero garbage when idle, and EBS2 prefers such victims for the same reason (§2.2). The benefit term `(1 - u) + u × (1 - r)` folds it into the score.
+- **Growth, on fill factor.** When live bytes approach 0.8 to 0.9 of capacity, no policy helps. The answer is ADR-04's backing growth; see the next section.
+
+Victim selection uses cost-benefit in the background, `(1 - u) × age / (1 + u)` with age from the seal LSN and the compression term above (LFS §3.5 and §3.6; F2FS §2.5). Under space pressure the foreground uses greedy, minimum live bytes, because it minimizes the copy work on the request path (F2FS §2.5). Lomet and Luo's minimum-declining-cost policy improves on cost-benefit (§4) but needs per-segment update-frequency estimates; that is a later refinement if the simulator shows cost-benefit leaving too much on the table. Random and round-robin selection go into the simulator as baselines. Round-robin is age-based cleaning; it is optimal under uniform writes and the worst curve in Lomet and Luo's Fig. 5 under skew. Best-of-K random sampling approximates whichever ranking it samples by; it saves a scan we do not need, because live bytes per segment are in RAM.
+
+**Separation by head.** User writes go to the user head, relocated data to the relocation head. F2FS classifies "data blocks moved by cleaning" as cold on exactly this reasoning (§2.4). Lomet and Luo measured how much this alone is worth: separating GC writes without separating user writes gives a modest gain over greedy under 80/20 skew, and separating user writes by update frequency is the larger lever (§6.2.1, Fig. 3). We cannot separate user writes without hotness tracking. The relocation head is justified by reserve accounting and by keeping cold, compressed copies out of the hot head. INFLOW's warning that more append points raise device-level amplification (§4.4, §4.6) is the reason to stop at two.
+
+Admission reservation keeps ADR-07's `N + R + D + P` charge. It counts whole records that do not cross segment boundaries and never counts the `R` reserve segments as available.
+
+The one metric none of the papers name but all of them use is the emptiness of the segments we actually cleaned, averaged over a window. It is the direct measurement of amplification and of whether the policy works. `SpaceUsage` gains it, together with fill factor, garbage ratio, free segments, the best victim's score and the observed compression ratio.
+
+## How does this combine with ADR-04 growth?
+
+Miguel's scenario: the volume nears full, the backing grows by some percentage, and cleaning packs live data into the new space. Two observations make this simpler than it sounds.
+
+First, growth needs no relocation mechanism of its own. A `Provision` record and a larger segment table turn new backing into `Free` segments. "Packing into the new space" is ordinary cleaning that happens to allocate the new segments. ADR-04's arena relocation and replacement-image compaction leave the growth path. Only its `PROVISION_BACKING` transition survives, as the `Provision` record kind above, with ADR-04's idempotency and "durable before use" rules.
+
+Second, growth and cleaning answer different conditions. The fill factor and the best victim's utilization tell them apart:
+
+| Condition | Best victim's live fraction | Right action |
+|---|---|---|
+| Fragmentation: much dead space in sealed segments | low | clean |
+| Real fullness: fill factor at or above 0.9 | high | grow the backing, or return `ENOSPC` if growth is unavailable |
+
+Lomet and Luo's table is the argument. At `F = 0.9` every user byte costs more than 5 bytes of writes. Growing enough to bring `F` back to 0.8 halves that. The policy is therefore "clean while the best victim is below a threshold, grow when the fill factor is above one". The engine exposes both numbers through `SpaceUsage`.
+
+Growth is not a substitute for cleaning. Without reclamation, a database that rewrites a 1 GiB working set one hundred times needs 100 GiB of backing. Growth is a source of free segments; cleaning is what keeps the number of segments proportional to live data.
+
+Logical growth, ADR-04's `GROW_LOGICAL`, is out of scope here, but format 4 removes its hard part. With the index in the log as a tree, growing the logical size is a `GrowLogical` record, a larger `VolumeBlocks` in the next descriptor, and new leaves at the next publication. ADR-04's fixed root pointers, `FORMAT` record and checkpoint arenas become unnecessary. That is a revision of ADR-04, sequenced after this ADR.
+
+## Prior art applied
+
+Each element above borrows one technique. Sections named here were read for this draft.
+
+| Element | Source | What we take |
+|---|---|---|
+| Segments; cleaning as read, identify, rewrite; write cost `2/(1-u)`; victim utilization below device utilization; tens of segments per pass | LFS 1992, §3.3 to §3.5 | The cleaning model, the cost model and multi-victim cycles. Not the 1990 disk throughput numbers. |
+| Cost-benefit selection; the hot-and-cold result against greedy; sort live blocks by age; segment usage table with live bytes and age; zero-live reuse without cleaning | LFS 1992, §3.5, §3.6 | Cost-benefit in the background from the first delivery; seal LSN as age; age as a sort key candidate; live bytes; the zero-live shortcut. |
+| Two alternating checkpoint regions; roll-forward that adjusts segment utilizations | LFS 1992, §4.1, §4.2 | Already the ADR-07 shape; replay adjusts live counts. |
+| Fill factor to amplification table; greedy equals age-based under uniform; cost-benefit and MDC under skew; declining cost of waiting; 64 segments per cycle; sort by update frequency; simulator setup | Lomet and Luo 2020, §2.1, §4, §4.5, §5.3, §6.1, §6.2, Table 1, Figs. 3 to 5 | The over-provisioning budget; why early cleaning is wrong; multi-victim cycles and the sort; the simulator design; the limits of head separation alone. |
+| Pre-free sections freed by the next checkpoint; greedy foreground, cost-benefit background; background cleaner stages, writeback path writes; 5% reserve; idle-only background cleaning | F2FS 2015, §2.5, §2.6 | `PendingFree`; the two-selector split; the cleaner-thread shape; the reserve heuristic; the opportunity trigger. |
+| Cleaned data is cold; multi-head logging | F2FS 2015, §2.4 | The relocation head. Not six logs. |
+| NAT and SIT as alternating in-place copies with a journal in the checkpoint pack | F2FS 2015, §2.7 | The delta-journal refinement for the segment table; the in-place option we reject for snapshots. |
+| Block-number map below the filesystem; usage table rebuilt at start; compress cold data during cleaning; free-block notification from the filesystem | Logical Disk 1993, §2.2, §3 | Rebuild live counts at open; compression at relocation; discard from the client. |
+| Immutable closed files; one writer process; merge over all closed files | Bitcask 2010 | Sealed segments immutable until freed; one writer owns the append. The merge's scheduling is unspecified in the paper. |
+| Validate each value against the index before re-appending; fsync copies, persist new locations and tail, then free; hole punching | WiscKey 2016, §3.3.2, §3.5 | The freeing order; validation before reuse; discard to the backing. |
+| Self-describing object headers; recovery stops at the first sequence gap; GC deletes only objects older than the newest checkpoint; live-ratio trigger; per-object live table persisted with checkpoints | LSVD 2022, §3.1, §3.3, §3.5 | Self-describing segments without a summary; the eligibility rule; the garbage-ratio trigger as a worthiness test. Not its threading, which the paper does not describe. |
+| Per-layer write amplification multiplies; more append points raise device GC; segment size relative to the lower layer; layered TRIM; uncoordinated GC | INFLOW 2014, §3.3, §4.1 to §4.6 | Report our amplification separately from the SSD's; stop at two heads; discard freed segments downward; treat segment size as a stacked-log question. |
+| LFS loses its advantage to the cleaner at 48% utilization in TPC-B; overhead dominated by segment reads; benchmark aged filesystems | Seltzer et al. 1995, §4, §5 | Keep victim reads off the request thread; measure with cleaning on, after aging. |
+| Frontend/backend traffic split; LZ4 compression inside GC at 50.1%; offset table from LBA to compressed location; prefer uncompressed victims; combine the dirtiest files; CPU cost of foreground compression; 16 KiB minimum unit; write merging and FPGA to move it online; zstd on cold data; background tasks on the I/O thread drive tail latency; I/O preempts GC resources | EBS 2024 (FAST '24), §2.2, §2.3, §3.1, §3.2, §5.2 | Compression only at relocation; the chunk window's lower bound; footer offset table and two-read path; compression gain in the benefit term; multi-victim cycles; the cleaner thread; the apply-rate throttle. |
+| SSD GC halves random write IOPS after aging; buffer-then-compact into fixed-size chunks; cloud disk removes the need for a local GC layer | Local storage 2026 (FAST '26), §6.2, §7.2 | Quantifies the lower log below us; the aging procedure for acceptance. Nothing on compression. |
+
+## Consequences
+
+The log wraps. The append-only argument that made format 3 recovery simple, "nothing is ever overwritten", becomes "nothing referenced is ever overwritten". Every proof of that rests on the two-publication barrier and the LSN monotonicity argument. Both need the SIGKILL matrix extended with reuse: a crash between the two publications, a crash after reuse with fallback to the older root, a crash during a relocation record, a crash during a discard, and an earlier-use record surviving at a probed position.
+
+Backing must exceed logical size. The device becomes thin-provisioned in practice even before ADR-04. The progress floor for a 128 MiB volume is between 152 and 256 MiB depending on segment size and head count. The efficiency budget says stay at or below a fill factor of 0.8, which is 160 MiB of segment capacity for 128 MiB of live data plus the heads.
+
+Write amplification becomes workload-dependent. Under uniform random overwrites at fill factor 0.8 the model says 2.7 bytes written per user byte, and 5.3 at 0.9. Under skew with cost-benefit selection, less. Compression lowers the fill factor for compressible data. The engine reports amplification; the controller decides between cleaning and growth. Our amplification multiplies with the SSD's own (INFLOW §3.3), which we cannot measure from inside the engine.
+
+Reads of relocated data cost two backing reads and one chunk decompression instead of one read. The design bets that relocated data is cold. Cost-benefit selection is what makes that bet hold; greedy would not.
+
+The cleaner thread adds a second `io_uring` and file descriptor per volume, one bounded channel, one immutable view per checkpoint generation, a per-cycle buffer of compressed live payloads, and zstd CPU. It adds no lock around engine state. A daemon with many volumes gets one such thread per volume, or a shared one. Per-volume overhead is the prior art review's warning about a thousand idle volumes.
+
+The engine gains its first C dependency, `libzstd`. The frontend gains discard and write-zeroes.
+
+Checkpoints happen more often under cleaning, because relocation records count toward `checkpoint_after_bytes`. Each publication writes the dirty index leaves and, above 82.7 GiB, their indirect pages, instead of the whole index body: one block on a 128 MiB volume as before, and cheaper at every larger size. Recovery loads the index tree from scattered log blocks instead of one contiguous body, and reads the two roots' replay paths across two heads instead of one contiguous tail.
+
+The reserved prefix is gone. Format 4 images have two fixed blocks; everything else is a record in a segment.
+
+## Unknowns and risks
+
+- **Apply-step wake-up.** The foreground must apply proposals when idle. Whether libublk lets us add an `eventfd` to the queue ring, or we need a bounded wait timeout, is unverified.
+- **Compression ratio, chunk size and speed on our data.** EBS2's 50% is for a cloud block store's mix at 4 KiB with LZ4. Database pages should compress better in 16 to 128 KiB chunks; encrypted or already compressed files will not compress at all. The workbench measures this; until then the chunk size and the routing threshold are guesses.
+- **Metadata share under scattered writes.** ADR-07 measured snapshot counts, not their share of dead bytes over time. If snapshots dominate dead space, dedicated metadata segments may become worth their duplication despite INFLOW's warning. The simulator should count both kinds.
+- **The 1% metadata allowance, the 12.5% routing threshold, `N = 4` victims per cycle and the 8 to 16 MiB segment sizes are guesses.** The literature's sizes were chosen for other media. INFLOW says the right segment size depends on the SSD underneath, which we do not know.
+- **Age from the seal LSN is coarse.** LFS uses the youngest block's modification time. Lomet and Luo show that update-frequency estimates beat age. Every record's LSN is available as a finer signal if the simulator shows seal-LSN cost-benefit behaving like greedy.
+- **Reads racing with reuse.** The validation argument says a stale read is harmless. I believe it. It is exactly the kind of claim the crash matrix exists to break.
+
+## Open questions
+
+1. Segment size: fixed per image at format, or chosen from backing size with a floor and ceiling?
+2. Sort key for the merged relocation output: LBA, age, or age bucket then LBA. The simulator decides.
+3. Compressed record capacity: smaller records, or a two-block footer?
+6. The direct/indirect split of the descriptor's pointer slots: 64 direct leaves is a guess that covers 82.7 GiB; more direct slots cost table-page slots.
+4. Who owns the grow-versus-clean decision: the daemon, from `SpaceUsage`, or an external controller? ADR-04 assumed external.
+5. Should compression be a per-volume option? A volume known to hold encrypted data wastes cleaner CPU on it. The routing threshold already avoids storing incompressible output, so the cost is CPU only.
+
+## Proposed deliveries
+
+Isolated, in order, each with its own crash matrix. Sizing and acceptance evidence belong to a delivery plan. Measurements run on the [workbench](TMD-WORKBENCH.md).
+
+0. **Policy simulator and compression measurement.** The mapping-only simulator from the workbench memo: greedy, age, random and cost-benefit selection with and without the compression term; `N` of 1, 4 and 16 victims per cycle; the three sort keys; uniform, 80/20 and 90/10 Zipf and moving-hotspot traces plus captured traces; fill factors 0.5 to 0.95; one and two heads. Checked against Lomet and Luo's Table 1 in the uniform case. Separately, zstd level 1 ratio and speed at 16, 32, 64 and 128 KiB chunks on captured database pages. Decides segment size, watermarks, `N`, the sort key, the chunk size and the routing threshold.
+1. **Format 4 segments without a cleaner.** The index tree and segment table pages published from the descriptor, no reserved prefix, link and provision records, two-head replay, live bytes at open, stale-tail sanitation per head, admission over segments, the `CompressedData` record and its read path. The log still fills; `ENOSPC` semantics are unchanged. Crash matrix: every publication boundary of leaves, indirect pages and table pages, with fallback to the older root at each; link and provision boundaries; compressed records at every chunk count. ADR-07's memory and access measurements are repeated so that the tree's cost at 4 GiB and 4 TiB is recorded against format 3.
+2. **Discard.** The `Discard` record, mapping and live-byte updates, zero reads, frontend advertisement of discard and write-zeroes, and hole punching or `BLKDISCARD` for freed segments once they exist. Crash matrix: discard before and after FLUSH, replay ordering against writes to the same LBA.
+3. **Serialized cleaner and freeing barrier.** The apply path on the foreground thread with inline victim reads, cost-benefit and greedy selectors, chunked compression with routing, `PendingFree`, two-publication freeing, reuse. Crash matrix: every relocation and freeing boundary, fallback to the older root after reuse, earlier-use records at probed positions. Repeated overwrites far beyond backing capacity, with verification after restart.
+4. **Cleaner thread.** Move victim reading, multi-victim merge, compression and selection to the thread. The foreground keeps only the conditional batched write. The delivery 3 tests must pass unchanged, plus stale-view and freed-under-read cases.
+5. **Growth and aged acceptance.** `Provision` through the daemon; `SpaceUsage` reporting of fill factor, garbage ratio, cleaned-segment emptiness, compression ratio and best-victim score. Run the workbench's live workloads at both scales against a volume that has wrapped at least once, after the aging procedure.

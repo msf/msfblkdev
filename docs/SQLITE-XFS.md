@@ -6,7 +6,7 @@ Status: SQLite/XFS accepted; ADR-06 RocksDB and PostgreSQL remain open
 All 87 SQLite/XFS cases passed in 160.073 seconds on the dirty tree based on
 `bc801ad7a39340609e672d2992f8cbc5275aa6ec`. The gate uses the same pinned SQLite
 3.51.3 tools, cases, profiles, content oracle and measurements as
-[SQLite/ext4](../SQLITE-EXT4.md).
+[SQLite/ext4](SQLITE-EXT4.md).
 
 Each case creates a fresh 512 MiB XFS device with a 4 GiB backing file on tmpfs.
 The existing protocol-3 helper formats, mounts and unmounts the owned device.

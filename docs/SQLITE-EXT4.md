@@ -15,7 +15,7 @@ make setup-sqlite
 make check-sqlite
 ```
 
-The setup script verifies official source and amalgamation archive hashes. It builds adapted upstream `speedtest1`, `kvtest`, and the SQLite shell under ignored `.tools/sqlite-3.51.3/`. The manifest records source IDs, archive and adaptation hashes, compiler flags, effective compile options, and artifact hashes. `check-sqlite` verifies the existing build; it does not download or rebuild SQLite.
+The setup script verifies official source and amalgamation archive hashes. It builds adapted upstream `speedtest1`, `kvtest`, and the SQLite shell under ignored `tools/build/sqlite-3.51.3/`. The manifest records source IDs, archive and adaptation hashes, compiler flags, effective compile options, and artifact hashes. `check-sqlite` verifies the existing build; it does not download or rebuild SQLite.
 
 After operator approval for live ext4 mounts, run the full gate:
 

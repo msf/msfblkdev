@@ -54,7 +54,7 @@ The engine uses a pre-sized file or raw block device through `io_uring`. It supp
 ### Bounds and layout
 
 - Logical block size: 4 KiB.
-- Maximum virtual volume: 8 TiB = `2^31` logical blocks. Logical block address (LBA) IDs and the volume block count use `u32`. An LBA ID must have its high bit zero. The volume block count can equal `2^31`. Validate a logical range with `start <= volume_blocks` and `count <= volume_blocks - start`. Byte sizes, byte offsets, ublk's 512-byte sector addresses and local sequence numbers (LSNs) use `u64`.
+- Maximum virtual volume: 8 TiB = `2^31` logical blocks. Logical block address (LBA) IDs and the volume block count use `u32`. An LBA ID must have its high bit zero. The volume block count can equal `2^31`. Validate a logical range with `start <= volume_blocks` and `count <= volume_blocks - start`. Byte sizes, byte offsets, ublk's 512-byte sector addresses and logical sequence numbers (LSNs) use `u64`.
 - Physical addresses are 4 KiB block indexes encoded as `u32`; physical block zero never stores payload and is the unmapped sentinel in the LBA map.
 - All persistent integers are little-endian. Persistent structures are encoded explicitly rather than written from compiler-layout structs.
 - Each checkpoint descriptor starts with the `VBLC` magic bytes. Each write footer starts with the `VBLF` magic bytes. Both structures store on-disk format version `1` in the following 8-bit field. Readers reject unsupported versions before interpreting the remaining fields.
@@ -110,7 +110,7 @@ The footer has fixed-position, zero-padded arrays. Entry `i` describes payload b
 | 5 | 1 | record kind (`write = 1`) |
 | 6 | 2 | zero padding |
 | 8 | 8 | volume ID |
-| 16 | 8 | local sequence number |
+| 16 | 8 | logical sequence number |
 | 24 | 4 | previous footer physical block |
 | 28 | 4 | this footer's expected physical block |
 | 32 | 1352 | `lba_ids[338]`, each `u32` |

@@ -8,7 +8,7 @@ Goals 1 and 2 are complete. ADR-03's engine, serialized ublk frontend and live r
 
 ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem passed three fresh-image lifecycles, all 12 filesystem checks, exact content verification, clean daemon restarts and cleanup. The final `make lint test` passed. This does not establish crash or power-loss durability.
 
-SQLite passed 87 fresh runs on each of ext4 and XFS across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. Each matrix passed 348 filesystem checks and 174 logical validations. [SQLite/ext4](SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and selected baselines. RocksDB and PostgreSQL remain unimplemented.
+SQLite passed 87 fresh runs on each of ext4 and XFS across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. Each matrix passed 348 filesystem checks and 174 logical validations. [SQLite/ext4](docs/SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and selected baselines. RocksDB and PostgreSQL remain unimplemented.
 
 ADR-07 is complete. The latest release is **v1.2.3**, with 336-entry mapping pages,
 sorted snapshot publication, and adjacent-page prefetch after sequential demand.
@@ -331,7 +331,7 @@ make test-sqlite-xfs
 
 SQLite builds are explicit and pinned to 3.51.3. Normal `make test` needs neither SQLite tools nor mounts. The 87-run gate uses three fresh repetitions, a 512 MiB cumulative backing-write limit per run, and the existing 60-second command / 600-second suite limits. The accepted run took 131.696 seconds with tmpfs backing. The helper and filesystem defaults are unchanged.
 
-See [SQLite/ext4](SQLITE-EXT4.md) for cases, single-run selectors, measurement limits, baseline comparison, and the upstream multiprocess audit. [SQLite/XFS](docs/SQLITE-XFS.md) records its 160.073-second acceptance run, audit and separate baseline. These are clean-restart correctness results and initial timing baselines, not crash, power-loss or sustainable-throughput claims.
+See [SQLite/ext4](docs/SQLITE-EXT4.md) for cases, single-run selectors, measurement limits, baseline comparison, and the upstream multiprocess audit. [SQLite/XFS](docs/SQLITE-XFS.md) records its 160.073-second acceptance run, audit and separate baseline. These are clean-restart correctness results and initial timing baselines, not crash, power-loss or sustainable-throughput claims.
 
 ### Normal-user ublk setup
 

@@ -89,7 +89,7 @@ Each volume has one Raft group. A Multi-Raft process multiplexes many of these g
 The replication group owns:
 
 - authoritative membership, roles, and configuration epoch;
-- elections, write order, quorum durability, and committed local sequence number (LSN);
+- elections, write order, quorum durability, and committed logical sequence number (LSN);
 - bootstrap, learner promotion, membership changes, and removal;
 - the committed logical size and per-replica capacity commitment;
 - attachment fencing epochs and client leases;
