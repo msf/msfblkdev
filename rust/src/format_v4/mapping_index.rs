@@ -39,20 +39,12 @@ impl MappingIndex {
             + std::mem::size_of_val(self.indirect_dirty.as_ref())
     }
 
-    pub(crate) fn page_count(&self) -> u32 {
-        self.geometry.page_count
-    }
-
     pub(crate) fn snapshot_block(&self, page: u32) -> u32 {
         self.snapshot_block[page as usize]
     }
 
     pub(crate) fn snapshot_blocks(&self) -> &[u32] {
         &self.snapshot_block
-    }
-
-    pub(crate) fn copy_snapshot_blocks_into(&self, target: &mut [u32]) {
-        target.copy_from_slice(&self.snapshot_block);
     }
 
     /// Points `page` at a new snapshot and returns the replaced block.
@@ -65,10 +57,6 @@ impl MappingIndex {
 
     pub(crate) fn direct_block(&self, direct: u32) -> u32 {
         self.direct_block[direct as usize]
-    }
-
-    pub(crate) fn indirect_block(&self, indirect: u32) -> u32 {
-        self.indirect_block[indirect as usize]
     }
 
     pub(crate) fn is_direct_dirty(&self, direct: u32) -> bool {

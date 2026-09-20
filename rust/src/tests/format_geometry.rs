@@ -3,11 +3,11 @@ use super::*;
 #[test]
 fn public_cache_configuration_reports_requested_and_effective_capacity() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
-    backing.create_sized(64 * BLOCK_SIZE as u64)?;
-    let logical_bytes = 673 * BLOCK_SIZE as u64;
-    format(&backing.0, logical_bytes)?;
+    let logical_blocks = 673_u32;
+    format_segments(&backing, logical_blocks, 8, TINY_SEGMENT_BLOCKS)?;
+    // Without an explicit budget the cache takes the remaining heap, capped at three pages.
     for (budget, capacity, hits, misses) in
-        [(None, 1, 1, 4), (Some(1), 1, 1, 4), (Some(20_000), 3, 2, 3)]
+        [(None, 3, 2, 3), (Some(1), 1, 1, 4), (Some(20_000), 3, 2, 3)]
     {
         let mut volume = open_with_options(
             &backing.0,
@@ -17,20 +17,21 @@ fn public_cache_configuration_reports_requested_and_effective_capacity() -> io::
             },
         )?;
         let initial = volume.mapping_stats();
-        assert_eq!(
-            initial.cache.sizing.requested_bytes,
-            budget.unwrap_or(
-                (logical_bytes / 10_000).max(
-                    crate::mapping_cache::sizing::Sizing::for_capacity(1)
-                        .unwrap()
-                        .allocated_bytes as u64
-                )
-            )
-        );
+        if let Some(budget) = budget {
+            assert_eq!(initial.cache.sizing.requested_bytes, budget);
+        } else {
+            assert!(
+                initial.cache.sizing.requested_bytes >= initial.cache.sizing.allocated_bytes as u64
+            );
+        }
         assert_eq!(initial.cache.sizing.capacity, capacity);
-        assert_eq!(initial.index_bytes, 12);
+        // Three snapshot pointers, one direct-page pointer and one dirty flag.
+        assert_eq!(initial.index_bytes, 3 * 4 + 4 + 1);
         assert!(initial.cache.sizing.allocated_bytes >= capacity * 4032);
         assert_eq!(initial.cache.counters.foreground.hit_rate(), None);
+        let budget_report = volume.heap_budget();
+        assert!(budget_report.allocated_bytes() <= budget_report.total_bytes);
+        assert_eq!(budget_report.total_bytes, MINIMUM_HEAP_BYTES);
         let mut bytes = [0xff; BLOCK_SIZE];
         for lba in [0, 0, 336, 672, 0] {
             volume.read_block(lba, &mut bytes)?;
@@ -39,7 +40,10 @@ fn public_cache_configuration_reports_requested_and_effective_capacity() -> io::
         let stats = volume.mapping_stats();
         assert_eq!(stats.cache.counters.foreground.hits, hits);
         assert_eq!(stats.cache.counters.foreground.misses, misses);
-        assert_eq!(stats.io.page_reads, 0);
+        assert_eq!(
+            stats.io.page_reads, 1,
+            "the table page is the only metadata read"
+        );
         assert_eq!(stats.io.page_writes, 0);
         assert_eq!(stats.pressure_checkpoints, 0);
         volume.close()?;
@@ -60,35 +64,64 @@ fn xxh3_matches_persistent_format_vectors() {
         0x4681_58e2_0c4c_72c4
     );
 }
+
 #[test]
 fn format_validates_geometry_boundaries() -> io::Result<()> {
-    assert!(layout_for(0).is_err());
-    assert!(layout_for(BLOCK_SIZE as u64 - 1).is_err());
-    assert!(layout_for((MAX_VOLUME_BLOCKS + 1) * BLOCK_SIZE as u64).is_err());
-
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    assert_eq!(
-        Layout::new(1, MAX_BACKING_BLOCKS)?.backing_blocks,
-        MAX_BACKING_BLOCKS
-    );
-    assert!(Layout::new(1, MAX_BACKING_BLOCKS + 1).is_err());
-    assert!(Layout::new(1, u64::from(layout.log_start) + 2).is_err());
+    assert!(Layout::new(0, 100, 8).is_err());
+    assert!(Layout::new(1, 2 + 3 * 8, 8).is_ok());
+    assert!(Layout::new(1, 2 + 3 * 8 - 1, 8).is_err());
+    assert!(Layout::new(1, MAX_BACKING_BLOCKS + 1, 8).is_err());
+    assert!(Layout::new(1, 2 + 3 * 4, 3).is_err());
 
     let missing = TemporaryBacking::new()?;
     assert_eq!(
         format(&missing.0, 0).unwrap_err().kind(),
         io::ErrorKind::InvalidInput
     );
+    assert_eq!(
+        format(&missing.0, BLOCK_SIZE as u64 - 1)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        format(&missing.0, (MAX_VOLUME_BLOCKS + 1) * BLOCK_SIZE as u64)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidInput
+    );
+    assert!(!missing.0.exists());
     let too_small = TemporaryBacking::new()?;
-    too_small.create_sized(u64::from(layout.log_start + 1) * BLOCK_SIZE as u64)?;
+    too_small.create_sized((2 + 2 * 8) * BLOCK_SIZE as u64)?;
+    assert_eq!(
+        format_with_options(
+            &too_small.0,
+            BLOCK_SIZE as u64,
+            FormatOptions {
+                blocks_per_segment: 8
+            }
+        )
+        .unwrap_err()
+        .kind(),
+        io::ErrorKind::InvalidInput
+    );
+    // The default segment size needs three 8 MiB segments.
     assert_eq!(
         format(&too_small.0, BLOCK_SIZE as u64).unwrap_err().kind(),
         io::ErrorKind::InvalidInput
     );
     let misaligned = TemporaryBacking::new()?;
-    misaligned.create_sized(u64::from(layout.log_start + 2) * BLOCK_SIZE as u64 - 1)?;
+    misaligned.create_sized((2 + 3 * 8) * BLOCK_SIZE as u64 - 1)?;
     assert_eq!(
-        format(&misaligned.0, BLOCK_SIZE as u64).unwrap_err().kind(),
+        format_with_options(
+            &misaligned.0,
+            BLOCK_SIZE as u64,
+            FormatOptions {
+                blocks_per_segment: 8
+            }
+        )
+        .unwrap_err()
+        .kind(),
         io::ErrorKind::InvalidInput
     );
     Ok(())
@@ -98,9 +131,8 @@ fn format_validates_geometry_boundaries() -> io::Result<()> {
 fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     let volume_blocks = 1025_u32;
-    let backing_blocks = 14_u64;
-    backing.create_sized(backing_blocks * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    let layout = format_segments(&backing, volume_blocks, 3, 4)?;
+    let backing_blocks = layout.backing_blocks;
 
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     let mut descriptors = [0; 2 * BLOCK_SIZE];
@@ -109,12 +141,9 @@ fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()
     let blue_descriptor = descriptors[BLOCK_SIZE..].to_vec();
 
     let volume = open(&backing.0)?;
-    assert_eq!(volume.mapping.checkpoint.descriptor.volume_id, volume_id);
+    assert_eq!(volume.log.volume_id, volume_id);
     assert_eq!(volume.volume_blocks(), volume_blocks);
-    assert_eq!(
-        volume.mapping.checkpoint.descriptor.backing_blocks,
-        backing_blocks
-    );
+    assert_eq!(volume.log.geometry.backing_blocks, backing_blocks);
     assert!(mapping_arrays(&volume)?.0.iter().all(|block| *block == 0));
     assert!(
         mapping_arrays(&volume)?
@@ -122,14 +151,10 @@ fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()
             .iter()
             .all(|checksum| *checksum == 0)
     );
-    assert_eq!(volume.mapping.tail.lsn, 0);
-
-    assert_eq!(volume.mapping.checkpoint.descriptor.checkpoint_lsn, 0);
-    assert_eq!(volume.mapping.tail.boundary, 3);
-    assert_eq!(
-        volume.mapping.checkpoint.descriptor.slot.other(),
-        CheckpointSlot::Blue
-    );
+    assert_eq!(last_lsn(&volume), FORMAT_LSN);
+    assert_eq!(volume.log.checkpoint_lsn(), FORMAT_LSN);
+    assert_eq!(user_position(&volume).boundary, 2);
+    assert_eq!(volume.log.active_slot, CheckpointSlot::Green);
     assert_eq!(log_bytes_since_checkpoint(&volume), 0);
     drop(volume);
 
@@ -137,10 +162,8 @@ fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()
     green[0] ^= 1;
     file.write_all_at(green, 0)?;
     let volume = open(&backing.0)?;
-    assert_eq!(
-        volume.mapping.checkpoint.descriptor.slot.other(),
-        CheckpointSlot::Green
-    );
+    assert_eq!(volume.log.active_slot, CheckpointSlot::Blue);
+    assert_eq!(volume.log.root_lsn, [None, Some(FORMAT_LSN)]);
     drop(volume);
 
     green.copy_from_slice(&blue_descriptor);
@@ -162,15 +185,20 @@ fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()
 fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     let volume_blocks = 1025_u32;
-    let backing_blocks = 14_u64;
-    backing.create_sized(backing_blocks * BLOCK_SIZE as u64)?;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    let checkpoint_bodies = vec![0xa5; (layout.log_start as usize - 2) * BLOCK_SIZE];
+    let segments = 3_u64;
+    let blocks_per_segment = 4_u32;
+    backing.create_sized((2 + segments * u64::from(blocks_per_segment)) * BLOCK_SIZE as u64)?;
+    let stale = vec![0xa5; (segments as usize * blocks_per_segment as usize) * BLOCK_SIZE];
     OpenOptions::new()
         .write(true)
         .open(&backing.0)?
-        .write_all_at(&checkpoint_bodies, 2 * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        .write_all_at(&stale, 2 * BLOCK_SIZE as u64)?;
+    format_with_options(
+        &backing.0,
+        u64::from(volume_blocks) * BLOCK_SIZE as u64,
+        FormatOptions { blocks_per_segment },
+    )?;
+    let backing_blocks = 2 + segments * u64::from(blocks_per_segment);
 
     let file = File::open(&backing.0)?;
     let mut descriptors = [0; 2 * BLOCK_SIZE];
@@ -187,14 +215,16 @@ fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
         assert_eq!(read_u32(descriptor, 16), BLOCK_SIZE as u32);
         assert_eq!(read_u32(descriptor, 20), volume_blocks);
         assert_eq!(read_u64(descriptor, 24), backing_blocks);
-        assert_eq!(read_u64(descriptor, 32), 0);
-        assert_eq!(read_u32(descriptor, 40), 3);
-        assert_eq!(
-            read_u64(descriptor, CHECKPOINT_BODY_CHECKSUM_OFFSET),
-            xxh3_64(&[0; BLOCK_SIZE])
-        );
+        assert_eq!(read_u64(descriptor, 32), FORMAT_LSN);
+        assert!(descriptor[40..48].iter().all(|byte| *byte == 0));
+        assert_eq!(read_u32(descriptor, 48), blocks_per_segment);
+        assert_eq!(read_u32(descriptor, 52), 2);
+        assert_eq!(read_u32(descriptor, 56), 0);
+        assert!(descriptor[60..348].iter().all(|byte| *byte == 0));
+        assert_eq!(read_u32(descriptor, 348), 1);
+        assert_eq!(read_u32(descriptor, 352), 2);
         assert!(
-            descriptor[CHECKPOINT_BODY_CHECKSUM_OFFSET + 8..DESCRIPTOR_CHECKSUM_OFFSET]
+            descriptor[356..DESCRIPTOR_CHECKSUM_OFFSET]
                 .iter()
                 .all(|byte| *byte == 0)
         );
@@ -205,19 +235,26 @@ fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
         assert_eq!(xxh3_64(&checksummed), expected_checksum);
     }
 
-    let mut preserved_bodies = vec![0; checkpoint_bodies.len()];
-    file.read_exact_at(&mut preserved_bodies, 2 * BLOCK_SIZE as u64)?;
-    assert!(preserved_bodies.iter().all(|byte| *byte == 0));
+    // Format writes only the table page; stale bytes stay until open sanitizes both heads.
+    let mut table_page = [0; BLOCK_SIZE];
+    file.read_exact_at(&mut table_page, 2 * BLOCK_SIZE as u64)?;
+    assert_eq!(&table_page[..4], FOOTER_MAGIC);
+    assert_eq!(table_page[5], 3);
+    let mut untouched = [0; BLOCK_SIZE];
+    file.read_exact_at(&mut untouched, 3 * BLOCK_SIZE as u64)?;
+    assert_eq!(untouched, [0xa5; BLOCK_SIZE]);
     let volume = open(&backing.0)?;
-    assert_eq!(
-        volume.mapping.checkpoint.descriptor.slot.other(),
-        CheckpointSlot::Blue
-    );
+    assert_eq!(volume.log.active_slot, CheckpointSlot::Green);
     drop(volume);
-
-    let mut empty_log = [1; 2 * BLOCK_SIZE];
-    file.read_exact_at(&mut empty_log, 12 * BLOCK_SIZE as u64)?;
-    assert!(empty_log.iter().all(|byte| *byte == 0));
+    let mut sanitized = vec![1; 2 * blocks_per_segment as usize * BLOCK_SIZE - BLOCK_SIZE];
+    file.read_exact_at(&mut sanitized, 3 * BLOCK_SIZE as u64)?;
+    assert!(sanitized.iter().all(|byte| *byte == 0));
+    let mut free_segment = [0; BLOCK_SIZE];
+    file.read_exact_at(
+        &mut free_segment,
+        (2 + 2 * u64::from(blocks_per_segment)) * BLOCK_SIZE as u64,
+    )?;
+    assert_eq!(free_segment, [0xa5; BLOCK_SIZE]);
 
     for descriptor in descriptors.chunks_exact_mut(BLOCK_SIZE) {
         descriptor[6] = 1;
@@ -233,5 +270,40 @@ fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
         open(&backing.0).err().unwrap().kind(),
         io::ErrorKind::InvalidData
     );
+    Ok(())
+}
+
+#[test]
+fn format_three_images_are_rejected_without_modification() -> io::Result<()> {
+    // A captured format-3 descriptor pair from v1.2.3 (green slot, then blue), sealed with the
+    // inherited full-block checksum. Only the version byte and layout differ from format 4.
+    let backing = TemporaryBacking::new()?;
+    backing.create_sized(64 * BLOCK_SIZE as u64)?;
+    let file = OpenOptions::new().write(true).open(&backing.0)?;
+    for slot in 0..2_u8 {
+        let mut descriptor = [0; BLOCK_SIZE];
+        descriptor[..4].copy_from_slice(b"VBLC");
+        descriptor[4] = 3;
+        descriptor[5] = slot;
+        descriptor[8..16].copy_from_slice(&19_u64.to_le_bytes());
+        descriptor[16..20].copy_from_slice(&4096_u32.to_le_bytes());
+        descriptor[20..24].copy_from_slice(&1_u32.to_le_bytes());
+        descriptor[24..32].copy_from_slice(&64_u64.to_le_bytes());
+        descriptor[40..44].copy_from_slice(&3_u32.to_le_bytes());
+        descriptor[44..52].copy_from_slice(&xxh3_64(&[0; BLOCK_SIZE]).to_le_bytes());
+        descriptor[DESCRIPTOR_CHECKSUM_OFFSET..].fill(0);
+        let checksum = xxh3_64(&descriptor);
+        descriptor[DESCRIPTOR_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
+        file.write_all_at(&descriptor, u64::from(slot) * BLOCK_SIZE as u64)?;
+    }
+    file.sync_all()?;
+    let before = std::fs::read(&backing.0)?;
+    for _ in 0..2 {
+        assert_eq!(
+            open(&backing.0).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(std::fs::read(&backing.0)?, before);
+    }
     Ok(())
 }

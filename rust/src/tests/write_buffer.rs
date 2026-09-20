@@ -11,16 +11,12 @@ fn large_buffer_options(write_buffer_bytes: u64) -> VolumeOpenOptions {
     }
 }
 
-// Sizes a backing so the device clamp (log_capacity / 4) admits at least `payloads` buffer slots.
+/// Eight 1024-block segments: the device clamp (capacity / 4 = 2048 slots) admits every
+/// buffer size used here and two user segments remain above the reserve.
 fn buffered_volume(payloads: u32) -> io::Result<(TemporaryBacking, VolumeOpenOptions, u32)> {
     let backing = TemporaryBacking::new()?;
     let volume_blocks = payloads + 8;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    let log_blocks = 4 * u64::from(payloads) + 512;
-    backing.create_sized(
-        u64::from(layout.log_start) * BLOCK_SIZE as u64 + log_blocks * BLOCK_SIZE as u64,
-    )?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    format_segments(&backing, volume_blocks, 8, 1024)?;
     let options = large_buffer_options(u64::from(payloads) * BLOCK_SIZE as u64);
     Ok((backing, options, volume_blocks))
 }
@@ -72,6 +68,8 @@ fn release_stats_report_batch_occupancy_and_footer_ratio() -> io::Result<()> {
         "batched footer ratio {ratio} should be near 1.0"
     );
     assert!(stats.full_releases >= 1);
+    assert_eq!(volume.log.writes.user_payload_blocks, 340);
+    assert_eq!(volume.log.writes.user_footer_blocks, 2);
     volume.close()
 }
 
@@ -80,15 +78,15 @@ fn duplicate_lba_in_one_window_coalesces_to_the_latest_value() -> io::Result<()>
     let (backing, options, _) = buffered_volume(8)?;
     let mut volume = open_with_options(&backing.0, options)?;
 
-    let footer_before = volume.mapping.tail.boundary;
+    let footer_before = user_position(&volume).boundary;
     for byte in [0xa5, 0x5a, 0xc3] {
         volume.write_block(0, &[byte; BLOCK_SIZE])?;
     }
     // The three same-address writes stayed coalesced in one slot; nothing reached the log yet.
-    assert_eq!(volume.mapping.tail.boundary, footer_before);
+    assert_eq!(user_position(&volume).boundary, footer_before);
     volume.flush()?;
     // One record with one payload was written (payload + footer = two blocks).
-    assert_eq!(volume.mapping.tail.boundary, footer_before + 2);
+    assert_eq!(user_position(&volume).boundary, footer_before + 2);
     volume.close()?;
 
     let mut volume = open_with_options(&backing.0, options)?;
@@ -114,31 +112,45 @@ fn read_after_write_without_flush_returns_the_buffered_value() -> io::Result<()>
     volume.close()
 }
 
-/// A 64-block log, exactly the ublk/fio scenario 7 shape.
+/// Eight tiny segments: two heads, three reserve segments and three user segments.
 ///
-/// Admission also reserves existing and pending snapshots. Write-through admits
-/// 31 writes; batching admits three 16-payload groups and a final ten-payload group.
+/// Admission reserves payloads, footers, existing and pending snapshots and one footer per
+/// possible crossing. The offending write, not a later flush, sees `ENOSPC`, and every
+/// admitted write survives a reopen.
 #[test]
 fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<()> {
-    for (write_buffer_bytes, capacity) in [(BLOCK_SIZE as u64, 31_u32), (4 * 1024 * 1024, 58)] {
+    for write_buffer_bytes in [BLOCK_SIZE as u64, 4 * 1024 * 1024] {
         let backing = TemporaryBacking::new()?;
         let volume_blocks = 64_u32;
-        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        format_segments(&backing, volume_blocks, 8, TINY_SEGMENT_BLOCKS)?;
         let options = large_buffer_options(write_buffer_bytes);
         let mut volume = open_with_options(&backing.0, options)?;
 
-        for lba in 0..capacity {
-            volume.write_block(lba, &pattern(lba))?;
+        let mut capacity = 0;
+        // Bounded by the volume: every LBA is written at most once.
+        while capacity < volume_blocks {
+            match volume.write_block(capacity, &pattern(capacity)) {
+                Ok(()) => capacity += 1,
+                Err(error) => {
+                    assert_eq!(error.raw_os_error(), Some(libc::ENOSPC));
+                    break;
+                }
+            }
         }
-        assert_eq!(
-            volume
-                .write_block(capacity, &[0xff; BLOCK_SIZE])
-                .unwrap_err()
-                .raw_os_error(),
-            Some(libc::ENOSPC),
-            "buffer {write_buffer_bytes} must reject write {capacity}"
+        assert!(
+            capacity >= 6,
+            "buffer {write_buffer_bytes} admitted only {capacity}"
+        );
+        assert!(
+            capacity < volume_blocks,
+            "buffer {write_buffer_bytes} never filled the log"
+        );
+        // Admission never dips into the reserve; a buffered group may stop one segment above it.
+        let usage = volume.space_usage()?;
+        assert_eq!(usage.reserve_segments, 3);
+        assert!(
+            usage.free_segments >= 3 && usage.free_segments <= 4,
+            "{usage:?}"
         );
         volume.flush()?;
         volume.close()?;
@@ -157,29 +169,29 @@ fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<(
 }
 
 #[test]
-fn checkpoint_index_round_trips_across_block_boundaries() -> io::Result<()> {
-    // More than 1024 mapping pages requires a second index block.
+fn checkpoint_index_round_trips_across_direct_pages() -> io::Result<()> {
+    // More than 1008 mapping pages requires a second direct index page.
     let backing = TemporaryBacking::new()?;
-    let volume_blocks = 336 * 1024 + 1;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    assert!(layout.index_blocks > 1);
-    backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    let volume_blocks = 336 * 1008 + 1;
+    format_segments(&backing, volume_blocks, 8, 64)?;
 
     let writes = [(0_u32, 0xa5_u8), (1000, 0x5a), (volume_blocks - 1, 0xc3)];
     let mut volume = open(&backing.0)?;
+    assert_eq!(volume.log.geometry.direct_pages, 2);
     for (lba, byte) in writes {
         volume.write_block(lba, &[byte; BLOCK_SIZE])?;
     }
     volume.close()?;
 
     let mut volume = open(&backing.0)?;
+    assert_ne!(volume.log.index.direct_block(0), 0);
+    assert_ne!(volume.log.index.direct_block(1), 0);
     let mut actual = [0; BLOCK_SIZE];
     for (lba, byte) in writes {
         volume.read_block(lba, &mut actual)?;
         assert_eq!(
             actual, [byte; BLOCK_SIZE],
-            "lba {lba} after streamed checkpoint"
+            "lba {lba} after tree publication"
         );
     }
     volume.read_block(500, &mut actual)?;
@@ -198,7 +210,7 @@ fn short_backing_write_fails_the_release_without_publishing() -> io::Result<()> 
     let error = volume.flush().unwrap_err();
     assert_eq!(error.raw_os_error(), Some(libc::EBADF));
     assert_eq!(mapping_arrays(&volume)?.0[0], 0);
-    assert_eq!(volume.mapping.tail.lsn, 0);
+    assert_eq!(last_lsn(&volume), FORMAT_LSN);
     assert_eq!(
         volume
             .write_block(0, &[0; BLOCK_SIZE])

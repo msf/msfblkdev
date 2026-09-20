@@ -2,7 +2,7 @@
 use super::{
     Geometry, HeadId, RecordHeader, RecordKind,
     descriptor::CheckpointSlot,
-    heads::{Head, LogPosition},
+    heads::Head,
     mapping_index::MappingIndex,
     segments::Segments,
     small_records::SegmentLink,
@@ -62,10 +62,6 @@ impl Log {
             .copied()
             .min()
             .expect("at least one valid root")
-    }
-
-    pub(crate) fn position(&self, head: HeadId) -> LogPosition {
-        self.head(head).position()
     }
 
     fn take_lsn(&mut self) -> io::Result<u64> {
@@ -249,7 +245,13 @@ impl Log {
         for head in self.heads {
             let entry = self.segments.entry(head.segment)?;
             if entry.head != Some(head.id) {
-                return Err(invalid_data("head cursor disagrees with the segment table"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "{} head cursor disagrees with the segment table",
+                        head.id.name()
+                    ),
+                ));
             }
         }
         Ok(())

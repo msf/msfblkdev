@@ -1,13 +1,22 @@
 use super::*;
 
+/// Five tiny segments: two heads plus the three reserve segments, so exactly one
+/// write-through record fits in the User head's segment.
+fn one_write_volume(volume_blocks: u32) -> io::Result<TemporaryBacking> {
+    let backing = TemporaryBacking::new()?;
+    format_segments(&backing, volume_blocks, 5, TINY_SEGMENT_BLOCKS)?;
+    Ok(backing)
+}
+
+fn small_volume(volume_blocks: u32) -> io::Result<TemporaryBacking> {
+    let backing = TemporaryBacking::new()?;
+    format_segments(&backing, volume_blocks, 12, TINY_SEGMENT_BLOCKS)?;
+    Ok(backing)
+}
+
 #[test]
 fn multiple_lbas_read_correctly_before_and_after_reopen() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
-    let volume_blocks = 2_u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 6) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-
+    let backing = small_volume(2)?;
     let expected = [[0xa5; BLOCK_SIZE], [0x5a; BLOCK_SIZE]];
     let mut actual = [0; BLOCK_SIZE];
     let mut volume = open(&backing.0)?;
@@ -30,10 +39,7 @@ fn multiple_lbas_read_correctly_before_and_after_reopen() -> io::Result<()> {
 
 #[test]
 fn repeated_overwrite_returns_only_latest_value() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 8) * BLOCK_SIZE as u64)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
+    let backing = small_volume(1)?;
     let mut volume = open(&backing.0)?;
 
     let values = [[0xa5; BLOCK_SIZE], [0x5a; BLOCK_SIZE], [0xc3; BLOCK_SIZE]];
@@ -55,11 +61,7 @@ fn repeated_overwrite_returns_only_latest_value() -> io::Result<()> {
 
 #[test]
 fn overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 6) * BLOCK_SIZE as u64)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
-
+    let backing = small_volume(1)?;
     let mut volume = open(&backing.0)?;
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.write_block(0, &[0; BLOCK_SIZE])?;
@@ -76,13 +78,11 @@ fn overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen() -> io::R
 }
 
 #[test]
-fn raw_footer_linkage_and_lsns_are_contiguous() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 8) * BLOCK_SIZE as u64)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
+fn raw_footer_linkage_and_lsns_are_contiguous_inside_a_segment() -> io::Result<()> {
+    let backing = small_volume(1)?;
     let mut volume = open(&backing.0)?;
-    let initial_footer_block = volume.mapping.tail.boundary;
+    let initial_footer_block = user_position(&volume).boundary;
+    assert_eq!(initial_footer_block, FIRST_DATA_BLOCK - 1);
 
     for byte in [0xa5, 0x5a, 0xc3] {
         volume.write_block(0, &[byte; BLOCK_SIZE])?;
@@ -90,7 +90,7 @@ fn raw_footer_linkage_and_lsns_are_contiguous() -> io::Result<()> {
 
     let file = File::open(&backing.0)?;
     let mut previous_footer_block = initial_footer_block;
-    for lsn in 1..=3 {
+    for lsn in FORMAT_LSN + 1..=FORMAT_LSN + 3 {
         let footer_block = previous_footer_block + 2;
         let mut footer = [0; BLOCK_SIZE];
         file.read_exact_at(&mut footer, u64::from(footer_block) * BLOCK_SIZE as u64)?;
@@ -101,31 +101,28 @@ fn raw_footer_linkage_and_lsns_are_contiguous() -> io::Result<()> {
     }
     Ok(())
 }
+
 #[test]
 fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
-
+    let backing = one_write_volume(1)?;
     let expected = [0xa5; BLOCK_SIZE];
     let mut volume = open(&backing.0)?;
     volume.write_block(0, &expected)?;
     let physical_blocks = mapping_arrays(&volume)?.0.clone();
     let checksums = mapping_arrays(&volume)?.1.clone();
     let cursors = (
-        volume.mapping.tail.lsn,
-        volume.mapping.checkpoint.descriptor.checkpoint_lsn,
-        volume.mapping.tail.boundary,
+        last_lsn(&volume),
+        volume.log.checkpoint_lsn(),
+        user_position(&volume),
         log_bytes_since_checkpoint(&volume),
-        volume.mapping.checkpoint.descriptor.slot.other(),
+        volume.log.active_slot,
         volume.failed,
     );
     let file = File::open(&backing.0)?;
     let mut log_bytes = [0; 2 * BLOCK_SIZE];
     file.read_exact_at(
         &mut log_bytes,
-        u64::from(layout.log_start) * BLOCK_SIZE as u64,
+        u64::from(FIRST_DATA_BLOCK) * BLOCK_SIZE as u64,
     )?;
 
     assert_eq!(
@@ -140,11 +137,11 @@ fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Re
     assert_eq!(mapping_arrays(&volume)?.1, checksums);
     assert_eq!(
         (
-            volume.mapping.tail.lsn,
-            volume.mapping.checkpoint.descriptor.checkpoint_lsn,
-            volume.mapping.tail.boundary,
+            last_lsn(&volume),
+            volume.log.checkpoint_lsn(),
+            user_position(&volume),
             log_bytes_since_checkpoint(&volume),
-            volume.mapping.checkpoint.descriptor.slot.other(),
+            volume.log.active_slot,
             volume.failed,
         ),
         cursors
@@ -152,7 +149,7 @@ fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Re
     let mut unchanged_log_bytes = [0; 2 * BLOCK_SIZE];
     file.read_exact_at(
         &mut unchanged_log_bytes,
-        u64::from(layout.log_start) * BLOCK_SIZE as u64,
+        u64::from(FIRST_DATA_BLOCK) * BLOCK_SIZE as u64,
     )?;
     assert_eq!(unchanged_log_bytes, log_bytes);
 
@@ -170,10 +167,7 @@ fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Re
 
 #[test]
 fn out_of_range_write_leaves_mapping_and_cursors_unchanged() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 6) * BLOCK_SIZE as u64)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
+    let backing = small_volume(1)?;
     let mut volume = open(&backing.0)?;
 
     let expected = [0xa5; BLOCK_SIZE];
@@ -182,10 +176,10 @@ fn out_of_range_write_leaves_mapping_and_cursors_unchanged() -> io::Result<()> {
     let physical_blocks = mapping_arrays(&volume)?.0.clone();
     let checksums = mapping_arrays(&volume)?.1.clone();
     let cursors = (
-        volume.mapping.tail.lsn,
-        volume.mapping.checkpoint.descriptor.checkpoint_lsn,
-        volume.mapping.tail.boundary,
-        volume.mapping.checkpoint.descriptor.slot.other(),
+        last_lsn(&volume),
+        volume.log.checkpoint_lsn(),
+        user_position(&volume),
+        volume.log.active_slot,
         log_bytes_since_checkpoint(&volume),
         volume.failed,
     );
@@ -199,10 +193,10 @@ fn out_of_range_write_leaves_mapping_and_cursors_unchanged() -> io::Result<()> {
     assert_eq!(mapping_arrays(&volume)?.1, checksums);
     assert_eq!(
         (
-            volume.mapping.tail.lsn,
-            volume.mapping.checkpoint.descriptor.checkpoint_lsn,
-            volume.mapping.tail.boundary,
-            volume.mapping.checkpoint.descriptor.slot.other(),
+            last_lsn(&volume),
+            volume.log.checkpoint_lsn(),
+            user_position(&volume),
+            volume.log.active_slot,
             log_bytes_since_checkpoint(&volume),
             volume.failed,
         ),
@@ -216,16 +210,12 @@ fn out_of_range_write_leaves_mapping_and_cursors_unchanged() -> io::Result<()> {
 
 #[test]
 fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
-    let volume_blocks = 2_u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    let backing = small_volume(2)?;
     let mut volume = open(&backing.0)?;
 
     let lba = 1_u32;
     let payload = [0xa5; BLOCK_SIZE];
-    let previous_footer_block = volume.mapping.tail.boundary;
+    let previous_footer_block = user_position(&volume).boundary;
     let payload_block = previous_footer_block + 1;
     let footer_block = payload_block + 1;
     volume.write_block(lba, &payload)?;
@@ -237,11 +227,8 @@ fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result
     let footer = &mut record[BLOCK_SIZE..];
     assert_eq!(&footer[..4], FOOTER_MAGIC);
     assert_eq!(&footer[4..8], &[FORMAT_VERSION, RECORD_KIND_WRITE, 0, 0]);
-    assert_eq!(
-        read_u64(footer, 8),
-        volume.mapping.checkpoint.descriptor.volume_id
-    );
-    assert_eq!(read_u64(footer, 16), 1);
+    assert_eq!(read_u64(footer, 8), volume.log.volume_id);
+    assert_eq!(read_u64(footer, 16), FORMAT_LSN + 1);
     assert_eq!(read_u32(footer, 24), previous_footer_block);
     assert_eq!(read_u32(footer, 28), footer_block);
     assert_eq!(read_u32(footer, FOOTER_LBA_OFFSET), lba);
@@ -249,10 +236,7 @@ fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result
     checksum_input[..4].copy_from_slice(&lba.to_le_bytes());
     checksum_input[4..8].copy_from_slice(&payload_block.to_le_bytes());
     checksum_input[8..].copy_from_slice(&payload);
-    let expected_payload_checksum = xxh3_64_with_seed(
-        &checksum_input,
-        volume.mapping.checkpoint.descriptor.volume_id,
-    );
+    let expected_payload_checksum = xxh3_64_with_seed(&checksum_input, volume.log.volume_id);
     assert_eq!(
         read_u64(footer, FOOTER_PAYLOAD_CHECKSUM_OFFSET),
         expected_payload_checksum
@@ -273,30 +257,26 @@ fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result
 
     assert_eq!(mapping_arrays(&volume)?.0, [0, payload_block]);
     assert_eq!(mapping_arrays(&volume)?.1, [0, expected_payload_checksum]);
-    assert_eq!(volume.mapping.tail.lsn, 1);
-
-    assert_eq!(volume.mapping.tail.boundary, footer_block);
+    assert_eq!(last_lsn(&volume), FORMAT_LSN + 1);
+    assert_eq!(user_position(&volume).boundary, footer_block);
     assert_eq!(log_bytes_since_checkpoint(&volume), (2 * BLOCK_SIZE) as u64);
+    assert_eq!(volume.space_usage()?.live_bytes, BLOCK_SIZE as u64);
     Ok(())
 }
 
 #[test]
 fn failed_write_is_not_published() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
+    let backing = small_volume(1)?;
     let mut volume = open(&backing.0)?;
     volume.backing = backing.reopen()?;
 
-    let initial_footer_block = volume.mapping.tail.boundary;
+    let initial = user_position(&volume);
     let error = volume.write_block(0, &[0xa5; BLOCK_SIZE]).unwrap_err();
     assert_eq!(error.raw_os_error(), Some(libc::EBADF));
     assert_eq!(mapping_arrays(&volume)?.0, [0]);
     assert_eq!(mapping_arrays(&volume)?.1, [0]);
-    assert_eq!(volume.mapping.tail.lsn, 0);
-
-    assert_eq!(volume.mapping.tail.boundary, initial_footer_block);
+    assert_eq!(last_lsn(&volume), FORMAT_LSN);
+    assert_eq!(user_position(&volume), initial);
     assert_eq!(log_bytes_since_checkpoint(&volume), 0);
 
     let mut block = [0x5a; BLOCK_SIZE];
@@ -313,18 +293,14 @@ fn failed_write_is_not_published() -> io::Result<()> {
         "volume failed"
     );
     assert_eq!(volume.flush().unwrap_err().to_string(), "volume failed");
-
     assert_eq!(volume.close().unwrap_err().to_string(), "volume failed");
     Ok(())
 }
 
 #[test]
 fn public_operations_complete_v0_4_acceptance() -> io::Result<()> {
-    let backing = TemporaryBacking::new()?;
+    let backing = small_volume(2)?;
     let volume_blocks = 2_u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
 
     let mut expected = [0; BLOCK_SIZE];
     for (index, byte) in expected.iter_mut().enumerate() {
@@ -360,7 +336,7 @@ fn public_operations_complete_v0_4_acceptance() -> io::Result<()> {
     let file = OpenOptions::new().write(true).open(&backing.0)?;
     file.write_all_at(
         &[expected[0] ^ 0xff],
-        u64::from(layout.log_start) * BLOCK_SIZE as u64,
+        u64::from(FIRST_DATA_BLOCK) * BLOCK_SIZE as u64,
     )?;
     file.sync_all()?;
     let mut volume = open(&backing.0)?;

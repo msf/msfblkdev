@@ -1,6 +1,6 @@
+//! Cache acquisition for the writer: pressure publication, demand reads and prefetch.
 use super::{
-    checkpoint_publish::{self, LogPosition},
-    index::Checkpoint,
+    log::Log,
     page_read::{PageRead, READ_AHEAD_PAGES},
     recovery::RecoveryStats,
 };
@@ -12,9 +12,7 @@ use crate::{
 use std::{fs::File, io};
 
 pub(crate) struct MappingState {
-    pub(crate) checkpoint: Checkpoint,
     pub(crate) cache: MappingCache,
-    pub(crate) tail: LogPosition,
     pub(crate) recovery: RecoveryStats,
     pub(crate) pressure_checkpoints: u64,
     pub(crate) checkpoint_failures: u64,
@@ -30,8 +28,9 @@ pub(crate) enum CheckpointPolicy {
 impl MappingState {
     pub(crate) fn with_page<T>(
         &mut self,
-        backing_io: &mut BackingIo,
+        io: &mut BackingIo,
         backing: &File,
+        log: &mut Log,
         page_id: u32,
         checkpoint_policy: CheckpointPolicy,
         operation: impl FnOnce(CachedPage<'_>) -> io::Result<T>,
@@ -52,22 +51,8 @@ impl MappingState {
                     checkpoint_policy == CheckpointPolicy::Allow,
                     "write-buffer preflight must reserve all mapping slots"
                 );
-                match checkpoint_publish::publish(
-                    backing_io,
-                    backing,
-                    &mut self.checkpoint,
-                    &mut self.cache,
-                    self.tail,
-                ) {
-                    Ok(tail) => {
-                        self.tail = tail;
-                        self.pressure_checkpoints += 1;
-                    }
-                    Err(error) => {
-                        self.checkpoint_failures += 1;
-                        return Err(error);
-                    }
-                }
+                self.publish(io, backing, log)?;
+                self.pressure_checkpoints += 1;
                 self.cache.retry(pending).map_err(cache_error)?
             }
             ready => ready,
@@ -83,7 +68,7 @@ impl MappingState {
                 };
                 let mut read = PageRead::new();
                 let page = vacant
-                    .install(read.read(backing_io, backing, &self.checkpoint, page_id, limit)?)
+                    .install(read.read(io, backing, log, page_id, limit)?)
                     .map_err(cache_error)?;
                 prefetched = Some(read);
                 page
@@ -96,39 +81,26 @@ impl MappingState {
         };
         let result = operation(page)?;
         if let Some(read) = prefetched {
-            read.install_prefetched(&mut self.cache, &self.checkpoint, backing_io, page_id)?;
+            read.install_prefetched(&mut self.cache, log, io, page_id)?;
         }
         Ok(result)
     }
 
-    pub(crate) fn publish(&mut self, backing_io: &mut BackingIo, backing: &File) -> io::Result<()> {
-        match checkpoint_publish::publish(
-            backing_io,
-            backing,
-            &mut self.checkpoint,
-            &mut self.cache,
-            self.tail,
-        ) {
-            Ok(tail) => {
-                self.tail = tail;
-                Ok(())
-            }
+    /// Publishes a checkpoint when anything is dirty; counts failures for reporting.
+    pub(crate) fn publish(
+        &mut self,
+        io: &mut BackingIo,
+        backing: &File,
+        log: &mut Log,
+    ) -> io::Result<bool> {
+        match log.publish(io, backing, &mut self.cache) {
+            Ok(published) => Ok(published),
             Err(error) => {
                 self.checkpoint_failures += 1;
                 Err(error)
             }
         }
     }
-}
-
-#[cfg(test)]
-pub(crate) fn read_page(
-    backing_io: &mut BackingIo,
-    backing: &File,
-    checkpoint: &Checkpoint,
-    page_id: u32,
-) -> io::Result<crate::mapping_cache::MappingEntries> {
-    PageRead::new().read(backing_io, backing, checkpoint, page_id, 1)
 }
 
 fn cache_error(error: CacheError) -> io::Error {

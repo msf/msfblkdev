@@ -294,6 +294,8 @@ enum CliCommand {
         backing_path: PathBuf,
         backing_bytes: u64,
         volume_bytes: u64,
+        /// Segment size; None lets the engine derive it from the backing size.
+        segment_bytes: Option<u64>,
     },
 }
 
@@ -306,7 +308,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N (or --size-bytes N --prealloc-bytes N)",
+                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N (or --size-bytes N --prealloc-bytes N) [--segment-bytes N]",
                 PathBuf::from(&program).display()
             ),
         )
@@ -335,11 +337,12 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         }
         Some("format") => {
             let backing_path = PathBuf::from(args.next().ok_or_else(&usage)?);
-            let (backing_bytes, volume_bytes) = parse_format_sizes(&mut args, &usage)?;
+            let sizes = parse_format_sizes(&mut args, &usage)?;
             CliCommand::Format {
                 backing_path,
-                backing_bytes,
-                volume_bytes,
+                backing_bytes: sizes.backing_bytes,
+                volume_bytes: sizes.volume_bytes,
+                segment_bytes: sizes.segment_bytes,
             }
         }
         _ => return Err(usage()),
@@ -347,19 +350,27 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
     Ok(command)
 }
 
-/// Parses the volume and backing sizes for `format`.
+struct FormatSizes {
+    backing_bytes: u64,
+    volume_bytes: u64,
+    segment_bytes: Option<u64>,
+}
+
+/// Parses the volume, backing and optional segment sizes for `format`.
 ///
 /// `--prealloc-mib` sets the backing file's declared length. The file is
 /// sparse, so that length is a ceiling that bounds `ENOSPC`, and the host
 /// allocates blocks only as the log consumes them. The byte spellings exist
 /// because the acceptance geometries are smaller than one MiB.
+/// `--segment-bytes` overrides the segment size the engine derives from the backing.
 fn parse_format_sizes(
     args: &mut impl Iterator<Item = OsString>,
     usage: &impl Fn() -> io::Error,
-) -> io::Result<(u64, u64)> {
+) -> io::Result<FormatSizes> {
     const MIB: u64 = 1024 * 1024;
     let mut backing_bytes = None;
     let mut volume_bytes = None;
+    let mut segment_bytes = None;
     while let Some(flag) = args.next() {
         let value = args.next().ok_or_else(usage)?;
         let (target, scale) = match flag.to_str() {
@@ -367,6 +378,7 @@ fn parse_format_sizes(
             Some("--prealloc-bytes") => (&mut backing_bytes, 1),
             Some("--size-mib") => (&mut volume_bytes, MIB),
             Some("--size-bytes") => (&mut volume_bytes, 1),
+            Some("--segment-bytes") => (&mut segment_bytes, 1),
             _ => return Err(usage()),
         };
         if target.is_some() {
@@ -375,9 +387,28 @@ fn parse_format_sizes(
         *target = Some(parse_bytes(&value)?.checked_mul(scale).ok_or_else(usage)?);
     }
     match (backing_bytes, volume_bytes) {
-        (Some(backing), Some(volume)) => Ok((backing, volume)),
+        (Some(backing_bytes), Some(volume_bytes)) => Ok(FormatSizes {
+            backing_bytes,
+            volume_bytes,
+            segment_bytes,
+        }),
         _ => Err(usage()),
     }
+}
+
+fn format_options(segment_bytes: Option<u64>) -> io::Result<block_storage::FormatOptions> {
+    let Some(segment_bytes) = segment_bytes else {
+        return Ok(block_storage::FormatOptions::default());
+    };
+    if segment_bytes == 0 || !segment_bytes.is_multiple_of(u64::from(LOGICAL_BLOCK_BYTES)) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--segment-bytes must be a positive multiple of 4096",
+        ));
+    }
+    let blocks_per_segment = u32::try_from(segment_bytes / u64::from(LOGICAL_BLOCK_BYTES))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "--segment-bytes is too large"))?;
+    Ok(block_storage::FormatOptions { blocks_per_segment })
 }
 
 fn parse_serve_config(
@@ -1050,9 +1081,11 @@ fn format_new(
     backing_path: &Path,
     backing_bytes: u64,
     volume_bytes: u64,
+    segment_bytes: Option<u64>,
     ledger_path: Option<&OsStr>,
 ) -> io::Result<()> {
     let accounting = io_ledger::open_optional(ledger_path)?;
+    let options = format_options(segment_bytes)?;
     let backing = OpenOptions::new()
         .read(true)
         .write(true)
@@ -1061,10 +1094,13 @@ fn format_new(
     let format_error = match backing
         .set_len(backing_bytes)
         .and_then(|()| match accounting {
-            Some(writer) => {
-                block_storage::format_with_accounting(backing_path, volume_bytes, writer)
-            }
-            None => block_storage::format(backing_path, volume_bytes),
+            Some(writer) => block_storage::format_with_options_and_accounting(
+                backing_path,
+                volume_bytes,
+                options,
+                writer,
+            ),
+            None => block_storage::format_with_options(backing_path, volume_bytes, options),
         }) {
         Ok(()) => {
             if let Ok(volume) = block_storage::open(backing_path) {
@@ -1101,10 +1137,12 @@ fn run() -> io::Result<()> {
             backing_path,
             backing_bytes,
             volume_bytes,
+            segment_bytes,
         } => format_new(
             &backing_path,
             backing_bytes,
             volume_bytes,
+            segment_bytes,
             ledger_path.as_deref(),
         ),
     }
@@ -1173,15 +1211,19 @@ mod tests {
             Ok(backing)
         }
 
+        /// One MiB of backing with 32-block segments: seven whole segments.
         fn formatted(volume_blocks: u32) -> io::Result<Self> {
             let backing = Self::new()?;
             OpenOptions::new()
                 .write(true)
                 .open(&backing.0)?
                 .set_len(1024 * 1024)?;
-            block_storage::format(
+            block_storage::format_with_options(
                 &backing.0,
                 u64::from(volume_blocks) * u64::from(LOGICAL_BLOCK_BYTES),
+                block_storage::FormatOptions {
+                    blocks_per_segment: 32,
+                },
             )?;
             Ok(backing)
         }
@@ -1406,7 +1448,37 @@ mod tests {
                 backing_path: PathBuf::from("volume.img"),
                 backing_bytes: 1_048_576,
                 volume_bytes: 16_384,
+                segment_bytes: None,
             }
+        );
+        assert_eq!(
+            parse_args(
+                [
+                    "daemon",
+                    "format",
+                    "volume.img",
+                    "--prealloc-bytes",
+                    "1048576",
+                    "--size-bytes",
+                    "16384",
+                    "--segment-bytes",
+                    "131072",
+                ]
+                .map(OsString::from),
+            )
+            .unwrap(),
+            CliCommand::Format {
+                backing_path: PathBuf::from("volume.img"),
+                backing_bytes: 1_048_576,
+                volume_bytes: 16_384,
+                segment_bytes: Some(131_072),
+            }
+        );
+        assert!(format_options(Some(4095)).is_err());
+        assert!(format_options(Some(0)).is_err());
+        assert_eq!(
+            format_options(Some(131_072)).unwrap().blocks_per_segment,
+            32
         );
     }
 
@@ -1428,6 +1500,7 @@ mod tests {
             &backing.0,
             1024 * 1024,
             4 * u64::from(LOGICAL_BLOCK_BYTES),
+            Some(32 * u64::from(LOGICAL_BLOCK_BYTES)),
             None,
         )?;
 
@@ -1442,7 +1515,7 @@ mod tests {
         let backing = TemporaryBacking::new()?;
         std::fs::write(&backing.0, b"preserve me")?;
 
-        let error = format_new(&backing.0, 1024 * 1024, 4096, None).unwrap_err();
+        let error = format_new(&backing.0, 1024 * 1024, 4096, None, None).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&backing.0)?, b"preserve me");
         Ok(())
@@ -1452,7 +1525,8 @@ mod tests {
     fn format_new_removes_created_file_after_engine_validation_failure() -> io::Result<()> {
         for (backing_bytes, volume_bytes) in [(1024 * 1024 + 1, 4096), (1024 * 1024, 4097)] {
             let backing = TemporaryPath::new()?;
-            let error = format_new(&backing.0, backing_bytes, volume_bytes, None).unwrap_err();
+            let error =
+                format_new(&backing.0, backing_bytes, volume_bytes, None, None).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
             assert!(!backing.0.exists());
         }
@@ -1467,6 +1541,7 @@ mod tests {
             &backing.0,
             1024 * 1024,
             4096,
+            None,
             Some(missing_ledger.as_os_str()),
         )
         .unwrap_err();

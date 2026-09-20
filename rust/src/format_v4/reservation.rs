@@ -1,7 +1,15 @@
+//! Admission: reserve the append space a buffered group needs before accepting a write.
+//!
+//! The inherited rule reserves `N + R + D + P` blocks: payloads, packed footers, snapshots of
+//! already dirty pages and snapshots of the pages the buffer touches. Format 4 adds one footer
+//! for every segment the group may cross; links are excluded because every segment keeps its
+//! link slot out of the writable room. Index and table pages, relocation copies and both
+//! freeing publications come from the reserve segments instead.
+use super::{Geometry, heads::Reserve, log::Log};
 use crate::mapping_cache::ENTRIES_PER_PAGE;
 use crate::{
-    BLOCK_SIZE, MAX_BACKING_BLOCKS, MAX_VOLUME_BLOCKS, MAXIMUM_PAYLOAD_BLOCKS,
-    MAXIMUM_WRITE_BUFFER_BYTES, invalid_input,
+    BLOCK_SIZE, MAX_VOLUME_BLOCKS, MAXIMUM_PAYLOAD_BLOCKS, MAXIMUM_WRITE_BUFFER_BYTES,
+    invalid_input,
 };
 use std::io;
 
@@ -45,77 +53,76 @@ impl Reservation {
         )
     }
 
-    /// Release sorts the whole buffer and checkpoints only before appending it.
-    #[cfg(test)]
-    pub(crate) fn buffered(
-        lbas: &[u32],
+    /// Reserves `records` one-block records that touch `pages` distinct pages, such as a discard.
+    pub(crate) fn for_metadata(
+        records: usize,
+        pages: usize,
         dirty_pages: usize,
-        additional: Option<u32>,
     ) -> io::Result<Self> {
-        let additional = additional.filter(|lba| !lbas.contains(lba));
-        let payloads = lbas
-            .len()
-            .checked_add(usize::from(additional.is_some()))
-            .ok_or_else(|| invalid_input("pending payload count overflow"))?;
-        if payloads > (MAXIMUM_WRITE_BUFFER_BYTES / BLOCK_SIZE as u64) as usize
-            || dirty_pages as u64 > MAX_VOLUME_BLOCKS.div_ceil(ENTRIES_PER_PAGE as u64)
-        {
-            return Err(invalid_input(
-                "pending writes exceed the write-buffer limit",
-            ));
-        }
-        let mut pages = 0;
-        for (index, lba) in lbas.iter().enumerate() {
-            let page = *lba / ENTRIES_PER_PAGE as u32;
-            if !lbas[..index]
-                .iter()
-                .any(|earlier| *earlier / ENTRIES_PER_PAGE as u32 == page)
-            {
-                pages += 1;
-            }
-        }
-        if let Some(lba) = additional {
-            let page = lba / ENTRIES_PER_PAGE as u32;
-            if !lbas
-                .iter()
-                .any(|earlier| *earlier / ENTRIES_PER_PAGE as u32 == page)
-            {
-                pages += 1;
-            }
-        }
-        Self::for_counts(payloads, pages, dirty_pages)
+        Self::for_counts_with_records(0, records as u64, pages, dirty_pages)
     }
 
-    fn for_counts(payloads: usize, pages: usize, dirty_pages: usize) -> io::Result<Self> {
+    pub(crate) fn for_counts(
+        payloads: usize,
+        pages: usize,
+        dirty_pages: usize,
+    ) -> io::Result<Self> {
+        Self::for_counts_with_records(
+            payloads,
+            payloads.div_ceil(MAXIMUM_PAYLOAD_BLOCKS) as u64,
+            pages,
+            dirty_pages,
+        )
+    }
+
+    fn for_counts_with_records(
+        payloads: usize,
+        records: u64,
+        pages: usize,
+        dirty_pages: usize,
+    ) -> io::Result<Self> {
         if dirty_pages as u64 > MAX_VOLUME_BLOCKS.div_ceil(ENTRIES_PER_PAGE as u64) {
             return Err(invalid_input("dirty page count exceeds volume limit"));
         }
-        // An initially dirty page may be checkpointed before its pending update.
-        // Reserve its old snapshot and a new snapshot, even when the IDs overlap.
+        // An initially dirty page may be checkpointed before its pending update: reserve both.
         let mapping_snapshots = (dirty_pages as u64)
             .checked_add(pages as u64)
             .ok_or_else(|| invalid_input("mapping snapshot reservation overflow"))?;
-        let data_records = payloads.div_ceil(MAXIMUM_PAYLOAD_BLOCKS) as u64;
         let total_blocks = (payloads as u64)
-            .checked_add(data_records)
+            .checked_add(records)
             .and_then(|blocks| blocks.checked_add(mapping_snapshots))
             .ok_or_else(|| invalid_input("append reservation overflow"))?;
         Ok(Self {
             payload_blocks: payloads as u64,
-            data_records,
+            data_records: records,
             pending_pages: pages as u64,
             mapping_snapshots,
             total_blocks,
         })
     }
+
+    /// Blocks to demand from user space, including one extra footer per possible crossing.
+    pub(crate) fn demanded_blocks(&self, geometry: Geometry) -> u64 {
+        let writable = u64::from(geometry.blocks_per_segment - 1);
+        self.total_blocks + self.total_blocks.div_ceil(writable)
+    }
 }
 
-pub(crate) fn ensure_space(boundary: u32, backing_blocks: u64, required: u64) -> io::Result<()> {
-    if backing_blocks > MAX_BACKING_BLOCKS || u64::from(boundary) >= backing_blocks {
-        return Err(invalid_input("invalid append geometry"));
-    }
-    let available = backing_blocks - (u64::from(boundary) + 1);
-    if required > available {
+/// Fails with `ENOSPC` when the User head plus the free segments above the reserve cannot hold
+/// the demanded blocks. Nothing is modified.
+pub(crate) fn ensure_user_space(
+    log: &Log,
+    reserve: Reserve,
+    demanded_blocks: u64,
+) -> io::Result<()> {
+    let geometry = log.geometry;
+    let available = super::heads::user_available_blocks(
+        geometry,
+        log.head(super::HeadId::User).room(geometry),
+        log.segments.allocatable_count(),
+        reserve,
+    );
+    if demanded_blocks > available {
         return Err(io::Error::from_raw_os_error(libc::ENOSPC));
     }
     Ok(())
@@ -127,10 +134,11 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn reservation_counts_packed_records_and_checkpoint_debt() {
-        assert_eq!(Reservation::buffered(&[], 0, None).unwrap().total_blocks, 0);
+    fn reservation_counts_payloads_footers_snapshots_and_crossings() {
+        let geometry = Geometry::new(4096, 2 + 12 * 8, 8).unwrap();
+        let reservation = Reservation::admit(&[], 0, 0, 0).unwrap();
         assert_eq!(
-            Reservation::buffered(&[], 0, Some(0)).unwrap(),
+            reservation,
             Reservation {
                 payload_blocks: 1,
                 data_records: 1,
@@ -139,75 +147,42 @@ mod tests {
                 total_blocks: 3,
             }
         );
+        assert_eq!(reservation.demanded_blocks(geometry), 3 + 1);
         let lbas = [0, 1, 336, 2];
-        let reserve = Reservation::buffered(&lbas, 2, None).unwrap();
+        let reserve = Reservation::admit(&lbas, 2, 2, 3).unwrap();
+        assert_eq!(reserve.total_blocks, 5 + 1 + 2 + 2);
+        assert_eq!(reserve.demanded_blocks(geometry), 10 + 2);
         assert_eq!(
-            reserve,
-            Reservation {
-                payload_blocks: 4,
-                data_records: 1,
-                pending_pages: 2,
-                mapping_snapshots: 4,
-                total_blocks: 9
-            }
-        );
-        assert_eq!(Reservation::buffered(&lbas, 2, Some(1)).unwrap(), reserve);
-        assert_eq!(
-            Reservation::buffered(&lbas, 2, Some(3))
-                .unwrap()
-                .total_blocks,
-            10
-        );
-        assert_eq!(
-            Reservation::buffered(&lbas, 2, Some(672))
-                .unwrap()
-                .total_blocks,
+            Reservation::admit(&lbas, 2, 2, 672).unwrap().total_blocks,
             11
         );
-        let same_page: Vec<_> = (0..336).collect();
+        let same_page: Vec<_> = (0..335).collect();
         assert_eq!(
-            Reservation::buffered(&same_page, 0, None)
+            Reservation::admit(&same_page, 1, 0, 335)
                 .unwrap()
                 .total_blocks,
             338
         );
-    }
-
-    #[test]
-    fn capacity_errors_precede_append_and_preserve_u32_endpoints() {
-        assert!(ensure_space(3, 7, 3).is_ok());
+        let big = Geometry::new(4096, 2 + 4 * 1024, 1024).unwrap();
         assert_eq!(
-            ensure_space(3, 7, 4).unwrap_err().raw_os_error(),
-            Some(libc::ENOSPC)
-        );
-        assert!(ensure_space(u32::MAX, 1_u64 << 32, 0).is_ok());
-        assert_eq!(
-            ensure_space(u32::MAX, 1_u64 << 32, 1)
-                .unwrap_err()
-                .raw_os_error(),
-            Some(libc::ENOSPC)
+            Reservation::admit(&same_page, 1, 0, 335)
+                .unwrap()
+                .demanded_blocks(big),
+            339
         );
         assert_eq!(
-            ensure_space(3, 7, u64::MAX).unwrap_err().raw_os_error(),
-            Some(libc::ENOSPC)
+            Reservation::for_metadata(1, 3, 2).unwrap().total_blocks,
+            1 + 5
         );
-        for (boundary, backing) in [(0, 0), (7, 7), (0, (1_u64 << 32) + 1)] {
-            assert_eq!(
-                ensure_space(boundary, backing, 0).unwrap_err().kind(),
-                io::ErrorKind::InvalidInput
-            );
-        }
         let full: Vec<_> = (0..4096).collect();
-        assert!(Reservation::buffered(&full, 0, Some(4096)).is_err());
-        assert!(Reservation::buffered(&[], usize::MAX, Some(0)).is_err());
         assert!(Reservation::admit(&full, 13, 0, 4096).is_err());
         assert!(Reservation::admit(&[], 0, usize::MAX, 0).is_err());
     }
 
     #[test]
     fn reservation_covers_all_small_dirty_sets_and_pressure_schedules() {
-        // Enumerate all six-write page sequences over three page IDs. The release
-        // visits each page once; snapshots can occur before and between groups.
+        // Enumerate all six-write page sequences over three page IDs; the release visits each
+        // page once and snapshots can occur before and between groups.
         for mut sequence in 0_u32..3_u32.pow(6) {
             let mut lbas = Vec::new();
             let mut groups = Vec::new();
@@ -223,7 +198,8 @@ mod tests {
                 let initial: BTreeSet<_> = (0..3)
                     .filter(|page| dirty_mask & (1 << page) != 0)
                     .collect();
-                let reservation = Reservation::buffered(&lbas, initial.len(), None).unwrap();
+                let reservation =
+                    Reservation::for_counts(lbas.len(), groups.len(), initial.len()).unwrap();
                 for capacity in initial.len().max(1)..=3 {
                     for schedule in 0..16 {
                         let mut dirty = initial.clone();

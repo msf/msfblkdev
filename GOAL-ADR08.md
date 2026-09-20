@@ -9,11 +9,14 @@ started from `57d56cc`. Build directory: `rust/target` inside this clone. Eviden
 Phase 1: green baseline and contracts
 - [x] Baseline `make lint test` at `57d56cc`: PASS, 44.9 s (`evidence/adr08-implementation/baseline-lint-test.log`).
 - [x] Baseline `make test-acceptance` at `57d56cc`: PASS, 313 tests, 96.6 s (`evidence/adr08-implementation/baseline-test-acceptance.log`; the gitignored engine-crash log is named inside it).
-- [ ] Format-4 codecs: header/kinds, segment table page, mapping index page, link, growth, discard, descriptor.
-- [ ] Geometry, segment allocator, accounting model.
-- [ ] Mapping index tree, checkpoint load, planned publication, format.
-- [ ] Two-head replay, tail probing, sanitation, recovery windows, crash boundaries.
-- [ ] Engine on format 4; format-3 images rejected; existing behavioral tests ported.
+- [x] Format-4 codecs: header/kinds, segment table page, mapping index page, link, growth, discard, descriptor (`a462b96`).
+- [x] Geometry, segment allocator, accounting model (`cffdf23`).
+- [x] Mapping index tree, checkpoint load, planned publication, format (`2b17771`).
+- [x] Two-head replay, tail probing, sanitation, recovery windows (`2b17771`); SIGKILL boundaries for
+      publication, recovery and stale-tail clearing run through the ported `process_crash`,
+      `checkpoint_batches`, `packed_writes` and `stale_tail` matrices.
+- [x] Engine on format 4; format-3 images rejected; behavioral tests ported; daemon `format --segment-bytes`.
+      Gate: `make lint test` PASS, 304 tests (`evidence/adr08-implementation/gate-engine.log`).
 
 Phase 2: serialized raw relocation and reuse
 - [ ] Victim scan, conditional apply, metadata re-emission, two-publication barrier, actual reuse.
@@ -47,6 +50,19 @@ See the "Implementation decisions" section of ADR-08 once written. Working list:
 7. Metadata relocation (T8): the writer re-emits current index/table pages and resident snapshots
    itself by marking them dirty; non-resident clean snapshots are copied from cleaner proposals.
 8. Eligibility: a sealed segment is off both replay paths when `seal_lsn <= min(root LSNs)`.
+9. Sanitation zeroes the rest of each head's open segment, not a 339-block window: a torn maximal
+   record can hide a complete successor beyond 339 blocks inside the same segment, and the
+   successor would chain onto a same-sized re-issued record after reopen.
+10. Heap budget: `total = max(logical × proportion, 16 MiB floor)`; the write buffer, cleaner and
+    cache requests are validated against it and never enlarged; the cleaner share is at least one
+    read window plus one proposal buffer so write-through configurations still open.
+11. Reservation: `N + R + D + P` plus one footer per possible segment crossing is demanded from
+    the User head's room plus the free segments above the reserve. The reserve is one worst-case
+    victim relocation plus two publications, each planned from a full head.
+12. Discard drops buffered payloads in range first, chunks the range so every touched page fits
+    the cache, publishes before appending when the chunk would not fit, then appends one
+    `LbaDiscard` and unmaps with checkpoints forbidden, so no root can pass the record's LSN with
+    pages still mapped. Write-zeroes is a discard.
 
 ## Commands
 
@@ -58,4 +74,8 @@ make test-acceptance           # exhaustive crash matrix (~10 min at baseline)
 
 ## Status
 
-Last green commit: `57d56cc` (baseline). Dirty work: none. Next action: format-4 codecs.
+Last green commit: the engine switch (see `git log`). Dirty work: none. Known debt: a module-level
+`expect(dead_code)` in `rust/src/format_v4.rs` covers items the reclamation commit uses; remove it
+there. The ublk-fio lab still assumes the format-3 fixture geometry and must move to a format-4
+fixture in phase 4. Next action: phase 2, serialized raw relocation (victim scan, conditional
+apply, metadata re-emission, two-publication release, actual reuse under repeated overwrites).

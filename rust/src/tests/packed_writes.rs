@@ -1,15 +1,15 @@
 use super::*;
-use crate::format_v3::{
-    checkpoint_publish::LogPosition,
-    tail::{self, LogRecord},
+use crate::format_v4::{
+    heads::Head,
+    tail::{Probe, probe_next},
 };
 use crate::io_accounting::{Reader, Writer};
 use crate::mapping_cache::sizing::Sizing;
 
-fn fixture(payloads: u32, pages: u32) -> io::Result<TemporaryBacking> {
+/// Eight 2048-block segments: 1,500 payloads fit in segment 0 and the clamp admits them.
+fn fixture(pages: u32) -> io::Result<TemporaryBacking> {
     let backing = TemporaryBacking::new()?;
-    backing.create_sized((u64::from(payloads) * 4 + 1024) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(pages) * 336 * BLOCK_SIZE as u64)?;
+    format_segments(&backing, pages * 336, 8, 2048)?;
     Ok(backing)
 }
 
@@ -33,9 +33,31 @@ fn sorting_buffer_preserves_payload_locations_and_coalesced_values_without_alloc
 }
 
 #[test]
+fn removing_a_range_keeps_the_remaining_payloads_reachable_without_allocating() {
+    let mut buffer = WriteBackBuffer::with_capacity(16);
+    for lba in [5, 100, 6, 7, 200, 8] {
+        buffer.store(lba, &[lba as u8; BLOCK_SIZE]);
+    }
+    let (removed, allocations) = super::allocations::measure(|| buffer.remove_range(6, 3));
+    assert!(removed);
+    assert_eq!(allocations, 0);
+    assert_eq!(buffer.len(), 3);
+    for lba in [5, 100, 200] {
+        assert_eq!(buffer.get(lba), Some(&[lba as u8; BLOCK_SIZE]), "LBA {lba}");
+    }
+    for lba in [6, 7, 8] {
+        assert_eq!(buffer.get(lba), None);
+    }
+    assert!(!buffer.remove_range(6, 3));
+    assert_eq!(buffer.distinct_pages(), 1);
+    assert!(buffer.store(6, &[1; BLOCK_SIZE]));
+    assert_eq!(buffer.len(), 4);
+}
+
+#[test]
 fn packed_buffers_cross_record_boundaries_with_one_log_flush() -> io::Result<()> {
     for payloads in [338, 339, 1024, 1500] {
-        let backing = fixture(payloads, payloads)?;
+        let backing = fixture(payloads)?;
         let ledger = TemporaryBacking::new()?;
         // SAFETY: the private ledger outlives its handles and is never externally modified.
         let reader = unsafe { Reader::create(&ledger.0, 128 << 20)? };
@@ -81,38 +103,42 @@ fn packed_buffers_cross_record_boundaries_with_one_log_flush() -> io::Result<()>
     Ok(())
 }
 
+/// Walks the User chain from the format-time position through the packed records.
 fn check_sorted_records(volume: &Volume, payloads: u32) -> io::Result<()> {
-    let descriptor = volume.mapping.checkpoint.descriptor;
-    let mut position = LogPosition {
-        lsn: descriptor.checkpoint_lsn,
-        boundary: descriptor.last_record_boundary,
-    };
+    let geometry = volume.log.geometry;
+    let mut head = Head::opened(HeadId::User, 0, geometry)?;
+    head.next_block = FIRST_DATA_BLOCK;
+    head.last_boundary = FIRST_DATA_BLOCK - 1;
+    head.last_lsn = FORMAT_LSN;
     let mut io = BackingIo::new(None)?;
     let mut seen = 0;
     while seen < payloads {
-        let LogRecord::Data(record) =
-            tail::read_next(&mut io, &volume.backing, descriptor, position)?.unwrap()
+        let Some(Probe::Data(record)) = probe_next(
+            &mut io,
+            &volume.backing,
+            geometry,
+            volume.log.volume_id,
+            head,
+            FORMAT_LSN + 1,
+        )?
         else {
             panic!("no mapping snapshots inside a packed release");
         };
-        let count = record.header.payload_count()? as u32;
+        let count = record.header.payload_count(geometry)? as u32;
         assert_eq!(count, (payloads - seen).min(MAXIMUM_PAYLOAD_BLOCKS as u32));
         for (index, lba) in record.lba_ids[..count as usize].iter().enumerate() {
             assert_eq!(*lba, (seen + index as u32) * 336);
         }
         seen += count;
-        position = LogPosition {
-            lsn: record.header.lsn,
-            boundary: record.header.boundary,
-        };
+        head.advance(record.header);
     }
-    assert_eq!(position, volume.mapping.tail);
+    assert_eq!(head.position(), user_position(volume));
     Ok(())
 }
 
 #[test]
 fn incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes() -> io::Result<()> {
-    let backing = fixture(1024, 1024)?;
+    let backing = fixture(1024)?;
     let file = OpenOptions::new().write(true).open(&backing.0)?;
     // Open would sanitize this tail if configuration validation happened too late.
     file.write_all_at(&[0x5a; BLOCK_SIZE], 16 * BLOCK_SIZE as u64)?;
@@ -129,6 +155,14 @@ fn incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes() 
             checkpoint_after_bytes: 339 * BLOCK_SIZE as u64,
             ..VolumeOpenOptions::default()
         },
+        VolumeOpenOptions {
+            write_buffer_bytes: 4 << 20,
+            heap: HeapBudgetOptions {
+                total_bytes: Some(6 << 20),
+                ..HeapBudgetOptions::default()
+            },
+            ..VolumeOpenOptions::default()
+        },
     ] {
         let error = open_with_options(&backing.0, options).err().unwrap();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
@@ -141,13 +175,14 @@ fn incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes() 
     };
     let volume = open_with_options(&backing.0, options)?;
     assert_eq!(volume.mapping_stats().cache.sizing.capacity, 1024);
+    assert!(volume.heap_budget().allocated_bytes() <= volume.heap_budget().total_bytes);
     volume.close()
 }
 
 #[test]
 fn pressure_is_resolved_before_a_group_and_overlapping_dirty_pages_need_no_checkpoint()
 -> io::Result<()> {
-    let backing = fixture(16, 4)?;
+    let backing = fixture(4)?;
     let options = VolumeOpenOptions {
         write_buffer_bytes: 2 * BLOCK_SIZE as u64,
         cache_budget_bytes: Some(Sizing::for_capacity(2).unwrap().allocated_bytes as u64),
@@ -193,7 +228,7 @@ fn packed_record_recovers_all_mappings_after_a_partial_in_memory_update() -> io:
         LOG_FSYNC_COMPLETE_FAILPOINT,
     ] {
         for _ in 0..configured_crash_test_plan(3)?.repetitions {
-            let backing = fixture(1024, 700)?;
+            let backing = fixture(700)?;
             sigkill_child_at_handshake(
                 "tests::packed_writes::packed_record_recovers_all_mappings_after_a_partial_in_memory_update",
                 &backing.0,
@@ -221,6 +256,7 @@ fn packed_record_recovers_all_mappings_after_a_partial_in_memory_update() -> io:
 fn preflight_checkpoint_crashes_preserve_the_previous_complete_group() -> io::Result<()> {
     let options = VolumeOpenOptions {
         write_buffer_bytes: 2 * BLOCK_SIZE as u64,
+        cache_budget_bytes: Some(Sizing::for_capacity(2).unwrap().allocated_bytes as u64),
         ..VolumeOpenOptions::default()
     };
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
@@ -234,14 +270,14 @@ fn preflight_checkpoint_crashes_preserve_the_previous_complete_group() -> io::Re
     let boundaries = [
         "mapping-page-write-before-0",
         "mapping-page-write-complete-0",
-        "checkpoint-body-block-complete-0",
-        CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT,
+        "direct-page-write-complete-0",
+        "checkpoint-records-fsync-complete",
         DESCRIPTOR_WRITE_COMPLETE_FAILPOINT,
         DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT,
     ];
     for boundary in boundaries {
         for _ in 0..configured_crash_test_plan(boundaries.len() as u64)?.repetitions {
-            let backing = fixture(16, 4)?;
+            let backing = fixture(4)?;
             let mut volume = open_with_options(&backing.0, options)?;
             for lba in [0, 336] {
                 volume.write_block(lba, &[1; BLOCK_SIZE])?;

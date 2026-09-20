@@ -1,45 +1,69 @@
 use super::*;
-use crate::format_v3::{
-    checkpoint::{CheckpointDescriptor, CheckpointSlot},
-    geometry::Geometry as Layout,
+use crate::format_v4::{
+    Geometry as Layout, HeadId,
+    descriptor::{CheckpointDescriptor, CheckpointSlot},
+    heads::LogPosition,
+    storage::FormatOptions,
 };
 use std::fs::OpenOptions;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use xxhash_rust::xxh3::xxh3_64;
-const FORMAT_VERSION: u8 = crate::format_v3::VERSION;
+const FORMAT_VERSION: u8 = crate::format_v4::VERSION;
 const FOOTER_MAGIC: &[u8; 4] = b"VBLF";
 const RECORD_KIND_WRITE: u8 = 1;
 const FOOTER_LBA_OFFSET: usize = 32;
 const FOOTER_PAYLOAD_CHECKSUM_OFFSET: usize = 1384;
 const FOOTER_CHECKSUM_OFFSET: usize = BLOCK_SIZE - 8;
 const CHECKPOINT_MAGIC: &[u8; 4] = b"VBLC";
-const CHECKPOINT_BODY_CHECKSUM_OFFSET: usize = 44;
 const DESCRIPTOR_CHECKSUM_OFFSET: usize = BLOCK_SIZE - 8;
-const CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT: &str = "checkpoint-body-block-complete";
+/// The smallest segment the tests use: a link slot plus seven writable blocks.
+const TINY_SEGMENT_BLOCKS: u32 = 8;
+/// A segment large enough for the 339-block probing window plus stale-tail fixtures.
+const PROBE_SEGMENT_BLOCKS: u32 = 400;
 
-fn layout_for(bytes: u64) -> io::Result<(u32, Layout)> {
-    if bytes == 0
-        || !bytes.is_multiple_of(BLOCK_SIZE as u64)
-        || bytes / BLOCK_SIZE as u64 > MAX_VOLUME_BLOCKS
-    {
-        return Err(invalid_input("invalid test volume size"));
-    }
-    let blocks = (bytes / BLOCK_SIZE as u64) as u32;
-    Ok((blocks, Layout::new(blocks, MAX_BACKING_BLOCKS)?))
+/// Creates a backing of `segments` whole segments and formats it with that segment size.
+fn format_segments(
+    backing: &TemporaryBacking,
+    volume_blocks: u32,
+    segments: u64,
+    blocks_per_segment: u32,
+) -> io::Result<Layout> {
+    backing.create_sized((2 + segments * u64::from(blocks_per_segment)) * BLOCK_SIZE as u64)?;
+    format_with_options(
+        &backing.0,
+        u64::from(volume_blocks) * BLOCK_SIZE as u64,
+        FormatOptions { blocks_per_segment },
+    )?;
+    Layout::new(
+        volume_blocks,
+        2 + segments * u64::from(blocks_per_segment),
+        blocks_per_segment,
+    )
 }
 
+/// The first writable block of a fresh volume: segment 0 holds its table page at block 2.
+const FIRST_DATA_BLOCK: u32 = 3;
+/// The LSN of the format-time table page; the first data record takes the next one.
+const FORMAT_LSN: u64 = 1;
+
 fn log_bytes_since_checkpoint(volume: &Volume) -> u64 {
-    u64::from(
-        volume.mapping.tail.boundary - volume.mapping.checkpoint.descriptor.last_record_boundary,
-    ) * BLOCK_SIZE as u64
+    volume.log.blocks_since_checkpoint * BLOCK_SIZE as u64
+}
+
+fn user_position(volume: &Volume) -> LogPosition {
+    volume.log.head(HeadId::User).position()
+}
+
+fn last_lsn(volume: &Volume) -> u64 {
+    volume.log.next_lsn - 1
 }
 
 fn mapping_arrays(volume: &Volume) -> io::Result<(Vec<u32>, Vec<u64>)> {
-    let checkpoint = &volume.mapping.checkpoint;
     let mut physical = Vec::new();
     let mut checksums = Vec::new();
     let mut backing_io = BackingIo::new(None)?;
-    for page_id in 0..checkpoint.mapping_page_block.len() as u32 {
+    let geometry = volume.log.geometry;
+    for page_id in 0..geometry.page_count {
         let entries = match volume
             .mapping
             .cache
@@ -47,14 +71,28 @@ fn mapping_arrays(volume: &Volume) -> io::Result<(Vec<u32>, Vec<u64>)> {
             .find(|(id, _)| *id == page_id)
         {
             Some((_, entries)) => entries.clone(),
-            None => crate::format_v3::mapping_state::read_page(
-                &mut backing_io,
-                &volume.backing,
-                checkpoint,
-                page_id,
-            )?,
+            None => {
+                let block = volume.log.index.snapshot_block(page_id);
+                if block == 0 {
+                    crate::mapping_cache::MappingEntries::zeroed()
+                } else {
+                    let mut bytes = AlignedBlock([0; BLOCK_SIZE]);
+                    read_block_exact(&mut backing_io, &volume.backing, block, &mut bytes)?;
+                    crate::format_v4::mapping_page::MappingPageRecord::decode(
+                        &bytes.0,
+                        &crate::format_v4::mapping_page::PageExpectation {
+                            geometry,
+                            volume_id: volume.log.volume_id,
+                            page_id,
+                            boundary: block,
+                            maximum_lsn: last_lsn(volume),
+                        },
+                    )?
+                    .entries
+                }
+            }
         };
-        let count = checkpoint.descriptor.geometry()?.page_entries(page_id)?;
+        let count = geometry.page_entries(page_id)?;
         physical.extend_from_slice(&entries.physical_addr[..count]);
         checksums.extend_from_slice(&entries.payload_checksum[..count]);
     }
@@ -381,28 +419,28 @@ fn raw_footer(
     footer
 }
 
-fn prepare_footer_rejection_image(
-    backing_blocks: u64,
-) -> io::Result<(TemporaryBacking, Layout, u64)> {
+/// A four-block volume with 400-block segments and one raw record written after the table
+/// page. Returns the layout and the position right after that record (`clear_start`).
+fn prepare_footer_rejection_image() -> io::Result<(TemporaryBacking, Layout, u64)> {
     let backing = TemporaryBacking::new()?;
-    let volume_blocks = 4_u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    backing.create_sized(backing_blocks * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    let layout = format_segments(&backing, 4, 6, PROBE_SEGMENT_BLOCKS)?;
     let volume_id = formatted_volume_id(&backing)?;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     write_raw_record(
         &file,
         volume_id,
-        1,
-        layout.log_start - 1,
-        layout.log_start,
+        FORMAT_LSN + 1,
+        FIRST_DATA_BLOCK - 1,
+        FIRST_DATA_BLOCK,
         0,
         0xa5,
     )?;
     file.sync_all()?;
     Ok((backing, layout, volume_id))
 }
+
+/// The block after the fixture's first raw record: its payload at 3 and footer at 4.
+const REJECTION_CLEAR_START: u32 = FIRST_DATA_BLOCK + 2;
 
 fn verify_recovery_stops_before_invalid_footer(
     backing: &TemporaryBacking,
@@ -411,9 +449,9 @@ fn verify_recovery_stops_before_invalid_footer(
     let opened = std::panic::catch_unwind(|| open(&backing.0))
         .map_err(|_| io::Error::other("public open panicked on invalid footer"))?;
     let mut volume = opened?;
-    assert_eq!(volume.mapping.tail.lsn, 1);
+    assert_eq!(last_lsn(&volume), FORMAT_LSN + 1);
 
-    assert_eq!(volume.mapping.tail.boundary + 1, clear_start);
+    assert_eq!(user_position(&volume).boundary + 1, clear_start);
     assert_eq!(log_bytes_since_checkpoint(&volume), (2 * BLOCK_SIZE) as u64);
     assert_eq!(mapping_arrays(&volume)?.0, [clear_start - 2, 0, 0, 0]);
     assert_eq!(mapping_arrays(&volume)?.1[1..], [0, 0, 0]);
@@ -442,10 +480,9 @@ fn assert_zero_blocks(file: &File, start: u32, count: u32) -> io::Result<()> {
 fn verify_rejected_two_payload_footer(
     mutate: impl FnOnce(&mut [u8; BLOCK_SIZE], u64, u32),
 ) -> io::Result<()> {
-    let (_, layout) = layout_for(4 * BLOCK_SIZE as u64)?;
-    let clear_start = layout.log_start + 2;
-    let backing_blocks = u64::from(clear_start) + MAXIMUM_RECORD_BLOCKS + 1;
-    let (backing, layout, volume_id) = prepare_footer_rejection_image(backing_blocks)?;
+    let clear_start = REJECTION_CLEAR_START;
+    let (backing, layout, volume_id) = prepare_footer_rejection_image()?;
+    let segment_end = layout.segment_end(0)? as u32;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     file.write_all_at(
         &vec![0x7e; MAXIMUM_RECORD_BLOCKS as usize * BLOCK_SIZE],
@@ -455,8 +492,8 @@ fn verify_rejected_two_payload_footer(
     let mut footer = write_raw_record_payloads(
         &file,
         volume_id,
-        2,
-        layout.log_start + 1,
+        FORMAT_LSN + 2,
+        clear_start - 1,
         &[(1, 0x5a), (2, 0xc3)],
     )?;
     assert_eq!(read_u32(&footer, 28), invalid_footer_block);
@@ -464,7 +501,8 @@ fn verify_rejected_two_payload_footer(
     seal_raw_footer(&mut footer);
     assert_raw_footer_checksum_valid(&footer);
     file.write_all_at(&footer, u64::from(invalid_footer_block) * BLOCK_SIZE as u64)?;
-    let preserved_block = clear_start + MAXIMUM_RECORD_BLOCKS as u32;
+    // Segment 2 is free, so sanitation never touches it.
+    let preserved_block = layout.segment_start(2)?;
     file.write_all_at(
         &[0x9d; BLOCK_SIZE],
         u64::from(preserved_block) * BLOCK_SIZE as u64,
@@ -474,8 +512,11 @@ fn verify_rejected_two_payload_footer(
 
     verify_recovery_stops_before_invalid_footer(&backing, clear_start)?;
     let file = OpenOptions::new().read(true).open(&backing.0)?;
-    assert_eq!(file.metadata()?.len(), backing_blocks * BLOCK_SIZE as u64);
-    assert_zero_blocks(&file, clear_start, MAXIMUM_RECORD_BLOCKS as u32)?;
+    assert_eq!(
+        file.metadata()?.len(),
+        layout.backing_blocks * BLOCK_SIZE as u64
+    );
+    assert_zero_blocks(&file, clear_start, segment_end - clear_start)?;
     let mut preserved = [0; BLOCK_SIZE];
     file.read_exact_at(
         &mut preserved,
@@ -487,42 +528,40 @@ fn verify_rejected_two_payload_footer(
 
 struct InvalidGapFixture {
     backing: TemporaryBacking,
+    layout: Layout,
     clear_start: u32,
     later_payload_block: u32,
-    later_footer: [u8; BLOCK_SIZE],
     backing_bytes: u64,
 }
 
+/// One valid record, then 339 stale blocks and a complete but unreachable record further
+/// inside segment 0. Format 4 zeroes the whole rest of the segment.
 fn prepare_invalid_gap_fixture() -> io::Result<InvalidGapFixture> {
     let backing = TemporaryBacking::new()?;
-    let volume_blocks = 2_u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    let clear_start = layout.log_start + 2;
+    let layout = format_segments(&backing, 2, 6, PROBE_SEGMENT_BLOCKS)?;
+    let clear_start = REJECTION_CLEAR_START;
     let later_payload_block = clear_start + MAXIMUM_RECORD_BLOCKS as u32;
-    let backing_bytes = u64::from(later_payload_block + 2) * BLOCK_SIZE as u64;
-    backing.create_sized(backing_bytes)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    assert!(u64::from(later_payload_block + 2) <= layout.segment_end(0)?);
+    let backing_bytes = layout.backing_blocks * BLOCK_SIZE as u64;
     let volume_id = formatted_volume_id(&backing)?;
 
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
-    let first_footer = layout.log_start + 1;
     write_raw_record(
         &file,
         volume_id,
-        1,
-        layout.log_start - 1,
-        layout.log_start,
+        FORMAT_LSN + 1,
+        FIRST_DATA_BLOCK - 1,
+        FIRST_DATA_BLOCK,
         0,
         0xa5,
     )?;
-    assert_eq!(clear_start, first_footer + 1);
     let stale_window = vec![0x7e; MAXIMUM_RECORD_BLOCKS as usize * BLOCK_SIZE];
     file.write_all_at(&stale_window, u64::from(clear_start) * BLOCK_SIZE as u64)?;
-    let later_footer = write_raw_record(
+    write_raw_record(
         &file,
         volume_id,
-        3,
-        clear_start + MAXIMUM_RECORD_BLOCKS as u32 - 1,
+        FORMAT_LSN + 3,
+        later_payload_block - 1,
         later_payload_block,
         1,
         0x5a,
@@ -531,9 +570,9 @@ fn prepare_invalid_gap_fixture() -> io::Result<InvalidGapFixture> {
 
     Ok(InvalidGapFixture {
         backing,
+        layout,
         clear_start,
         later_payload_block,
-        later_footer,
         backing_bytes,
     })
 }
@@ -541,23 +580,16 @@ fn prepare_invalid_gap_fixture() -> io::Result<InvalidGapFixture> {
 fn verify_cleared_window(fixture: &InvalidGapFixture) -> io::Result<()> {
     let file = OpenOptions::new().read(true).open(&fixture.backing.0)?;
     assert_eq!(file.metadata()?.len(), fixture.backing_bytes);
-    for block in fixture.clear_start..fixture.clear_start + MAXIMUM_RECORD_BLOCKS as u32 {
+    let segment_end = fixture.layout.segment_end(0)? as u32;
+    assert!(fixture.later_payload_block + 1 < segment_end);
+    for block in fixture.clear_start..segment_end {
         let mut bytes = [0xa5; BLOCK_SIZE];
         file.read_exact_at(&mut bytes, u64::from(block) * BLOCK_SIZE as u64)?;
-        assert_eq!(bytes, [0; BLOCK_SIZE]);
+        assert_eq!(bytes, [0; BLOCK_SIZE], "block {block}");
     }
-    let mut later_payload = [0; BLOCK_SIZE];
-    file.read_exact_at(
-        &mut later_payload,
-        u64::from(fixture.later_payload_block) * BLOCK_SIZE as u64,
-    )?;
-    assert_eq!(later_payload, [0x5a; BLOCK_SIZE]);
-    let mut later_footer = [0; BLOCK_SIZE];
-    file.read_exact_at(
-        &mut later_footer,
-        u64::from(fixture.later_payload_block + 1) * BLOCK_SIZE as u64,
-    )?;
-    assert_eq!(later_footer, fixture.later_footer);
+    // The relocation head's empty segment is sanitized too; free segments stay untouched.
+    let relocation_start = fixture.layout.segment_start(1)?;
+    assert_zero_blocks(&file, relocation_start, PROBE_SEGMENT_BLOCKS)?;
     Ok(())
 }
 
@@ -568,8 +600,8 @@ fn verify_invalid_gap_recovery(fixture: &InvalidGapFixture) -> io::Result<()> {
     assert_eq!(actual, [0xa5; BLOCK_SIZE]);
     volume.read_block(1, &mut actual)?;
     assert_eq!(actual, [0; BLOCK_SIZE]);
-    assert_eq!(volume.mapping.tail.lsn, 1);
-    assert_eq!(volume.mapping.tail.boundary + 1, fixture.clear_start);
+    assert_eq!(last_lsn(&volume), FORMAT_LSN + 1);
+    assert_eq!(user_position(&volume).boundary + 1, fixture.clear_start);
     drop(volume);
     verify_cleared_window(fixture)
 }
@@ -578,16 +610,6 @@ mod accounting_integration;
 mod checkpoint_batches;
 mod checkpoint_replay;
 mod format_geometry;
-mod format_v3_crash;
-mod format_v3_engine;
-mod format_v3_engine_crash;
-mod format_v3_load;
-mod format_v3_publish;
-mod format_v3_recovery;
-mod format_v3_storage;
-mod format_v3_tail;
-mod format_v3_volume;
-mod format_v3_write;
 mod format_v4_protocol;
 mod io_uring;
 mod mapping_prefetch;

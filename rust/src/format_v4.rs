@@ -1,12 +1,17 @@
-//! ADR-08 format-4 codecs. Persistent bytes are validated before use; nothing here performs I/O.
+//! ADR-08 format 4: codecs, log state, publication, recovery and the engine.
 #![forbid(unsafe_code)]
-// The engine still runs format 3; this attribute must go when the volume moves to format 4.
-#![expect(dead_code, reason = "format 4 is not wired into the engine yet")]
+// Removed with the reclamation commit, which uses the remaining eligibility, dirtying and
+// segment-release items; a few others are read only by tests until then.
+#![expect(
+    dead_code,
+    reason = "the reclamation and cleaner phases use the remaining items"
+)]
 
 use crate::{BLOCK_SIZE, MAXIMUM_PAYLOAD_BLOCKS, invalid_data, read_u32, read_u64};
 use std::io;
 use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
+pub(crate) mod budget;
 pub(crate) mod checkpoint_load;
 pub(crate) mod checkpoint_publish;
 pub(crate) mod data_record;
@@ -17,12 +22,17 @@ pub(crate) mod index_page;
 pub(crate) mod log;
 pub(crate) mod mapping_index;
 pub(crate) mod mapping_page;
+pub(crate) mod mapping_state;
+pub(crate) mod metrics;
+pub(crate) mod page_read;
 pub(crate) mod recovery;
+pub(crate) mod reservation;
 pub(crate) mod segment_table;
 pub(crate) mod segments;
 pub(crate) mod small_records;
 pub(crate) mod storage;
 pub(crate) mod tail;
+pub(crate) mod volume;
 
 pub(crate) use geometry::Geometry;
 
@@ -91,14 +101,6 @@ impl HeadId {
 
     pub(crate) const fn index(self) -> usize {
         self as usize
-    }
-
-    pub(crate) fn from_index(index: usize) -> Self {
-        match index {
-            0 => Self::User,
-            1 => Self::Relocation,
-            _ => unreachable!("two fixed heads"),
-        }
     }
 
     pub(crate) fn name(self) -> &'static str {
