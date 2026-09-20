@@ -184,6 +184,27 @@ fn decode_u32s(bytes: &[u8], values: &mut [u32]) {
 }
 
 #[cfg(test)]
+pub(crate) mod tests_support {
+    use super::*;
+
+    /// A descriptor with the given geometry and no index or table pointers.
+    pub(crate) fn blank(geometry: Geometry) -> CheckpointDescriptor {
+        CheckpointDescriptor {
+            slot: CheckpointSlot::Green,
+            volume_id: 3,
+            volume_blocks: geometry.volume_blocks,
+            backing_blocks: geometry.backing_blocks,
+            checkpoint_lsn: 1,
+            blocks_per_segment: geometry.blocks_per_segment,
+            head_boundary: [2, 0],
+            direct_pages: [0; DIRECT_POINTERS],
+            indirect_pages: [0; INDIRECT_POINTERS],
+            table_pages: [0; TABLE_POINTERS],
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
