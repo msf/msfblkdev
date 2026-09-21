@@ -339,15 +339,18 @@ impl Volume {
 impl Volume {
     /// Applies one mapping change and keeps live counts exact.
     pub(crate) fn remap(&mut self, old_physical: u32, new_physical: u32) -> io::Result<()> {
-        if old_physical != 0 {
-            self.log.segments.remove_live(old_physical)?;
-        } else if new_physical != 0 {
-            self.live_blocks += 1;
-        }
         if new_physical != 0 {
             self.log.segments.add_live(new_physical)?;
-        } else if old_physical != 0 {
-            self.live_blocks -= 1;
+        }
+        if old_physical != 0 {
+            self.log.segments.remove_live(old_physical)?;
+            let segment = self.log.geometry.segment_of(old_physical)?;
+            self.log.segments.release_if_empty(segment)?;
+        }
+        match (old_physical, new_physical) {
+            (0, new) if new != 0 => self.live_blocks += 1,
+            (old, 0) if old != 0 => self.live_blocks -= 1,
+            _ => {}
         }
         Ok(())
     }

@@ -18,7 +18,7 @@ impl Volume {
             self.write_buffer.store(lba, data);
             return Ok(());
         }
-        let reservation = Reservation::admit(
+        let mut reservation = Reservation::admit(
             &self.write_buffer.lbas,
             self.buffered_pages,
             self.mapping.cache.dirty_pages().count(),
@@ -27,6 +27,13 @@ impl Volume {
         let demanded = reservation.demanded_blocks(self.log.geometry) + self.maintenance_debt();
         if ensure_user_space(&self.log, self.reserve, demanded).is_err() {
             self.reclaim_for_space(demanded)?;
+            // Pressure may have released the buffer: count the pending pages again.
+            reservation = Reservation::admit(
+                &self.write_buffer.lbas,
+                self.buffered_pages,
+                self.mapping.cache.dirty_pages().count(),
+                lba,
+            )?;
         }
         assert!(self.write_buffer.store(lba, data), "new buffered LBA");
         self.buffered_pages = reservation.pending_pages as usize;
@@ -43,6 +50,7 @@ impl Volume {
         match trigger {
             ReleaseTrigger::Full => self.release_stats.full_releases += 1,
             ReleaseTrigger::Flush => self.release_stats.flush_releases += 1,
+            ReleaseTrigger::Pressure => self.release_stats.pressure_releases += 1,
         }
         self.write_buffer.sort_by_lba();
         let preparation = self.prepare_release();
