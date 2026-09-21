@@ -970,6 +970,9 @@ the [implementation record](GOAL-ADR08.md).
 18. **Backing discards** run on the cleaner thread after the freeing publication, at most four in
     flight; a segment stays excluded from allocation until its punch completes, and a segment reused
     before its punch was offered drops its discard mark. The first failure disables further punches.
+    Pressure cleaning that finds no startable victim while a punch is in flight waits for the
+    cleaner's report instead of declaring the all-live case: the first live run after the review
+    fixes returned `ENOSPC` with a freed segment still being punched.
 19. **Idle cleaning policy.** Idle cleaning takes a victim only when at least a quarter of it is dead,
     only when its copies and two publications fit without touching the reserve, and only while
     fewer than half the log's segments are free (never below the reserve plus one). Before the
@@ -986,9 +989,14 @@ the [implementation record](GOAL-ADR08.md).
     segment it emptied, and open does the same for segments the last publication of the previous
     run emptied. Before this rule a quarter-full 128 MiB volume under random overwrite accumulated
     23 stuck victims whose copies had consumed the reserve.
-21. **Pressure release.** When nothing is left to clean while writes are buffered, pressure releases
-    the write buffer once before returning `ENOSPC`, because buffered overwrites keep victims' old
-    payloads live until they land.
+21. **Pressure release and progress.** When nothing is left to clean while writes are buffered,
+    pressure releases the write buffer once before returning `ENOSPC`, because buffered overwrites
+    keep victims' old payloads live until they land. Pressure reclamation returns `ENOSPC` at once
+    when the live payloads, their footers when packed, the current metadata and the demanded
+    blocks cannot fit the segments cleaning could ever free (every segment but the two open heads
+    and the reserve): otherwise every freed segment is consumed again by copies and the barrier's
+    own table pages and the writer compacts forever (found when the discard wait let the all-live
+    loop run past the old gate). A stall bound of one freeing cycle per segment backs the check.
 22. **Geometry follows growth.** The cleaner thread learns a grown geometry through a command sent
     after `grow_backing` and after recovery replayed a growth record, so scans and discards in the
     grown range address the right blocks. Found by the final review: the first grown-range scan

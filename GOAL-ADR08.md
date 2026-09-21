@@ -160,7 +160,15 @@ See the "Implementation decisions" section of ADR-08 once written. Working list:
     (`idle_watermark`, never below the reserve plus one): every barrier publication leaves
     stale table pages behind, and on small segments those alone re-create victims, so idle
     cleaning without a free-space floor fed itself forever. Pressure cleaning has no floor of
-    its own because `reclaim_for_space` stops when the write fits.
+    its own because `reclaim_for_space` stops when the write fits. Pressure cleaning that finds
+    no startable victim while a backing discard is in flight waits for it instead of returning
+    `ENOSPC` (the first live run after the review fixes stopped at 102 blocks with a freed
+    segment still being punched); the lab's exhaustion floor is the no-compaction bound of 77
+    write-through records. With the wait in place the all-live loop compacted forever (each freed
+    segment consumed again by copies and barrier pages), so pressure reclamation now returns
+    `ENOSPC` at once when live payloads, packed footers, current metadata and the demanded blocks
+    cannot fit the segments cleaning could ever free, backed by a stall bound of one freeing
+    cycle per segment.
 ## Commands
 
 ```sh
