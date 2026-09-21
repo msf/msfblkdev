@@ -19,8 +19,13 @@ Phase 1: green baseline and contracts
       Gate: `make lint test` PASS, 304 tests (`evidence/adr08-implementation/gate-engine.log`).
 
 Phase 2: serialized raw relocation and reuse
-- [ ] Victim scan, conditional apply, metadata re-emission, two-publication barrier, actual reuse.
-- [ ] Wraparound, fallback after reuse, discard, backing growth, bounded allocation.
+- [x] Victim scan through fixed windows, conditional apply on the Relocation head, snapshot copy or
+      dirtying, index/table page dirtying, two-publication barrier, hole punch after release.
+- [x] Wraparound (3x capacity with interleaved cold payloads; 35+ segments freed), fallback after
+      reuse (T7), stale and reused-source rejection (T1), discard versus queued relocation,
+      backing growth with SIGKILL boundaries, all-live ENOSPC, zero allocations in steady state,
+      SIGKILL matrix at relocation/link/discard/publication boundaries with a prefix oracle
+      (`rust/src/tests/reclaim.rs`, `reclaim_crash.rs`).
 
 Phase 3: cleaner thread and scheduling
 - [ ] Bounded proposal storage, buffer ownership, eventfd wake-up, deterministic scheduler tests.
@@ -59,6 +64,16 @@ See the "Implementation decisions" section of ADR-08 once written. Working list:
 11. Reservation: `N + R + D + P` plus one footer per possible segment crossing is demanded from
     the User head's room plus the free segments above the reserve. The reserve is one worst-case
     victim relocation plus two publications, each planned from a full head.
+13. Progress gate: maintenance starts a victim only when its copies fit the Relocation head's
+    room plus allocatable segments and two publications fit the User head's room plus what
+    remains; a publication that cannot fit fails with `ENOSPC` without latching. While a victim
+    waits for its second publication, admission also reserves that publication's blocks.
+14. Views: the scanner reads liveness against a copy of the resident index taken at the newest
+    root. An eligible victim (seal LSN at or below both roots) has every write into it reflected
+    there, so a payload the view calls dead never becomes live again; live-in-view payloads are
+    re-checked at apply against the cache and the buffered writes.
+15. Victims that a completed scan could not empty (for example a live payload whose bytes fail
+    their checksum) are marked stuck and skipped until a mapping change touches them.
 12. Discard drops buffered payloads in range first, chunks the range so every touched page fits
     the cache, publishes before appending when the chunk would not fit, then appends one
     `LbaDiscard` and unmaps with checkpoints forbidden, so no root can pass the record's LSN with
@@ -74,8 +89,9 @@ make test-acceptance           # exhaustive crash matrix (~10 min at baseline)
 
 ## Status
 
-Last green commit: the engine switch (see `git log`). Dirty work: none. Known debt: a module-level
-`expect(dead_code)` in `rust/src/format_v4.rs` covers items the reclamation commit uses; remove it
-there. The ublk-fio lab still assumes the format-3 fixture geometry and must move to a format-4
-fixture in phase 4. Next action: phase 2, serialized raw relocation (victim scan, conditional
-apply, metadata re-emission, two-publication release, actual reuse under repeated overwrites).
+Last green commit: the serialized reclamation commit (see `git log`). Acceptance on the engine
+switch `3a2b2f8`: PASS, 304 tests (`evidence/adr08-implementation/acceptance-3a2b2f8.log`). Dirty
+work: none. The ublk-fio lab still assumes the format-3 fixture geometry and must move to a
+format-4 fixture in phase 4. Next action: phase 3, the cleaner thread (move scanning to a worker,
+bounded proposal channel, eventfd wake-up, deterministic scheduler with idle wait and maximum
+maintenance interval, daemon integration).

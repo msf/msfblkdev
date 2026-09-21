@@ -51,6 +51,16 @@ pub(super) fn submit_exact(
     }
 }
 
+/// Submits an operation the ledger does not classify, such as a hole punch.
+pub(super) fn submit_exact_unaccounted(
+    backing_io: &mut BackingIo,
+    entry: squeue::Entry,
+    user_data: u64,
+    expected_result: i32,
+) -> io::Result<()> {
+    super::submit_exact_raw(&mut backing_io.ring, entry, user_data, expected_result)
+}
+
 fn classify_operation(entry: &squeue::Entry, expected_result: i32) -> io::Result<Operation> {
     let code = entry.get_opcode();
     if code == u32::from(opcode::Read::CODE) {

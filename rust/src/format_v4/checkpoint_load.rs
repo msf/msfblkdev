@@ -23,6 +23,7 @@ pub(crate) struct Loaded {
     /// Mapped logical blocks counted while validating every referenced snapshot.
     pub(crate) live_blocks: u64,
     /// The root that was selected.
+    #[cfg(test)]
     pub(crate) descriptor: CheckpointDescriptor,
 }
 
@@ -191,6 +192,7 @@ fn load_candidate(
     scratch.resize_with(BATCH_BLOCKS, || AlignedBlock([0; BLOCK_SIZE]));
     let scratch = scratch.into_boxed_slice();
     Ok(Loaded {
+        #[cfg(test)]
         descriptor: descriptor.clone(),
         log: Log {
             volume_id,

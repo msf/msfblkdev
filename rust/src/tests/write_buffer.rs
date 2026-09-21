@@ -145,13 +145,12 @@ fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<(
             capacity < volume_blocks,
             "buffer {write_buffer_bytes} never filled the log"
         );
-        // Admission never dips into the reserve; a buffered group may stop one segment above it.
+        // Reclamation compacts footer garbage under pressure and then finds every segment live.
         let usage = volume.space_usage()?;
         assert_eq!(usage.reserve_segments, 3);
-        assert!(
-            usage.free_segments >= 3 && usage.free_segments <= 4,
-            "{usage:?}"
-        );
+        assert!(usage.free_segments >= 1, "{usage:?}");
+        assert!(volume.reclaim_stats().enospc_all_live >= 1);
+        volume.log.segments.check_conservation()?;
         volume.flush()?;
         volume.close()?;
 

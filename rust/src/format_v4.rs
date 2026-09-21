@@ -1,11 +1,5 @@
 //! ADR-08 format 4: codecs, log state, publication, recovery and the engine.
 #![forbid(unsafe_code)]
-// Removed with the reclamation commit, which uses the remaining eligibility, dirtying and
-// segment-release items; a few others are read only by tests until then.
-#![expect(
-    dead_code,
-    reason = "the reclamation and cleaner phases use the remaining items"
-)]
 
 use crate::{BLOCK_SIZE, MAXIMUM_PAYLOAD_BLOCKS, invalid_data, read_u32, read_u64};
 use std::io;
@@ -25,6 +19,7 @@ pub(crate) mod mapping_page;
 pub(crate) mod mapping_state;
 pub(crate) mod metrics;
 pub(crate) mod page_read;
+pub(crate) mod reclaim;
 pub(crate) mod recovery;
 pub(crate) mod reservation;
 pub(crate) mod segment_table;

@@ -24,11 +24,10 @@ impl Volume {
             self.mapping.cache.dirty_pages().count(),
             lba,
         )?;
-        ensure_user_space(
-            &self.log,
-            self.reserve,
-            reservation.demanded_blocks(self.log.geometry),
-        )?;
+        let demanded = reservation.demanded_blocks(self.log.geometry) + self.maintenance_debt();
+        if ensure_user_space(&self.log, self.reserve, demanded).is_err() {
+            self.reclaim_for_space(demanded)?;
+        }
         assert!(self.write_buffer.store(lba, data), "new buffered LBA");
         self.buffered_pages = reservation.pending_pages as usize;
         if self.write_buffer.len() == self.write_buffer.capacity() {

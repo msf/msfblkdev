@@ -21,8 +21,11 @@ pub use format_v4::budget::{
 };
 pub use format_v4::log::LogWrites;
 pub use format_v4::metrics::{MappingIo, MappingStats, SpaceUsage};
+pub use format_v4::reclaim::ReclaimStats;
+pub use format_v4::reclaim::select::SelectionMode;
 pub use format_v4::storage::FormatOptions;
 pub use format_v4::volume::Volume;
+pub use format_v4::volume::reclaim::{BackingDiscard, MaintenanceStep};
 pub use mapping_cache::sizing::Sizing as CacheSizing;
 pub use mapping_cache::{Counters as CacheCounters, Lookups, Snapshot as CacheSnapshot};
 
@@ -58,12 +61,48 @@ const STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT: &str = "stale-tail-clear-block-
 const STALE_TAIL_FSYNC_COMPLETE_FAILPOINT: &str = "stale-tail-fsync-complete";
 
 #[cfg(any(test, feature = "test-failpoints"))]
+static CONFIGURED_FAILPOINT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// The failpoint selected through the environment, read once so that checks allocate nothing.
+#[cfg(any(test, feature = "test-failpoints"))]
+fn configured_failpoint() -> Option<&'static str> {
+    CONFIGURED_FAILPOINT
+        .get_or_init(|| std::env::var(TEST_FAILPOINT_ENV).ok())
+        .as_deref()
+}
+
+#[cfg(any(test, feature = "test-failpoints"))]
 fn pause_at_test_failpoint(name: &str) -> io::Result<()> {
-    if std::env::var(TEST_FAILPOINT_ENV).as_deref() != Ok(name) {
+    if configured_failpoint() != Some(name) {
         return Ok(());
     }
+    pause_at_failpoint(name, None)
+}
 
-    println!("{name}");
+/// Pauses at `prefix-index` without building the name on the heap.
+#[cfg(any(test, feature = "test-failpoints"))]
+fn pause_at_indexed_failpoint(prefix: &str, index: u64) -> io::Result<()> {
+    let Some(configured) = configured_failpoint() else {
+        return Ok(());
+    };
+    let Some(suffix) = configured.strip_prefix(prefix) else {
+        return Ok(());
+    };
+    let Some(digits) = suffix.strip_prefix('-') else {
+        return Ok(());
+    };
+    if digits.parse::<u64>() != Ok(index) {
+        return Ok(());
+    }
+    pause_at_failpoint(prefix, Some(index))
+}
+
+#[cfg(any(test, feature = "test-failpoints"))]
+fn pause_at_failpoint(name: &str, index: Option<u64>) -> io::Result<()> {
+    match index {
+        Some(index) => println!("{name}-{index}"),
+        None => println!("{name}"),
+    }
     let mut stdout = io::stdout();
     std::io::Write::flush(&mut stdout)?;
     loop {
@@ -174,6 +213,8 @@ pub struct VolumeOpenOptions {
     /// Backing bytes the preallocated segment state can grow to; None allows twice the
     /// provisioned backing.
     pub growth_capacity_bytes: Option<u64>,
+    /// How freed segments are returned to the backing.
+    pub backing_discard: BackingDiscard,
 }
 
 impl Default for VolumeOpenOptions {
@@ -184,6 +225,7 @@ impl Default for VolumeOpenOptions {
             cache_budget_bytes: None,
             heap: HeapBudgetOptions::default(),
             growth_capacity_bytes: None,
+            backing_discard: BackingDiscard::default(),
         }
     }
 }
@@ -220,6 +262,8 @@ struct WriteBackBuffer {
     arena: Vec<AlignedBlock>,
     lbas: Vec<u32>,
     slot_of_lba: hashbrown::HashMap<u32, usize, std::hash::RandomState>,
+    /// Preallocated scratch for counting distinct mapping pages without allocating.
+    page_scratch: Vec<u32>,
 }
 
 impl WriteBackBuffer {
@@ -236,10 +280,13 @@ impl WriteBackBuffer {
         // Twice the live entries lets the pinned hashbrown rehash tombstones in place.
         let mut slot_of_lba = hashbrown::HashMap::with_hasher(std::hash::RandomState::new());
         slot_of_lba.reserve(capacity_blocks * 2);
+        let mut page_scratch = Vec::new();
+        page_scratch.reserve_exact(capacity_blocks);
         Self {
             arena,
             lbas,
             slot_of_lba,
+            page_scratch,
         }
     }
 
@@ -278,15 +325,16 @@ impl WriteBackBuffer {
     }
 
     /// Distinct mapping pages touched by the buffered payloads.
-    fn distinct_pages(&self) -> usize {
-        let mut pages: Vec<u32> = self
-            .lbas
-            .iter()
-            .map(|lba| lba / mapping_cache::ENTRIES_PER_PAGE as u32)
-            .collect();
-        pages.sort_unstable();
-        pages.dedup();
-        pages.len()
+    fn distinct_pages(&mut self) -> usize {
+        self.page_scratch.clear();
+        self.page_scratch.extend(
+            self.lbas
+                .iter()
+                .map(|lba| lba / mapping_cache::ENTRIES_PER_PAGE as u32),
+        );
+        self.page_scratch.sort_unstable();
+        self.page_scratch.dedup();
+        self.page_scratch.len()
     }
 
     fn capacity(&self) -> usize {

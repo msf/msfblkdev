@@ -98,10 +98,16 @@ impl Log {
         link.encode(self.geometry, &mut self.scratch[0].0)?;
         storage::write_blocks(io, backing, header.boundary, &self.scratch[..1])?;
         #[cfg(any(test, feature = "test-failpoints"))]
-        crate::pause_at_test_failpoint(&format!("segment-link-write-complete-{}", id.name()))?;
+        crate::pause_at_test_failpoint(match id {
+            HeadId::User => "segment-link-write-complete-user",
+            HeadId::Relocation => "segment-link-write-complete-relocation",
+        })?;
         storage::sync(io, backing)?;
         #[cfg(any(test, feature = "test-failpoints"))]
-        crate::pause_at_test_failpoint(&format!("segment-link-fsync-complete-{}", id.name()))?;
+        crate::pause_at_test_failpoint(match id {
+            HeadId::User => "segment-link-fsync-complete-user",
+            HeadId::Relocation => "segment-link-fsync-complete-relocation",
+        })?;
         self.segments.record_used(head.segment, 1);
         self.segments.seal(head.segment, id, lsn)?;
         let geometry = self.geometry;

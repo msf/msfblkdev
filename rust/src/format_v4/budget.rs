@@ -79,29 +79,32 @@ impl CleanerShape {
         (MAXIMUM_PAYLOAD_BLOCKS as u32).min(geometry.blocks_per_segment - 2)
     }
 
-    /// Bytes of one proposal buffer: payload arena plus LBA, source block and checksum arrays.
+    /// Bytes of one window buffer: its block arena plus one entry and one order slot per block.
     pub(crate) fn proposal_buffer_bytes(geometry: Geometry) -> u64 {
-        let payloads = u64::from(Self::proposal_payloads(geometry));
-        payloads * BLOCK_SIZE as u64 + payloads * (4 + 4 + 8 + 4)
+        let blocks = u64::from(Self::window_blocks(geometry));
+        blocks * (BLOCK_SIZE as u64 + super::reclaim::ENTRY_BYTES as u64 + 4)
     }
 
-    pub(crate) fn window_bytes(geometry: Geometry) -> u64 {
-        u64::from(Self::window_blocks(geometry)) * BLOCK_SIZE as u64
+    /// Scanner scratch: one snapshot block, the decoded page cache and the accepted-index list.
+    pub(crate) fn scanner_bytes(geometry: Geometry) -> u64 {
+        BLOCK_SIZE as u64
+            + super::reclaim::scanner::PAGE_CACHE_BYTES as u64
+            + u64::from(Self::window_blocks(geometry)) * 4
     }
 
-    /// The smallest useful cleaner share: one window and one proposal buffer.
+    /// The smallest useful cleaner share: the scanner scratch and one window buffer.
     pub(crate) fn minimum_bytes(geometry: Geometry) -> u64 {
-        Self::window_bytes(geometry) + Self::proposal_buffer_bytes(geometry)
+        Self::scanner_bytes(geometry) + Self::proposal_buffer_bytes(geometry)
     }
 
     pub(crate) fn fit(geometry: Geometry, cleaner_bytes: u64) -> io::Result<Self> {
         let remaining = cleaner_bytes
-            .checked_sub(Self::window_bytes(geometry))
-            .ok_or_else(|| invalid_input("cleaner budget cannot hold one read window"))?;
+            .checked_sub(Self::scanner_bytes(geometry))
+            .ok_or_else(|| invalid_input("cleaner budget cannot hold the scanner scratch"))?;
         let buffers = remaining / Self::proposal_buffer_bytes(geometry);
         if buffers == 0 {
             return Err(invalid_input(
-                "cleaner budget cannot hold one proposal buffer",
+                "cleaner budget cannot hold one window buffer",
             ));
         }
         Ok(Self {
@@ -112,7 +115,7 @@ impl CleanerShape {
     }
 
     pub(crate) fn allocated_bytes(self, geometry: Geometry) -> u64 {
-        Self::window_bytes(geometry)
+        Self::scanner_bytes(geometry)
             + u64::from(self.proposal_buffers) * Self::proposal_buffer_bytes(geometry)
     }
 }
@@ -241,6 +244,7 @@ mod tests {
         assert_eq!(cleaner.window_blocks, 339);
         assert_eq!(cleaner.proposal_payloads, 338);
         assert_eq!(cleaner.proposal_buffers, 2);
+        assert_eq!(budget.cleaner_bytes, cleaner.allocated_bytes(geometry));
         assert!(
             budget.cache_bytes <= budget.total_bytes - (4 << 20) - budget.cleaner_bytes - 159_000
         );
@@ -311,7 +315,7 @@ mod tests {
         assert_eq!(CleanerShape::proposal_payloads(tiny_segments), 6);
         assert_eq!(
             CleanerShape::minimum_bytes(tiny_segments),
-            8 * 4096 + 6 * 4096 + 6 * 20
+            CleanerShape::scanner_bytes(tiny_segments) + 8 * (4096 + 24 + 4)
         );
     }
 }

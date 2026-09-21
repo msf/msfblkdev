@@ -248,6 +248,13 @@ impl MappingCache {
         }
     }
 
+    /// Whether `page_id` is resident, and if so whether it is dirty.
+    pub(super) fn residency(&self, page_id: u32) -> Option<bool> {
+        self.lookup
+            .get(&page_id)
+            .map(|slot| self.slots[*slot as usize].dirty)
+    }
+
     pub(super) fn dirty_pages(&self) -> impl Iterator<Item = (u32, &MappingEntries)> {
         self.slots
             .iter()
@@ -345,6 +352,11 @@ impl MappingCache {
 impl CachedPage<'_> {
     pub(super) fn entries(&self) -> &MappingEntries {
         &self.slot.entries
+    }
+
+    /// Forces the next publication to rewrite this page's snapshot without changing entries.
+    pub(super) fn mark_dirty(&mut self) {
+        self.slot.dirty = true;
     }
 
     pub(super) fn update(

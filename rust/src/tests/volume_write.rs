@@ -110,14 +110,6 @@ fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Re
     volume.write_block(0, &expected)?;
     let physical_blocks = mapping_arrays(&volume)?.0.clone();
     let checksums = mapping_arrays(&volume)?.1.clone();
-    let cursors = (
-        last_lsn(&volume),
-        volume.log.checkpoint_lsn(),
-        user_position(&volume),
-        log_bytes_since_checkpoint(&volume),
-        volume.log.active_slot,
-        volume.failed,
-    );
     let file = File::open(&backing.0)?;
     let mut log_bytes = [0; 2 * BLOCK_SIZE];
     file.read_exact_at(
@@ -133,19 +125,14 @@ fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Re
         Some(libc::ENOSPC)
     );
 
+    // The rejected write changes no mapping and no payload; the pressure loop only published
+    // a checkpoint before finding that every sealed segment is live.
     assert_eq!(mapping_arrays(&volume)?.0, physical_blocks);
     assert_eq!(mapping_arrays(&volume)?.1, checksums);
-    assert_eq!(
-        (
-            last_lsn(&volume),
-            volume.log.checkpoint_lsn(),
-            user_position(&volume),
-            log_bytes_since_checkpoint(&volume),
-            volume.log.active_slot,
-            volume.failed,
-        ),
-        cursors
-    );
+    assert!(!volume.failed);
+    assert_eq!(volume.reclaim_stats().enospc_all_live, 1);
+    assert_eq!(volume.reclaim_stats().payloads_copied, 0);
+    assert_eq!(volume.space_usage()?.live_bytes, BLOCK_SIZE as u64);
     let mut unchanged_log_bytes = [0; 2 * BLOCK_SIZE];
     file.read_exact_at(
         &mut unchanged_log_bytes,
