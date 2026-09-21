@@ -10,7 +10,17 @@ ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem
 
 SQLite passed 87 fresh runs on each of ext4 and XFS across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. Each matrix passed 348 filesystem checks and 174 logical validations. [SQLite/ext4](SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and selected baselines. RocksDB and PostgreSQL remain unimplemented.
 
-ADR-07 is complete. The latest release is **v1.2.3**, with 336-entry mapping pages,
+ADR-08 is implemented as release candidate **v2.0-rc**: on-disk format 4, a segmented log with two
+fixed append heads, raw space reclamation by a cleaner thread, client discard and write-zeroes,
+durable backing growth and a proportional heap budget. Engine and crash matrices, the live
+ublk/fio gate (including a sustained overwrite that wraps the log) and the four performance
+comparisons passed; the ext4, XFS and SQLite gates were not run for `v2.0-rc` because their
+preflight requires a mount helper byte-identical to the build, which the implementation clone could
+not install. [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) records the decisions, review
+dispositions and evidence; [ADR-08-PERF-RESULTS.md](ADR-08-PERF-RESULTS.md) the measurements.
+Format-3 images are rejected without modification; there is no migration.
+
+ADR-07 was complete at **v1.2.3**, with 336-entry mapping pages,
 sorted snapshot publication, and adjacent-page prefetch after sequential demand.
 v1.2.1 introduced packed data writes; v1.2.2 added batched checkpoint writes.
 The original **v1.2** tag retains the earlier one-record-per-mapping-page implementation.
@@ -46,20 +56,37 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
 - [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
 - [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 and SQLite on both filesystems are complete. RocksDB and PostgreSQL remain open.
-- [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the implemented version-3 format, mapping cache, checkpoint publication, and bounded recovery.
+- [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the version-3 format, mapping cache, checkpoint publication, and bounded recovery; format 4 keeps the cache and recovery contract.
+- [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) defines the implemented version-4 format: segments, two fixed heads, the mapping index tree, raw relocation, the two-publication freeing barrier, discard, backing growth and the heap budget.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API
 
+### Segmented log and space reclamation (format 4)
+
+The Rust engine formats and opens ADR-08 version 4 only. Version-1, version-2, version-3 and
+unknown-format images are rejected before recovery writes; there is no migration path. Use
+freshly formatted disposable images.
+
+The backing holds two checkpoint descriptors and then whole segments (8 MiB up to a 2 GiB backing,
+then 16 or 32 MiB; `format --segment-bytes` overrides). New writes append on the User head and
+relocated copies on the Relocation head; both share one global LSN sequence. A cleaner thread reads
+sealed segments through fixed 339-block windows and returns proposals through bounded channels; the
+writer validates each proposal against the current mapping and the victim's seal LSN, copies live
+payloads, dirties current metadata, and frees a victim only after two checkpoint publications. Free
+segments are hole-punched on regular files. Idle maintenance runs 2 ms after the last request or at
+least every 100 ms; space pressure reclaims inline. `Volume::maintain`, `maintain_for` and
+`wait_for_cleaner` drive maintenance from a request loop; `reclaim_stats`, `log_writes`,
+`heap_budget` and `space_usage` report it.
+
+Heap is budgeted as `max(1% of the logical volume, 16 MiB)` and divided between the write buffer,
+the cleaner, the mapping cache and supporting state; a 1 GiB volume runs under a 12 MiB total.
+After open, ordinary writes, reads, checkpoints and cleaning allocate nothing.
+
 ### Paged mapping and CLOCK cache
 
-The Rust engine now formats and opens ADR-07 version 3. Version-1, version-2,
-and unknown-format images are rejected before recovery writes. There is no migration
-path. During prototype refinement, format 3 now uses 336 entries per page; earlier
-320-entry images are not supported or migrated. Use freshly formatted disposable images.
 The public engine uses a resident page-pointer index and a bounded mapping cache;
-it no longer allocates dense per-LBA address and checksum arrays. ADR-07 acceptance
-passed on 2026-09-19.
+it does not allocate dense per-LBA address and checksum arrays. Mapping pages hold 336 entries.
 
 The cache preallocates slots, a `hashbrown` 0.17.1 hash map, and CLOCK reference bits.
 It fills unused slots sequentially and reuses clean victims. Dirty mapping pages remain
@@ -109,8 +136,9 @@ these records with daemon stderr.
 A flush persists the packed data records; it does not require a checkpoint or clear
 dirty mapping flags. Recovery replays
 those records, using bounded cache windows when the dirty working set exceeds capacity.
-Admission reserves data records and mapping snapshots before accepting a new buffered LBA.
-The log remains finite, with no reclaim or wraparound.
+Admission reserves data records, footers, segment crossings and mapping snapshots before accepting
+a new buffered LBA, and never lets foreground writes consume the cleaner's reserve. The log wraps:
+overwrites beyond the backing's capacity are served as long as live data plus the reserve fit.
 
 Run cache-only tests with `cd rust && cargo test --lib mapping_cache`; these need no
 backing file or `io_uring`. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md) records the exact
@@ -125,13 +153,23 @@ separate process RSS snapshots, and exact hit rates for four deterministic read 
 The crate exposes:
 
 ```text
-format
-open
+format, format_with_options
+open, open_with_options
 Volume::write_block
 Volume::read_block
+Volume::discard_blocks, Volume::write_zeroes
 Volume::flush
 Volume::close
+Volume::maintain, Volume::maintain_for, Volume::wait_for_cleaner
+Volume::grow_backing
+Volume::space_usage, reclaim_stats, log_writes, heap_budget, mapping_stats
+Scheduler
 ```
+
+The ublk daemon adds `serve` flags for the heap (`--heap-ppm`, `--heap-bytes`, `--cleaner-bytes`),
+growth capacity (`--growth-capacity-bytes`), backing discard (`--backing-discard off|punch`) and
+scheduling (`--idle-wait-us`, `--max-maintenance-interval-ms`); it advertises discard and
+write-zeroes, and claims an operator-grown backing file on `SIGUSR1`.
 
 `format_with_accounting` and `open_with_accounting` add opt-in cumulative I/O budgets through a private shared ledger. The ordinary APIs remain unmetered. See the unsafe file-lifetime contract in `rust/src/io_accounting.rs` before using this API.
 
@@ -171,7 +209,7 @@ make test-sqlite-xfs            # the same 87-run matrix on XFS
 | `lint`, `test` | nothing | nothing |
 | `test-acceptance` | nothing | regular-file backing in a temporary directory |
 | `lint-zig`, `test-zig` | downloads pinned Zig on first use | nothing |
-| `test-ublk-fio` | ublk, `fio` | ublk device, regular-file backing |
+| `test-ublk-fio` | ublk, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume); eight scenarios including exhaustion beyond the log and a sustained overwrite that wraps it |
 | `test-ext4`, `test-xfs` | mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
 | `test-sqlite`, `test-sqlite-ext4`, `test-sqlite-xfs` | the above plus `make setup-sqlite` | ublk device, selected filesystem, mount, databases |
 
