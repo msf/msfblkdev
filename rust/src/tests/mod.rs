@@ -609,6 +609,7 @@ fn verify_invalid_gap_recovery(fixture: &InvalidGapFixture) -> io::Result<()> {
 mod accounting_integration;
 mod checkpoint_batches;
 mod checkpoint_replay;
+mod cleaner_thread;
 mod format_geometry;
 mod format_v4_protocol;
 mod io_uring;

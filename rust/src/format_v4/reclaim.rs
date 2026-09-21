@@ -8,7 +8,9 @@ use super::{Geometry, budget::CleanerShape};
 use crate::{AlignedBlock, BLOCK_SIZE};
 use std::io;
 
+pub(crate) mod cleaner;
 pub(crate) mod scanner;
+pub mod scheduler;
 pub(crate) mod select;
 
 /// Size of one `Entry`, fixed by the enum layout and checked by the budget tests.
@@ -146,8 +148,8 @@ impl ProposalBuffer {
     }
 }
 
-/// The immutable state a scan reads against. It is taken right after a publication, when the
-/// cache holds no dirty page, so a payload the view calls dead can never become live again.
+/// The immutable state a scan reads against: a copy of the resident snapshot locations made
+/// when a victim is selected. The cleaner owns one; the writer keeps a spare to refresh from.
 pub(crate) struct View {
     /// Snapshots newer than this LSN are not part of the view.
     pub(crate) maximum_lsn: u64,
@@ -162,8 +164,8 @@ impl View {
         })
     }
 
-    pub(crate) fn allocated_bytes(&self) -> usize {
-        std::mem::size_of_val(self.snapshot_block.as_ref())
+    pub(crate) fn allocated_bytes_for(geometry: Geometry) -> usize {
+        geometry.page_count as usize * size_of::<u32>()
     }
 }
 
@@ -188,14 +190,18 @@ pub struct ReclaimStats {
     pub barrier_publications: u64,
     pub discards_issued: u64,
     pub discards_failed: u64,
+    /// Live payloads whose bytes failed their checksum in a scan; never relocated.
+    pub payloads_corrupt: u64,
     pub pressure_steps: u64,
+    /// Pressure steps that blocked on the cleaner's report.
+    pub pressure_waits: u64,
     pub enospc_all_live: u64,
 }
 
 impl ReclaimStats {
     pub fn summary(&self) -> String {
         format!(
-            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_freed={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_pressure_steps={} reclaim_enospc_all_live={}",
+            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_freed={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={}",
             self.victims_selected,
             self.windows_scanned,
             self.scan_blocks_read,
@@ -212,7 +218,9 @@ impl ReclaimStats {
             self.barrier_publications,
             self.discards_issued,
             self.discards_failed,
+            self.payloads_corrupt,
             self.pressure_steps,
+            self.pressure_waits,
             self.enospc_all_live,
         )
     }

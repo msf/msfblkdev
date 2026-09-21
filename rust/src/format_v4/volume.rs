@@ -94,9 +94,10 @@ pub(crate) fn open(
     let write_buffer = WriteBackBuffer::with_capacity(buffer_blocks);
     let logical_bytes = u64::from(geometry.volume_blocks) * BLOCK_SIZE as u64;
     let supporting = SupportingState {
-        // The scan view is a second copy of the snapshot locations.
+        // The cleaner's scan view and the writer's spare are two more copies of the snapshot
+        // locations.
         resident_index_bytes: log.index.allocated_bytes() as u64
-            + u64::from(geometry.page_count) * 4,
+            + 2 * u64::from(geometry.page_count) * 4,
         segment_state_bytes: log.segments.allocated_bytes() as u64,
         write_buffer_lookup_bytes: write_buffer.lookup_bytes() as u64,
         fixed_scratch_bytes: fixed_scratch_bytes(geometry, buffer_blocks),
@@ -118,10 +119,16 @@ pub(crate) fn open(
         ));
     }
     let reserve = Reserve::compute(geometry, sizing.capacity as u64);
-    let reclaim = reclaim::Reclaim::new(geometry, cleaner_shape, options.backing_discard)?;
+    let reclaim = reclaim::Reclaim::new(
+        &backing,
+        geometry,
+        log.volume_id,
+        cleaner_shape,
+        options.backing_discard,
+    )?;
     assert!(
-        reclaim.allocated_bytes() as u64
-            <= budget.cleaner_bytes + u64::from(geometry.page_count) * 4,
+        reclaim.allocated_bytes(geometry) as u64
+            <= budget.cleaner_bytes + 2 * u64::from(geometry.page_count) * 4,
         "cleaner storage fits its share"
     );
     let recovered = recovery::recover(
