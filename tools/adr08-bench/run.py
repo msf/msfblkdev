@@ -148,8 +148,10 @@ def main():
             prefix=".adr08-bench-", dir=fixture_parent) as fixture_dir:
         try:
             checked(["chattr", "+C", fixture_dir], capture_output=True)
-        except subprocess.CalledProcessError:
-            pass
+            metadata["fixture_attributes"] = checked(["lsattr", "-d", fixture_dir],
+                                                     capture_output=True).stdout.strip()
+        except subprocess.CalledProcessError as error:
+            metadata["fixture_attributes"] = f"chattr +C unavailable: {error.stderr.strip()}"
         metadata["filesystem"] = checked(["findmnt", "-T", fixture_dir, "-n", "-o", "SOURCE,FSTYPE,OPTIONS"],
                                          capture_output=True).stdout.strip()
         output.write(json.dumps({"metadata": metadata}) + "\n")
