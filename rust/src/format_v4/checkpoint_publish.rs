@@ -303,7 +303,7 @@ impl Log {
         crate::pause_at_test_failpoint(crate::DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT)?;
         self.active_slot = descriptor.slot;
         self.root_lsn[descriptor.slot as usize] = Some(descriptor.checkpoint_lsn);
-        let _freed = self.segments.checkpoint_published();
+        self.segments.checkpoint_published()?;
         cache.checkpoint_published();
         self.blocks_since_checkpoint = 0;
         Ok(())

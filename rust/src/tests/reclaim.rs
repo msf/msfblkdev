@@ -89,7 +89,7 @@ fn settle(volume: &mut Volume) -> io::Result<()> {
 /// step applies it.
 fn scan_one_window(volume: &mut Volume) -> io::Result<()> {
     for _ in 0..8 {
-        if volume.maintain(SelectionMode::Idle)? == MaintenanceStep::Scanning {
+        if volume.maintain(SelectionMode::Pressure)? == MaintenanceStep::Scanning {
             // The view swap reports first; wait until the window itself is back.
             settle(volume)?;
             return Ok(());
@@ -183,9 +183,11 @@ fn entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched() -> io
     let allocated_before = volume.space_usage()?.allocated_bytes;
 
     let mut steps = Vec::new();
-    // Bounded: two publications make segment 0 eligible, one scan finds it dead, two more free it.
+    // Bounded: the first publication re-emits the table page that segment 0 still held, which
+    // empties it; the barrier's two publications then free it. Pressure mode: idle cleaning
+    // rests while most of the log is free.
     for _ in 0..16 {
-        let step = volume.maintain(SelectionMode::Idle)?;
+        let step = volume.maintain(SelectionMode::Pressure)?;
         steps.push(step);
         match step {
             MaintenanceStep::Published { freed } if freed > 0 => break,
@@ -202,8 +204,8 @@ fn entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched() -> io
         "{steps:?}"
     );
     assert_eq!(stats.payloads_copied, 0, "{stats:?}");
-    assert_eq!(stats.victims_selected, 1);
-    assert_eq!(stats.victims_pending, 1);
+    assert_eq!(stats.victims_selected, 0, "{stats:?}");
+    assert_eq!(stats.segments_released_without_scan, 1, "{stats:?}");
     assert_eq!(stats.segments_freed, 1);
     assert_eq!(stats.discards_issued, 1);
     assert_eq!(volume.log.segments.state(0), SegmentState::Free);
@@ -236,12 +238,13 @@ fn backing_discard_can_be_disabled() -> io::Result<()> {
             volume.write_block(lba, &value(lba + round))?;
         }
     }
-    let steps = drain(&mut volume, SelectionMode::Idle, 40)?;
+    let steps = drain(&mut volume, SelectionMode::Pressure, 40)?;
     assert!(
         steps
             .iter()
             .any(|step| matches!(step, MaintenanceStep::Published { freed } if *freed > 0))
     );
+    settle(&mut volume)?;
     assert_eq!(volume.reclaim_stats().discards_issued, 0);
     assert_eq!(volume.reclaim_stats().discards_failed, 0);
     volume.close()
@@ -270,7 +273,7 @@ fn user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy() -> 
             volume.write_block(1, &value(30))?;
         }
         assert_eq!(
-            volume.maintain(SelectionMode::Idle)?,
+            volume.maintain(SelectionMode::Pressure)?,
             MaintenanceStep::Applied
         );
         let stats = volume.reclaim_stats();
@@ -320,7 +323,7 @@ fn proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn() -> io::Result<()>
     for lba in 0..3 {
         volume.write_block(lba, &value(lba + 40))?;
     }
-    drain(&mut volume, SelectionMode::Idle, 60)?;
+    drain(&mut volume, SelectionMode::Pressure, 60)?;
     // The barrier freed segment 0; the lowest free segment is reallocated as soon as a head
     // advances, so it is either free or in a later incarnation.
     assert!(volume.reclaim_stats().segments_freed >= 1);
@@ -357,7 +360,7 @@ fn fallback_to_the_older_root_replays_a_link_into_a_pending_segment() -> io::Res
         }
     }
     // Free segment 0 through the barrier: pending in root A, free in root B.
-    let steps = drain(&mut volume, SelectionMode::Idle, 40)?;
+    let steps = drain(&mut volume, SelectionMode::Pressure, 40)?;
     assert!(
         steps
             .iter()
@@ -546,8 +549,15 @@ fn steady_state_writes_reads_and_maintenance_allocate_nothing() -> io::Result<()
         volume.write_block(random.next() % 48, &value(index))?;
     }
     volume.flush()?;
-    // The first blocking wait on a channel allocates its thread-local waiter once.
-    drain(&mut volume, SelectionMode::Idle, 60)?;
+    // The first blocking wait on a channel allocates its thread-local waiter once: wait on a
+    // cleaner report before measuring.
+    for _ in 0..60 {
+        if volume.maintain(SelectionMode::Pressure)? == MaintenanceStep::Waiting {
+            assert!(volume.wait_for_cleaner(CLEANER_WAIT)?);
+            break;
+        }
+    }
+    settle(&mut volume)?;
     let (result, allocations) = super::allocations::measure(|| -> io::Result<()> {
         let mut bytes = [0; BLOCK_SIZE];
         for index in 301..=1500 {
@@ -571,5 +581,180 @@ fn steady_state_writes_reads_and_maintenance_allocate_nothing() -> io::Result<()
     result?;
     assert_eq!(allocations, 0);
     assert!(volume.reclaim_stats().segments_freed > 0);
+    volume.close()
+}
+
+/// After backing growth, the cleaner must scan and discard segments in the grown range: its
+/// geometry follows the writer's, both when the writer grows and when replay applies a growth
+/// record before the cleaner learned about it.
+#[test]
+fn cleaner_follows_backing_growth_at_runtime_and_after_replay() -> io::Result<()> {
+    let grown_blocks = 2 + 16 * u64::from(TINY_SEGMENT_BLOCKS);
+    let options = VolumeOpenOptions {
+        growth_capacity_bytes: Some(grown_blocks * BLOCK_SIZE as u64),
+        ..options(1)
+    };
+    // Five 8-block segments hold one write before growth; the fifteen that follow spread over
+    // the grown range, and overwriting every other one leaves grown victims partially live.
+    let populate = |backing: &TemporaryBacking| -> io::Result<Volume> {
+        format_segments(backing, 16, 5, TINY_SEGMENT_BLOCKS)?;
+        let mut volume = open_with_options(&backing.0, options)?;
+        volume.write_block(0, &value(1))?;
+        OpenOptions::new()
+            .write(true)
+            .open(&backing.0)?
+            .set_len(grown_blocks * BLOCK_SIZE as u64)?;
+        volume.grow_backing(grown_blocks * BLOCK_SIZE as u64)?;
+        assert_eq!(volume.log.geometry.segment_count, 16);
+        for lba in 1..16_u32 {
+            volume.write_block(lba, &value(lba + 1))?;
+        }
+        for round in 1..=2_u32 {
+            for lba in (1..16_u32).step_by(2) {
+                volume.write_block(lba, &value(100 * round + lba))?;
+            }
+        }
+        volume.flush()?;
+        let grown_in_use = (5..16)
+            .filter(|segment| volume.log.segments.state(*segment) != SegmentState::Free)
+            .count();
+        assert!(grown_in_use > 0, "grown segments were used");
+        Ok(volume)
+    };
+    let expected = |lba: u32| {
+        if lba == 0 {
+            1
+        } else if lba % 2 == 1 {
+            200 + lba
+        } else {
+            lba + 1
+        }
+    };
+
+    // Pressure cleaning has no floor of its own (`reclaim_for_space` stops when the write
+    // fits), and on eight-block segments the barrier's own table pages keep producing victims,
+    // so these loops stop once the grown range has been scanned, copied from and discarded.
+    let cleaned = |volume: &mut Volume| -> io::Result<()> {
+        for _ in 0..300 {
+            let stats = volume.reclaim_stats();
+            if stats.windows_scanned > 0
+                && stats.payloads_copied > 0
+                && stats.discards_issued > 0
+                && volume.cleaner_outstanding() == 0
+            {
+                return Ok(());
+            }
+            match volume.maintain(SelectionMode::Pressure)? {
+                MaintenanceStep::Idle => break,
+                MaintenanceStep::Waiting => {
+                    assert!(volume.wait_for_cleaner(CLEANER_WAIT)?);
+                }
+                _ => {}
+            }
+        }
+        settle(volume)
+    };
+
+    let backing = TemporaryBacking::new()?;
+    let mut volume = populate(&backing)?;
+    cleaned(&mut volume)?;
+    let stats = volume.reclaim_stats();
+    assert!(stats.windows_scanned > 0, "{stats:?}");
+    assert!(stats.payloads_copied > 0, "{stats:?}");
+    assert!(stats.discards_issued > 0, "{stats:?}");
+    assert_eq!(stats.discards_failed, 0, "{stats:?}");
+    assert!(!volume.is_failed());
+    let mut bytes = [0; BLOCK_SIZE];
+    for lba in 0..16_u32 {
+        volume.read_block(lba, &mut bytes)?;
+        assert_eq!(bytes, value(expected(lba)), "LBA {lba}");
+    }
+    volume.close()?;
+
+    // Replay path: the same volume, dropped without publishing after the growth, is reopened
+    // with the grown geometry coming from the replayed record.
+    let backing = TemporaryBacking::new()?;
+    let volume = populate(&backing)?;
+    drop(volume);
+    let mut reopened = open_with_options(&backing.0, options)?;
+    assert_eq!(reopened.log.geometry.segment_count, 16);
+    cleaned(&mut reopened)?;
+    let stats = reopened.reclaim_stats();
+    assert!(stats.windows_scanned > 0, "{stats:?}");
+    assert!(stats.discards_issued > 0, "{stats:?}");
+    assert_eq!(stats.discards_failed, 0, "{stats:?}");
+    assert!(!reopened.is_failed());
+    for lba in 0..16_u32 {
+        reopened.read_block(lba, &mut bytes)?;
+        assert_eq!(bytes, value(expected(lba)), "LBA {lba}");
+    }
+    reopened.close()
+}
+
+/// A victim whose scan leaves only a resident, current snapshot behind is not lost: the next
+/// publication re-emits the snapshot and the emptied segment is released without another scan.
+#[test]
+fn victim_left_with_only_current_metadata_is_released_after_the_next_publication() -> io::Result<()>
+{
+    let backing = fixture(1024, SEGMENTS)?;
+    let mut volume = open_with_options(&backing.0, options(1))?;
+    // Two pages: LBA 0 (page 0) and LBA 400 (page 1) share segment 0 with their snapshots.
+    volume.write_block(0, &value(1))?;
+    volume.write_block(400, &value(2))?;
+    volume.close()?;
+    let mut volume = open_with_options(&backing.0, options(1))?;
+    let snapshot = volume.log.index.snapshot_block(1);
+    assert_eq!(
+        volume.log.geometry.segment_of(snapshot)?,
+        0,
+        "snapshot lives in segment 0"
+    );
+    // Make page 1 resident and clean, then kill segment 0's payloads without touching page 1.
+    let mut bytes = [0; BLOCK_SIZE];
+    volume.read_block(400, &mut bytes)?;
+    for round in 1..=4_u32 {
+        volume.write_block(0, &value(10 + round))?;
+        volume.write_block(1, &value(20 + round))?;
+    }
+    volume.flush()?;
+    assert_eq!(volume.log.segments.state(0), SegmentState::Sealed);
+    assert!(volume.log.segments.metadata_blocks(0) > 0);
+    let steps = drain(&mut volume, SelectionMode::Pressure, 200)?;
+    settle(&mut volume)?;
+    // The scan copied LBA 400 and dirtied page 1, so its snapshot in segment 0 stays current
+    // until a publication re-emits it: the victim is stuck, not lost.
+    assert_eq!(
+        volume.log.segments.state(0),
+        SegmentState::Sealed,
+        "{steps:?}"
+    );
+    assert!(volume.log.segments.is_stuck(0));
+    assert_eq!(volume.log.segments.live_blocks(0), 0);
+    // Close publishes: the re-emission empties segment 0. The published root still says Sealed,
+    // so open releases it without a scan and the barrier frees it.
+    volume.close()?;
+    let mut volume = open_with_options(&backing.0, options(1))?;
+    assert_eq!(volume.log.segments.state(0), SegmentState::PendingFree);
+    assert!(volume.reclaim_stats().segments_released_without_scan >= 1);
+    let steps = drain(&mut volume, SelectionMode::Pressure, 200)?;
+    settle(&mut volume)?;
+    let stats = volume.reclaim_stats();
+    assert!(
+        matches!(
+            volume.log.segments.state(0),
+            SegmentState::Free | SegmentState::Open
+        ),
+        "segment 0 stays reclaimable: {:?} stuck={} {stats:?} {steps:?}",
+        volume.log.segments.state(0),
+        volume.log.segments.is_stuck(0)
+    );
+    assert!(
+        stats.segments_freed > 0 || volume.log.segments.state(0) == SegmentState::Open,
+        "{stats:?}"
+    );
+    volume.read_block(400, &mut bytes)?;
+    assert_eq!(bytes, value(2));
+    volume.read_block(0, &mut bytes)?;
+    assert_eq!(bytes, value(14));
     volume.close()
 }

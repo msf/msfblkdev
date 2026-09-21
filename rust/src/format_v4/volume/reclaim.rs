@@ -126,7 +126,7 @@ impl Volume {
     /// Reclamation statistics since open.
     pub fn reclaim_stats(&self) -> ReclaimStats {
         ReclaimStats {
-            segments_emptied_by_writes: self.log.segments.emptied_count(),
+            segments_released_without_scan: self.log.segments.emptied_count(),
             ..self.reclaim.stats
         }
     }
@@ -178,6 +178,23 @@ impl Volume {
     /// it and then calls `maintain`.
     pub fn cleaner_wakeup_fd(&self) -> RawFd {
         self.reclaim.cleaner.wakeup_fd()
+    }
+
+    /// Applies every event the cleaner has reported and clears its wake-up, without running
+    /// a maintenance step. A request loop calls this when the wake-up descriptor fires but the
+    /// scheduler says not to maintain yet; otherwise the descriptor stays readable and a
+    /// re-armed poll completes at once.
+    pub fn poll_cleaner_events(&mut self) -> io::Result<()> {
+        self.check_operational()?;
+        let polled = self.poll_cleaner();
+        self.latch(polled)
+    }
+
+    /// Tells the cleaner the geometry it must scan and discard against after backing growth.
+    pub(crate) fn update_cleaner_geometry(&mut self) -> io::Result<()> {
+        self.reclaim
+            .cleaner
+            .send(Command::Geometry(self.log.geometry))
     }
 
     /// Whether `maintain` has work that does not depend on the cleaner reporting first.
@@ -248,6 +265,12 @@ impl Volume {
         segments <= u64::from(self.log.segments.allocatable_count())
     }
 
+    /// Free segments above which idle cleaning rests: half the log, and always more than the
+    /// reserve so pressure cleaning keeps its room.
+    fn idle_watermark(&self) -> u32 {
+        (self.log.geometry.segment_count / 2).max(self.reserve.segments + 1)
+    }
+
     /// Blocks user admission must leave alone while a victim waits for its second publication.
     pub(crate) fn maintenance_debt(&self) -> u64 {
         if self.log.segments.pending_free_count() > 0 {
@@ -302,6 +325,14 @@ impl Volume {
         self.offer_discards()?;
         if self.log.segments.pending_free_count() > 0 {
             return self.barrier_publication();
+        }
+        if mode == SelectionMode::Idle
+            && self.log.segments.allocatable_count() >= self.idle_watermark()
+        {
+            // Plenty of free space: idle cleaning would only churn. Every barrier publication
+            // leaves stale table pages behind, so without a floor on free space idle cleaning
+            // feeds itself forever, one segment of stale metadata per cycle.
+            return Ok(MaintenanceStep::Idle);
         }
         match select(&self.log, mode, None) {
             Selection::Victim(victim) if !self.can_start_victim(victim, mode) => {

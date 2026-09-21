@@ -387,7 +387,7 @@ impl Segments {
 
     /// The descriptor naming the current table pages is durable: apply barrier transitions.
     /// Returns how many segments became free.
-    pub(crate) fn checkpoint_published(&mut self) -> u32 {
+    pub(crate) fn checkpoint_published(&mut self) -> io::Result<u32> {
         let mut freed = 0;
         for segment in 0..self.geometry.segment_count {
             let index = segment as usize;
@@ -406,7 +406,12 @@ impl Segments {
             }
             self.published_flags[index] = self.flags[index];
         }
-        freed
+        // The durable root now matches `published_flags`, so state may change again: sealed
+        // segments whose last current metadata this publication re-emitted hold nothing.
+        for segment in 0..self.geometry.segment_count {
+            self.release_if_empty(segment)?;
+        }
+        Ok(freed)
     }
 
     /// Returns the segments freed by the last barrier step so a caller can preallocate.
@@ -465,6 +470,9 @@ impl Segments {
             self.metadata_blocks[segment] = self.metadata_blocks[segment]
                 .checked_sub(1)
                 .ok_or_else(|| invalid_data("metadata reference underflow"))?;
+            // A victim whose scan left only metadata behind waits for this re-emission; the
+            // state itself changes after the publication (`release_emptied`).
+            self.stuck[segment] = false;
         }
         if new_block != 0 {
             self.add_metadata(new_block)?;
@@ -607,7 +615,7 @@ mod tests {
         let image = segments.table_page_image(0).unwrap();
         assert_eq!(image.entries[0], SegmentEntry::pending_free(9));
         assert_eq!(segments.published_free_transitions(), 0);
-        assert_eq!(segments.checkpoint_published(), 0);
+        assert_eq!(segments.checkpoint_published().unwrap(), 0);
         assert_eq!(segments.state(0), SegmentState::PendingFree);
         // Publication B records Free and the segment becomes allocatable after the descriptor.
         assert_eq!(
@@ -615,7 +623,7 @@ mod tests {
             SegmentEntry::FREE
         );
         assert_eq!(segments.published_free_transitions(), 1);
-        assert_eq!(segments.checkpoint_published(), 1);
+        assert_eq!(segments.checkpoint_published().unwrap(), 1);
         assert_eq!(segments.take_discard_due(), Some(0));
         assert_eq!(segments.take_discard_due(), None);
         assert_eq!(segments.entry(0).unwrap(), SegmentEntry::FREE);

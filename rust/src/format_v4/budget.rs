@@ -65,18 +65,12 @@ impl HeapBudget {
 pub(crate) struct CleanerShape {
     /// Blocks per read window: one maximal record, or the whole segment when smaller.
     pub(crate) window_blocks: u32,
-    /// Payload slots per proposal buffer: one packed record, or the segment's payload capacity.
-    pub(crate) proposal_payloads: u32,
     pub(crate) proposal_buffers: u32,
 }
 
 impl CleanerShape {
     pub(crate) fn window_blocks(geometry: Geometry) -> u32 {
         (MAXIMUM_PAYLOAD_BLOCKS as u32 + 1).min(geometry.blocks_per_segment)
-    }
-
-    pub(crate) fn proposal_payloads(geometry: Geometry) -> u32 {
-        (MAXIMUM_PAYLOAD_BLOCKS as u32).min(geometry.blocks_per_segment - 2)
     }
 
     /// Bytes of one window buffer: its block arena plus one entry and one order slot per block.
@@ -109,7 +103,6 @@ impl CleanerShape {
         }
         Ok(Self {
             window_blocks: Self::window_blocks(geometry),
-            proposal_payloads: Self::proposal_payloads(geometry),
             proposal_buffers: u32::try_from(buffers.min(64)).expect("bounded"),
         })
     }
@@ -242,7 +235,6 @@ mod tests {
         assert_eq!(budget.total_bytes, 16 << 20);
         assert_eq!(budget.write_buffer_bytes, 4 << 20);
         assert_eq!(cleaner.window_blocks, 339);
-        assert_eq!(cleaner.proposal_payloads, 338);
         assert_eq!(cleaner.proposal_buffers, 2);
         assert_eq!(budget.cleaner_bytes, cleaner.allocated_bytes(geometry));
         assert!(
@@ -312,7 +304,6 @@ mod tests {
         // Small segments shrink the cleaner's fixed shapes.
         let tiny_segments = Geometry::new(1000, 2 + 12 * 8, 8).unwrap();
         assert_eq!(CleanerShape::window_blocks(tiny_segments), 8);
-        assert_eq!(CleanerShape::proposal_payloads(tiny_segments), 6);
         assert_eq!(
             CleanerShape::minimum_bytes(tiny_segments),
             CleanerShape::scanner_bytes(tiny_segments) + 8 * (4096 + 24 + 4)
