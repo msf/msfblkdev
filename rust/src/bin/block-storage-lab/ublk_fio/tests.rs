@@ -47,9 +47,11 @@ fn command_construction_is_exact_and_bounded() {
             "format",
             "/tmp/owned/backing.img",
             "--prealloc-bytes",
-            "286720",
+            "1318912",
             "--size-bytes",
-            "262144",
+            "4194304",
+            "--segment-bytes",
+            "131072",
         ]
         .map(OsStr::new)
     );

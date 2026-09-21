@@ -13,9 +13,14 @@ pub(super) fn run_at(paths: Paths, timeout: Duration) -> io::Result<()> {
     let started = Instant::now();
     let geometry = Geometry::expected();
     evidence.line(&format!(
-        "backing geometry: block_bytes={} volume_blocks={} record_capacity={} log_start_blocks={} backing_blocks={} backing_bytes={}",
-        geometry.block_bytes, geometry.volume_blocks, geometry.record_capacity,
-        geometry.log_start_blocks, geometry.backing_blocks, geometry.backing_bytes()
+        "backing geometry: format=4 block_bytes={} volume_blocks={} segment_blocks={} segment_count={} log_capacity_blocks={} backing_blocks={} backing_bytes={}",
+        geometry.block_bytes,
+        geometry.volume_blocks,
+        geometry.segment_blocks,
+        geometry.segment_count,
+        geometry.log_capacity_blocks(),
+        geometry.backing_blocks,
+        geometry.backing_bytes()
     ))?;
 
     let mut resources = Resources::default();

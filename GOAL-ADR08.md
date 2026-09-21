@@ -107,6 +107,14 @@ See the "Implementation decisions" section of ADR-08 once written. Working list:
     blocks on the cleaner's report (60 s bound) instead of spinning.
 18. Backing discards run on the cleaner thread after the freeing publication, at most four in
     flight; a segment stays excluded from allocation until its punch completes.
+19. Idle cleaning policy: a victim is worthwhile while idle only when at least a quarter of its
+    blocks are dead (`idle_minimum_dead`), because every sealed segment carries a dead link and
+    dead footers and idle cleaning would otherwise copy live data from one packed segment to the
+    next forever. Idle cleaning also starts a victim only when its copies and two publications
+    fit without touching the foreground reserve; pressure cleaning may spend the reserve. Found
+    by a probe in which idle maintenance after every write-through record drove a 64-block
+    volume to `ENOSPC` after 38 writes; with both rules 4096 writes and 12 full overwrite passes
+    complete (`tests/cleaner_thread.rs`).
 ## Commands
 
 ```sh

@@ -1,6 +1,9 @@
 use super::daemon::*;
 use super::lifecycle::{prove_backing_lock, validate_backing};
-use super::scenario::{FAILPOINT, FioJob, OutputNames, REPETITIONS, SCENARIOS, Scenario};
+use super::scenario::{
+    EXHAUSTION_MINIMUM_BLOCKS, FAILPOINT, FioJob, OutputNames, REPETITIONS, SCENARIOS, Scenario,
+    exhaustion_verify, wrap_appended_blocks,
+};
 use super::*;
 
 pub(super) fn run_all(
@@ -144,7 +147,7 @@ fn execute(
             )
         }
         Scenario::Exhaustion => {
-            run_exhaustion(
+            let written_blocks = run_exhaustion(
                 paths, timeout, resources, evidence, started, outputs, jobs[0],
             )?;
             stop_graceful(paths, timeout, resources, evidence)?;
@@ -152,10 +155,71 @@ fn execute(
                 paths, preflight, timeout, resources, evidence, started, outputs, None,
             )?;
             run_fio_success(
-                paths, timeout, resources, evidence, started, outputs, jobs[1],
+                paths,
+                timeout,
+                resources,
+                evidence,
+                started,
+                outputs,
+                exhaustion_verify(written_blocks),
+            )
+        }
+        Scenario::SustainedOverwrite => {
+            let (passes, verify) = jobs.split_at(jobs.len() - 1);
+            for job in passes {
+                run_fio_success(paths, timeout, resources, evidence, started, outputs, *job)?;
+            }
+            stop_graceful(paths, timeout, resources, evidence)?;
+            require_wraparound(evidence, resources)?;
+            start_daemon(
+                paths, preflight, timeout, resources, evidence, started, outputs, None,
+            )?;
+            run_fio_success(
+                paths, timeout, resources, evidence, started, outputs, verify[0],
+            )?;
+            kill_daemon(resources, timeout, evidence)?;
+            remove_after_kill(paths, preflight, timeout, resources, outputs)?;
+            start_daemon(
+                paths, preflight, timeout, resources, evidence, started, outputs, None,
+            )?;
+            run_fio_success(
+                paths, timeout, resources, evidence, started, outputs, verify[0],
             )
         }
     }
+}
+
+/// Proves from the stopped daemon's statistics that the passes wrapped the log: more blocks
+/// were appended than the log holds, and segments were freed and reused.
+fn require_wraparound(evidence: &mut Evidence, resources: &Resources) -> io::Result<()> {
+    let stderr = resources
+        .daemon_stderr
+        .as_ref()
+        .ok_or_else(|| io::Error::other("daemon stderr path is missing"))?;
+    let text = fs::read_to_string(stderr)?;
+    let freed = scenario::statistic(&text, "reclaim_segments_freed")?;
+    let appended = [
+        "log_user_payload_blocks",
+        "log_user_footer_blocks",
+        "log_relocation_payload_blocks",
+        "log_relocation_footer_blocks",
+        "log_metadata_blocks",
+        "log_link_blocks",
+    ]
+    .iter()
+    .map(|name| scenario::statistic(&text, name))
+    .sum::<io::Result<u64>>()?;
+    let capacity = Geometry::expected().log_capacity_blocks();
+    evidence.line(&format!(
+        "wraparound: appended_blocks={appended} log_capacity_blocks={capacity} segments_freed={freed} expected_appended_at_least={}",
+        wrap_appended_blocks()
+    ))?;
+    if appended < wrap_appended_blocks() || appended <= 2 * capacity || freed == 0 {
+        return Err(io::Error::other(format!(
+            "the passes did not wrap the log: appended_blocks={appended} capacity={capacity} segments_freed={freed}"
+        )));
+    }
+    Ok(())
 }
 
 fn setup_fresh(
@@ -265,6 +329,7 @@ pub(super) fn record_fio_success(
     require_success(label, status)
 }
 
+/// Runs the thin-volume write until `ENOSPC` and returns how many whole blocks fio landed.
 fn run_exhaustion(
     paths: &Paths,
     timeout: Duration,
@@ -273,7 +338,7 @@ fn run_exhaustion(
     started: Instant,
     outputs: &mut OutputNames,
     job: FioJob,
-) -> io::Result<()> {
+) -> io::Result<u64> {
     let (status, stdout, stderr) =
         run_fio(paths, timeout, resources, evidence, started, outputs, job)?;
     evidence_file(evidence, "fio exhaustion stdout", &stdout)?;
@@ -284,12 +349,21 @@ fn run_exhaustion(
         )));
     }
     let (errno, bytes) = scenario::parse_exhaustion_json(&fs::read_to_string(stdout)?)?;
-    if errno != 28 || bytes != 131_072 {
+    let capacity_bytes = Geometry::expected().log_capacity_blocks() * BLOCK_BYTES;
+    let minimum_bytes = EXHAUSTION_MINIMUM_BLOCKS * BLOCK_BYTES;
+    evidence.line(&format!(
+        "exhaustion: errno={errno} io_bytes={bytes} accepted_range=[{minimum_bytes}, {capacity_bytes})"
+    ))?;
+    if errno != 28
+        || !bytes.is_multiple_of(BLOCK_BYTES)
+        || bytes < minimum_bytes
+        || bytes >= capacity_bytes
+    {
         return Err(io::Error::other(format!(
-            "exhaustion result was errno={errno} io_bytes={bytes}, expected errno=28 io_bytes=131072"
+            "exhaustion result was errno={errno} io_bytes={bytes}, expected errno=28 and whole blocks in [{minimum_bytes}, {capacity_bytes})"
         )));
     }
-    Ok(())
+    Ok(bytes / BLOCK_BYTES)
 }
 
 fn run_fio(
