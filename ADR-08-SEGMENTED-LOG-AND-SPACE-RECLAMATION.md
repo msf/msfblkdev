@@ -1,15 +1,19 @@
 # ADR-08 Segmented log and space reclamation
 
-Date: 2026-09-19; approach decided 2026-09-20; editorial revision, fixed-two-head decision and
-compression split 2026-09-20; implemented 2026-09-21 Author: Miguel Filipe Status: implemented
-(release candidate `v2.0-rc`, on-disk format 4). The [implementation decisions](#implementation-decisions)
-section records what the implementation settled, how each review finding was dispositioned and the
-evidence gathered; the sections before it keep the design text and are corrected where the
-implementation proved them wrong. Updates: ADR-07 (reusable log and mapping index), ADR-04 (segment
-reclamation replaces replacement-image compaction), ADR-03 (discard advertisement) Related: [ADR-09
-compression follow-up](ADR-09-RELOCATION-COMPRESSION.md), [prior-art review](papers/README.md),
-[workbench](TMD-WORKBENCH.md), [technical review and amendments](docs/REVIEW-ADR-08.md),
-[implementation record](GOAL-ADR08.md)
+Date: 2026-09-19. Approach decided 2026-09-20. Editorial revision, fixed-two-head decision and
+compression split 2026-09-20. Implemented 2026-09-21.
+Author: Miguel Filipe
+Status: implemented. Release candidate `v2.0-rc`, on-disk format 4.
+Updates: ADR-07 (reusable log and mapping index), ADR-04 (segment reclamation replaces
+replacement-image compaction), ADR-03 (discard advertisement)
+Related: [ADR-09 compression follow-up](ADR-09-RELOCATION-COMPRESSION.md),
+[prior-art review](papers/README.md), [workbench](TMD-WORKBENCH.md),
+[technical review and amendments](docs/REVIEW-ADR-08.md), [implementation record](GOAL-ADR08.md)
+
+How to read this document: the sections before [Implementation decisions](#implementation-decisions)
+hold the design text. Where the implementation proved the design wrong, the text is corrected in
+place. The implementation decisions section records three things: what the implementation settled
+beyond the design, the disposition of each review finding, and the evidence.
 
 ## Context
 
@@ -892,159 +896,201 @@ Its measurements and format review do not gate raw reclamation.
 ## Implementation decisions
 
 The implementation lives in `rust/src/format_v4/` and shipped as `v2.0-rc`. This section records
-what it settled beyond the design text, why, and how each review finding was closed. Numbers match
-the [implementation record](GOAL-ADR08.md).
+what the implementation settled beyond the design text, and why. It also records the disposition of
+each review finding and the evidence that was gathered. Numbers match the
+[implementation record](GOAL-ADR08.md).
+
+Each decision states the rule first. "Reason" names the property that decided it. "Found by" names
+the test, probe or review that exposed the defect the rule fixes.
 
 ### Protocol and layout
 
-1. **Frame derivation.** A record starts at `previous_boundary + 1` when both boundaries lie in one
-   segment, else at the start of the segment holding `boundary`. `previous_boundary = 0` means "no
-   earlier record on this head". The payload count is `boundary - start`; non-data records require
-   `boundary == start`. Records never cross segments, and each segment reserves its final block for
-   the closing `SegmentLink`.
-2. **Bootstrap.** Format opens segment 0 for User and segment 1 for Relocation, appends the initial
-   segment table pages to segment 0 (LSN 1), then writes both descriptors. A head's open segment
-   comes from the segment table (`Open` plus the head bit), never from the boundary, so a head whose
-   last boundary lies in a sealed segment starts at the open segment's first block.
-3. **Freshness.** The writer fsyncs a `SegmentLink` before appending to the segment it names. Replay
-   accepts a record only when its LSN equals the expected global LSN, which exceeds every LSN in any
-   free segment.
-4. **Checksums.** Every one-block metadata record carries an independent header checksum over bytes
-   0..40 at 4072..4080 and a record checksum over bytes 0..4088 at 4088..4096; the format-3 rule of
-   hashing 4096 bytes with the checksum zeroed is gone. Data footers keep their format-3 layout, and
-   payload checksums keep `XXH3-64(seed = volume_id, LE(lba, physical_block) || payload)`.
-5. **Kind 6 and address bit 31** are rejected by every decoder, so a raw-only engine cannot misread
-   a future compressed image ([ADR-09](ADR-09-RELOCATION-COMPRESSION.md)).
-6. **Publication allocation.** Snapshots and index pages append first; the writer then advances the
-   User head if the dirty table pages do not fit its room, and appends the table pages last so they
-   describe the final allocation. One fsync precedes the descriptor write and one follows it.
-7. **Fallback after reuse.** Replay lets a `SegmentLink` open a `Free` or `PendingFree` segment; a
+1. **Frame derivation.** A record starts at `previous_boundary + 1` when both boundaries lie in the
+   same segment. Otherwise it starts at the first block of the segment that holds `boundary`.
+   `previous_boundary = 0` means "no earlier record on this head". The payload count is
+   `boundary - start`. A record without payload must have `boundary == start`. Records never cross
+   a segment. Each segment reserves its last block for the closing `SegmentLink`.
+2. **Bootstrap.** Format opens segment 0 for the User head and segment 1 for the Relocation head.
+   It appends the initial segment table pages to segment 0 at LSN 1, then writes both descriptors.
+   Replay finds a head's open segment in the segment table (state `Open` plus the head bit), never
+   from the boundary. Reason: a head whose last boundary lies in a sealed segment must restart at
+   the first block of its open segment.
+3. **Freshness.** The writer fsyncs a `SegmentLink` before it appends to the segment the link names.
+   Replay accepts a record only when the record's LSN equals the expected global LSN. That LSN is
+   higher than every LSN in any free segment, so a stale record cannot match it.
+4. **Checksums.** Every one-block metadata record carries two independent checksums: a header
+   checksum over bytes 0..40, stored at 4072..4080, and a record checksum over bytes 0..4088, stored
+   at 4088..4096. The format-3 rule (hash all 4096 bytes with the checksum field zeroed) is gone.
+   Data footers keep their format-3 layout. Payload checksums keep
+   `XXH3-64(seed = volume_id, LE(lba, physical_block) || payload)`.
+5. **Kind 6 and address bit 31.** Every decoder rejects record kind 6 and address bit 31. Reason: a
+   raw-only engine must not misread a future compressed image
+   ([ADR-09](ADR-09-RELOCATION-COMPRESSION.md)).
+6. **Publication allocation.** A publication appends snapshots and index pages first. If the dirty
+   table pages do not fit the User head's room, the writer then advances the User head. It appends
+   the table pages last, so they describe the final allocation. One fsync precedes the descriptor
+   write and one follows it.
+7. **Fallback after reuse.** Replay lets a `SegmentLink` open a `Free` or `PendingFree` segment. A
    link into an `Open` or `Sealed` segment fails closed.
-8. **Sanitation** zeroes the rest of each head's open segment after recovery, not a 339-block window.
-9. **Discard ordering.** Discard drops buffered payloads in range first, chunks the range so every
-   touched page fits the cache, publishes before appending when the chunk would not fit, then appends
-   one `LbaDiscard` and unmaps with checkpoints forbidden. Write-zeroes is a discard.
+8. **Sanitation.** After recovery, sanitation zeroes the rest of each head's open segment. It does
+   not zero a 339-block window. Reason: a torn maximal record can hide a complete successor more
+   than 339 blocks away in the same segment. After reopen, that successor would chain onto a
+   re-issued record of the same size.
+9. **Discard ordering.** A discard runs these steps in order:
+   - The writer drops the buffered payloads inside the range.
+   - The writer splits the range into chunks, so that every touched page fits the cache.
+   - When a chunk would not fit, the writer publishes before it appends.
+   - The writer appends one `LbaDiscard` and unmaps the pages while checkpoints are forbidden.
+
+   Reason: no root can pass the record's LSN while pages are still mapped. Write-zeroes is a
+   discard.
 
 ### Space and memory
 
-10. **Heap budget.** `total = max(logical × proportion, 16 MiB)`, default proportion 1%. The write
-    buffer, cleaner and cache requests are validated against it and never enlarged; the cleaner
-    share is at least one read window plus one proposal buffer, so write-through configurations open.
-    A 1 GiB volume opens under a 12 MiB total with a 10.4 MiB heap allocation and a 13.9 MiB RSS
-    after writes; steady-state writes, reads and maintenance allocate nothing.
-11. **Reservation.** Admission demands `N + R + D + P` blocks plus one footer per possible segment
-    crossing from the User head's room plus the free segments above the reserve. The reserve is one
-    worst-case victim relocation plus two worst-case publications, each planned from a full head.
+10. **Heap budget.** The heap total is `max(logical × proportion, 16 MiB)`. The default proportion
+    is 1%. The write buffer, the cleaner and the cache requests are validated against this total
+    and never enlarged. The cleaner share is at least one read window plus one proposal buffer, so
+    a write-through configuration still opens. Measured on the tagged commit: a 1 GiB volume opens
+    under a 12 MiB total, with 10.0 MiB allocated and 13.9 MiB RSS after writes. After open, writes,
+    reads and maintenance allocate nothing.
+11. **Reservation.** Before it accepts a write, admission demands `N + R + D + P` blocks plus one
+    footer for each possible segment crossing. The demand must fit the User head's room plus the
+    free segments above the reserve. The reserve is one worst-case victim relocation plus two
+    worst-case publications, each planned from a full head.
 12. **Eligibility.** A sealed segment is off both replay paths when `seal_lsn <= min(root LSNs)`.
-    Freeing needs no eligibility check of its own: any sealed segment without live payloads or
-    current metadata may go `PendingFree`, because the two publications that follow the mark carry
-    LSNs above its seal.
-13. **Progress gate.** Maintenance starts a victim only when its copies fit the Relocation head's
-    room plus allocatable segments and two worst-case publications fit what remains. Publications
-    are counted at the reserve's size because relocation copies dirty mapping pages and enlarge the
-    publications that must follow. A publication that cannot fit fails with `ENOSPC` without
-    latching. While a victim waits for its second publication, admission also reserves that
-    publication's blocks.
+    Freeing needs no eligibility check of its own: any sealed segment without live payloads and
+    without current metadata may become `PendingFree`. Reason: the two publications that follow the
+    mark carry LSNs above the segment's seal.
+13. **Progress gate.** Maintenance starts a victim only when two conditions hold: the victim's
+    copies fit the Relocation head's room plus the allocatable segments, and two worst-case
+    publications fit what remains. Publications are counted at the reserve's size. Reason:
+    relocation copies dirty mapping pages, which enlarges the publications that must follow. A
+    publication that cannot fit fails with `ENOSPC` and does not latch the volume. While a victim
+    waits for its second publication, admission also reserves that publication's blocks.
 
 ### Cleaner and policy
 
-14. **Views.** The cleaner reads liveness against a copy of the resident index taken when a victim
-    is selected, refreshed only when the checkpoint LSN changed. An eligible victim has every write
-    into it reflected there, so a payload the view calls dead never becomes live again; live-in-view
-    payloads are re-checked at apply against the cache and the buffered writes.
-15. **Stuck victims.** A completed scan that could not empty its victim marks it stuck: a live
-    payload whose bytes fail their checksum, a payload a buffered overwrite will replace, or
-    resident current metadata that the next publication re-emits. A remap that removes a live
-    payload or a publication that re-emits the segment's metadata clears the mark, and whichever
-    of them empties the segment releases it (decision 20).
-16. **Ownership.** The cleaner thread holds a duplicate backing descriptor, its own ring, the scan
-    scratch and one view. Window buffers travel writer → cleaner → writer with the scan cursor as
-    the token, so one victim has one window in flight while the writer applies the previous one; the
-    writer keeps a spare view and swaps it in ahead of a victim's first window. Nothing is shared
-    under a lock. At most one scan, one view swap and four discards are outstanding, so the bounded
-    channels never fill.
-17. **Scheduling.** `maintain` never blocks; `wait_for_cleaner` blocks on one report; pressure
-    inside a write waits on the report (60 s bound) instead of spinning. The daemon's ticks run when
-    no request completed for 2 ms or when 100 ms passed under continuous requests, for at most one
-    idle wait plus one step.
-18. **Backing discards** run on the cleaner thread after the freeing publication, at most four in
-    flight; a segment stays excluded from allocation until its punch completes, and a segment reused
-    before its punch was offered drops its discard mark. The first failure disables further punches.
-    Pressure cleaning that finds no startable victim while a punch is in flight waits for the
-    cleaner's report instead of declaring the all-live case: the first live run after the review
-    fixes returned `ENOSPC` with a freed segment still being punched.
-19. **Idle cleaning policy.** Idle cleaning takes a victim only when at least a quarter of it is dead,
-    only when its copies and two publications fit without touching the reserve, and only while
-    fewer than half the log's segments are free (never below the reserve plus one). Before the
-    first two rules, idle maintenance after every write-through record drove a 64-block volume
-    into `ENOSPC` after 38 writes by copying live data between packed segments forever; without
-    the free-space floor, the stale table pages that every barrier publication leaves behind
-    re-created victims indefinitely. Pressure cleaning has no floor because the write that
-    triggered it stops it as soon as it fits.
-20. **Emptied segments need no scan.** A user or relocation remap that removes the last live payload
-    from a sealed segment without current metadata marks it `PendingFree` at once. Metadata moves do
-    not, because they run inside a publication after its table images were built and a state change
-    there would desynchronize the in-memory record of the durable root; instead, once the
-    descriptor is durable and `published_flags` match it, the publication releases every sealed
-    segment it emptied, and open does the same for segments the last publication of the previous
-    run emptied. Before this rule a quarter-full 128 MiB volume under random overwrite accumulated
-    23 stuck victims whose copies had consumed the reserve.
-21. **Pressure release and progress.** When nothing is left to clean while writes are buffered,
-    pressure releases the write buffer once before returning `ENOSPC`, because buffered overwrites
-    keep victims' old payloads live until they land. Pressure reclamation returns `ENOSPC` at once
-    when the live payloads, their footers when packed, the current metadata and the demanded
-    blocks cannot fit the segments cleaning could ever free (every segment but the two open heads
-    and the reserve): otherwise every freed segment is consumed again by copies and the barrier's
-    own table pages and the writer compacts forever (found when the discard wait let the all-live
-    loop run past the old gate). A stall bound of one freeing cycle per segment backs the check.
-22. **Geometry follows growth.** The cleaner thread learns a grown geometry through a command sent
-    after `grow_backing` and after recovery replayed a growth record, so scans and discards in the
-    grown range address the right blocks. Found by the final review: the first grown-range scan
-    would have latched the volume.
+14. **Views.** The cleaner checks liveness against a copy of the resident index. The writer takes
+    this copy when it selects a victim and refreshes it only when the checkpoint LSN changed. Every
+    write into an eligible victim is present in the copy, so a payload the view calls dead never
+    becomes live again. A payload the view calls live is checked again at apply time, against the
+    cache and the buffered writes.
+15. **Stuck victims.** A completed scan that could not empty its victim marks the victim stuck.
+    Three things leave a victim non-empty: a live payload whose bytes fail their checksum, a
+    payload that a buffered overwrite will replace, and resident current metadata that the next
+    publication re-emits. A remap that removes a live payload clears the mark. A publication that
+    re-emits the segment's metadata also clears it. Whichever of the two empties the segment
+    releases it (decision 20).
+16. **Ownership.** The cleaner thread owns a duplicate backing descriptor, its own ring, the scan
+    scratch and one view. Window buffers travel from the writer to the cleaner and back, with the
+    scan cursor as the token. One victim has one window in flight while the writer applies the
+    previous window. The writer keeps a spare view and swaps it in before a victim's first window.
+    Nothing is shared under a lock. At most one scan, one view swap and four discards are
+    outstanding, so the bounded channels never fill.
+17. **Scheduling.** `maintain` never blocks. `wait_for_cleaner` blocks until one report arrives.
+    Pressure reclamation inside a write waits for the cleaner's report, with a 60 s bound, instead
+    of spinning. The daemon runs a maintenance tick when no request completed for 2 ms, or when
+    100 ms passed under continuous requests. A tick runs steps for at most one idle wait plus one
+    step.
+18. **Backing discards.** The cleaner thread punches holes after the freeing publication, with at
+    most four punches in flight. A segment stays excluded from allocation until its punch
+    completes. A segment that is reused before its punch was offered drops its discard mark. The
+    first punch failure disables further punches. When pressure cleaning finds no startable victim
+    while a punch is in flight, it waits for the cleaner's report instead of declaring the all-live
+    case. Found by: the first live run after the review fixes. It returned `ENOSPC` while a freed
+    segment was still being punched.
+19. **Idle cleaning policy.** Idle cleaning takes a victim only when all three conditions hold:
+    - At least a quarter of the victim's blocks are dead (`idle_minimum_dead`, never fewer than
+      two blocks).
+    - The victim's copies and two publications fit without touching the reserve.
+    - Fewer than half of the log's segments are free (`idle_watermark`, never below the reserve
+      plus one).
+
+    Pressure cleaning has no such floor. Reason: the write that triggered it stops it as soon as
+    the write fits.
+
+    Found by: two treadmills. Without the first two rules, idle maintenance after every
+    write-through record copied live data from one packed segment to the next forever. Every sealed
+    segment holds a dead link block and dead footers, so every segment looked worth cleaning. A
+    64-block volume reached `ENOSPC` after 38 writes. Without the free-space floor, idle cleaning
+    fed itself: every barrier publication leaves stale table pages behind, and on small segments
+    those pages alone made a new victim in each cycle.
+20. **Emptied segments need no scan.** When a user or relocation remap removes the last live payload
+    from a sealed segment that holds no current metadata, the writer marks the segment
+    `PendingFree` at once. A metadata move does not do this. Reason: metadata moves run inside a
+    publication, after its table images were built. A state change at that point would
+    desynchronize the in-memory record of the durable root (found by the fallback-after-reuse
+    test). Instead, once the descriptor is durable and `published_flags` match it, the publication
+    releases every sealed segment it emptied. Open does the same for the segments that the last
+    publication of the previous run emptied. Found by: a quarter-full 128 MiB volume under random
+    overwrite. It accumulated 23 stuck victims, their copies consumed the reserve, and the volume
+    returned `ENOSPC`.
+21. **Pressure release and progress.** Two rules end pressure reclamation before it wastes space:
+    - When nothing is left to clean while writes are buffered, pressure releases the write buffer
+      once before it returns `ENOSPC`. Reason: buffered overwrites keep the victims' old payloads
+      live until they land.
+    - Pressure returns `ENOSPC` at once when the live data can never fit. The check: the live
+      payloads, their footers when packed, the current metadata and the demanded blocks must fit
+      the segments cleaning could ever free. Those are every segment except the two open heads and
+      the reserve. A stall bound of one freeing cycle per segment backs the check.
+
+    Found by: the discard wait of decision 18. It let the all-live loop run past the old gate, and
+    the writer compacted forever. Every freed segment was consumed again by copies and by the
+    barrier's own table pages.
+22. **Geometry follows growth.** The writer sends the cleaner thread a geometry command after
+    `grow_backing` and after recovery replays a growth record. Scans and discards in the grown
+    range then address the right blocks. Found by: the final review. The cleaner kept the geometry
+    it was spawned with, so the first scan in a grown range would have latched the volume.
 23. **Wake-up draining.** A daemon tick that decides not to maintain still takes the cleaner's
-    reports and clears its eventfd, because the re-armed one-shot poll on a readable descriptor
-    completes at once. Found by the final review from the first live log: 90,414 wake-ups for 156
-    ticks.
+    reports and clears its eventfd. Reason: the re-armed one-shot poll on a readable descriptor
+    completes at once, and the queue loop spins until the deadline. Found by: the final review,
+    from the first live log. It showed 90,414 wake-ups for 156 ticks.
 
 ### Review finding dispositions
 
+The findings are numbered as in the [technical review](docs/REVIEW-ADR-08.md).
+
 | Finding | Disposition | Evidence |
 |---|---|---|
-| T1 stale proposals after reuse | Proposals name `(victim, seal_lsn)`; apply rejects a window unless the victim is still `Sealed` with that seal, and checks each LBA's mapping and buffered writes. | `proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn`, `user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy` |
-| T2 abandoned allocations | Link fsync before use, expected-LSN replay, whole-open-segment sanitation (decisions 3, 8). | `stale_tail.rs`, `process_crash.rs`, `reclaim_crash.rs` link boundaries |
-| T3 partial compressed chunks | Not applicable to raw reclamation; deferred with ADR-09. | — |
-| T4 publication changes allocation | Table pages append last after any crossing (decision 6). | `checkpoint_batches.rs`, table-page and descriptor crash boundaries |
-| T5 discard versus buffered writes | Buffer drop, chunking, checkpoint-forbidden unmap, write-zeroes contract (decision 9). | `discard.rs` tests, daemon `discard_and_write_zeroes_unmap_blocks_and_persist` |
-| T6 bootstrap and transitions | Frame rule, bootstrap, checksum coverage (decisions 1, 2, 4). | `format_v4_protocol.rs`, codec tests |
-| T7 fallback from `PendingFree` | Replay opens `Free` or `PendingFree` (decision 7). | `fallback_to_the_older_root_replays_a_link_into_a_pending_segment` |
-| T8 metadata relocation | Dirtying of current index/table pages and resident snapshots; copying of non-resident snapshots. | `reclaim.rs` wraparound (snapshots copied and dirtied, pages dirtied) |
-| T9 admission and progress floor | Crossing-aware reservation, worst-case reserve, progress gate, pressure release (decisions 11, 13, 21). | `reservation.rs` tests, `idle_maintenance_between_writes_never_starves_the_writer_or_treadmills`, `aged_quarter_full_volume_closes_publishes_and_reopens` |
-| T10 live bytes versus occupancy | Raw only: live bytes are logical mapped bytes, used blocks are physical; dead blocks are their difference minus current metadata. | `SpaceUsage`, `check_conservation` |
-| T11 compressed-read validation | Deferred with ADR-09. | — |
-| T12 footer capacity, table count, generation widths | No chunks in format 4; 586 table pages for 262,143 segments; a single `u64` seal LSN replaces both generation fields. | codec tests |
-| T13 idle apply path | eventfd poll and generation-tagged timers on the queue ring; idle, due, delayed-report, cancellation and shutdown tests. | `cleaner_thread.rs`, ublk-fio live gate |
-| T14 cleaner memory bound | Fixed window buffers, one victim, one window in flight, budgeted share (decision 16). | `steady_state_writes_reads_and_maintenance_allocate_nothing`, budget tests |
-| T15 greedy versus service cost | Pressure remains greedy; apply is bounded per window; the maintenance slice bounds foreground impact. | performance report (comparison 3) |
-| T16 cold-by-update | Stated as a heuristic; unchanged. | — |
-| Final review (this implementation) | Frozen cleaner geometry after growth, metadata-only victims stuck forever, undrained wake-up spinning the queue loop; all fixed (decisions 15, 20, 22, 23). | `cleaner_follows_backing_growth_at_runtime_and_after_replay`, `victim_left_with_only_current_metadata_is_released_after_the_next_publication`, ublk-fio maintenance counters |
+| T1 stale proposals after reuse | A proposal names `(victim, seal_lsn)`. Apply rejects a window unless the victim is still `Sealed` with that seal. Apply also checks each LBA's mapping and the buffered writes. | `proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn`, `user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy` |
+| T2 abandoned allocations | The writer fsyncs a link before use. Replay expects the exact next LSN. Sanitation zeroes the whole open segment (decisions 3, 8). | `stale_tail.rs`, `process_crash.rs`, `reclaim_crash.rs` link boundaries |
+| T3 partial compressed chunks | Not applicable to raw reclamation. Deferred to ADR-09. | — |
+| T4 publication changes allocation | Table pages append last, after any crossing (decision 6). | `checkpoint_batches.rs`, table-page and descriptor crash boundaries |
+| T5 discard versus buffered writes | Discard drops the buffer first, splits the range into chunks, unmaps with checkpoints forbidden, and treats write-zeroes as a discard (decision 9). | `discard.rs` tests, daemon `discard_and_write_zeroes_unmap_blocks_and_persist` |
+| T6 bootstrap and transitions | Frame rule, bootstrap and checksum coverage (decisions 1, 2, 4). | `format_v4_protocol.rs`, codec tests |
+| T7 fallback from `PendingFree` | Replay opens a `Free` or `PendingFree` segment (decision 7). | `fallback_to_the_older_root_replays_a_link_into_a_pending_segment` |
+| T8 metadata relocation | The writer dirties current index pages, table pages and resident snapshots. It copies snapshots that are not resident. | `reclaim.rs` wraparound (snapshots copied and dirtied, pages dirtied) |
+| T9 admission and progress floor | Crossing-aware reservation, worst-case reserve, progress gate and pressure release (decisions 11, 13, 21). | `reservation.rs` tests, `idle_maintenance_between_writes_never_starves_the_writer_or_treadmills`, `aged_quarter_full_volume_closes_publishes_and_reopens` |
+| T10 live bytes versus occupancy | Raw only. Live bytes are logical mapped bytes. Used blocks are physical. Dead blocks are the difference minus current metadata. | `SpaceUsage`, `check_conservation` |
+| T11 compressed-read validation | Deferred to ADR-09. | — |
+| T12 footer capacity, table count, generation widths | Format 4 has no chunks. 586 table pages cover 262,143 segments. One `u64` seal LSN replaces both generation fields. | codec tests |
+| T13 idle apply path | The daemon polls the eventfd and arms generation-tagged timers on the queue ring. Tests cover idle, due, delayed-report, cancellation and shutdown. | `cleaner_thread.rs`, ublk-fio live gate |
+| T14 cleaner memory bound | Fixed window buffers, one victim, one window in flight, a budgeted share (decision 16). | `steady_state_writes_reads_and_maintenance_allocate_nothing`, budget tests |
+| T15 greedy versus service cost | Pressure stays greedy. Apply is bounded per window. The maintenance slice bounds the foreground impact. | performance report (comparison 3) |
+| T16 cold-by-update | Kept as a heuristic. Unchanged. | — |
+| Final review (this implementation) | Three blockers, all fixed: the cleaner's frozen geometry after growth, metadata-only victims stuck forever, and an undrained wake-up that spun the queue loop (decisions 15, 20, 22, 23). | `cleaner_follows_backing_growth_at_runtime_and_after_replay`, `victim_left_with_only_current_metadata_is_released_after_the_next_publication`, ublk-fio maintenance counters |
 
 ### Evidence
 
-Gates before each commit: `make lint test` (328 tests at the tag). Milestones: `make test-acceptance`
-(SIGKILL matrices at publication, recovery, stale-tail, relocation, link, discard and growth
-boundaries; PASS on the tagged commit). Live: `make test-ublk-fio` on a format-4 fixture with a
-sustained-overwrite scenario that wraps the log (PASS on the tagged commit: 1810 blocks appended
-into a 320-block log, 53 segments freed, 177 cleaner wake-ups for 615 maintenance ticks).
-The ext4, XFS and SQLite gates could not run in the implementation clone: their preflight requires
-the installed root-owned mount helper to be byte-identical to the helper built from the tree, and
-installing helpers was out of scope; they are reported as unverified. Logs live under
-`evidence/adr08-implementation/`; the performance comparisons are summarized in
-[ADR-08-PERF-RESULTS.md](ADR-08-PERF-RESULTS.md).
+The gates and their results on the tagged commit:
+
+- `make lint test` ran before each commit. It runs 328 tests at the tag.
+- `make test-acceptance` ran at each milestone. It runs SIGKILL matrices at the publication,
+  recovery, stale-tail, relocation, link, discard and growth boundaries. PASS.
+- `make test-ublk-fio` ran on a format-4 fixture with a sustained-overwrite scenario that wraps the
+  log. PASS: 1810 blocks appended into a 320-block log, 53 segments freed, 177 cleaner wake-ups for
+  615 maintenance ticks.
+- The ext4, XFS and SQLite gates did not run and are unverified. Their preflight requires the
+  installed root-owned mount helper to be byte-identical to the helper built from the tree.
+  Installing helpers was out of scope for the implementation clone.
+
+Logs live under `evidence/adr08-implementation/`.
+[ADR-08-PERF-RESULTS.md](ADR-08-PERF-RESULTS.md) summarizes the performance comparisons.
 
 ## Proposed deliveries
 
-These were the delivery groups; all shipped in `v2.0-rc` as raw reclamation. Compression was never a
-prerequisite.
+These were the delivery groups. All of them shipped in `v2.0-rc` as raw reclamation. Compression
+was never a prerequisite.
 
 | Delivery | What ships | Evidence |
 |---|---|---|
