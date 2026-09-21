@@ -53,6 +53,8 @@ def fmt(value, unit=""):
     if unit == "us":
         return f"{value / 1e3:.0f} µs"
     if unit == "MiB":
+        if value < (1 << 20):
+            return f"{value / 1024:.0f} KiB"
         return f"{value / (1 << 20):.1f} MiB"
     if isinstance(value, float):
         return f"{value:,.0f}"
@@ -98,7 +100,8 @@ def main():
         f"Baseline `{metadata['baseline_commit'][:7]}` (format 3) against candidate "
         f"`{metadata['candidate_commit'][:7]}` (format 4). Kernel `{metadata['kernel']}`, CPU {metadata['cpu']}, "
         f"{metadata['repetitions']} interleaved repetitions, `{metadata['rustc']}`, fixture filesystem "
-        f"`{metadata['filesystem']}`. Values are medians over successful repetitions; `runs` counts successful/total.",
+        f"`{metadata['filesystem']}` ({metadata.get('fixture_attributes', 'attributes not recorded')}). "
+        "Values are medians over successful repetitions; `runs` counts successful/total.",
         "",
         "## 1. Fresh volume, nothing to reclaim",
         "",

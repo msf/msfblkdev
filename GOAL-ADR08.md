@@ -54,8 +54,13 @@ Phase 4: gates, live acceptance, performance, ADR update, tag `v2.0-rc`.
       preflight requires the installed root-owned mount helper to be byte-identical to the
       helper built from the current tree, and installing helpers is not authorized here
       (`check-ext4-8af23f1.log`, `check-xfs-8af23f1.log`). Reported as unverified.
-- [ ] Performance comparisons (`tools/adr08-bench/`): baseline `57d56cc` against the candidate.
-- [ ] ADR-08 update, README notes, final diff review, acceptance on the final candidate, tag.
+- [x] Acceptance on the candidate `2303843`: PASS, 326 tests, 85 s
+      (`evidence/adr08-implementation/acceptance-2303843.log`).
+- [x] Performance comparisons (`tools/adr08-bench/`): baseline `57d56cc` against the candidate,
+      3 interleaved repetitions, 72 runs each on a btrfs fixture (`perf/report-btrfs.md`) and on
+      tmpfs (`perf/report-tmpfs.md`); summarized in `ADR-08-PERF-RESULTS.md`.
+- [x] ADR-08 implementation decisions, review dispositions and README notes (`2303843`).
+- [ ] Final diff review and tag `v2.0-rc`.
 
 ## Decisions (resolved draft gaps)
 
@@ -149,9 +154,8 @@ make test-acceptance           # exhaustive crash matrix (~10 min at baseline)
 
 ## Status
 
-Last green commit: the cleaner thread commit (see `git log`; gate
-`evidence/adr08-implementation/gate-cleaner-thread.log`). Acceptance on the serialized
-reclamation commit `0d41533`: PASS, 314 tests (`acceptance-0d41533.log`). Dirty work: none. The
-ublk-fio lab still assumes the format-3 fixture geometry and must move to a format-4 fixture in
-phase 4. Next action: phase 4 (lab fixture geometry and sustained overwrite scenario, live gates,
-performance comparisons, ADR-08 update, final review, tag `v2.0-rc`).
+Last green commit: see `git log`; every implementation commit carries its `make lint test` log
+under `evidence/adr08-implementation/`. Acceptance: PASS on `0d41533` (314 tests) and on
+`2303843` (326 tests). Live: ublk-fio PASS on `8af23f1`; ext4, XFS and SQLite gates unavailable in
+this clone (mount helper identity). Remaining: performance report write-up, final diff review, tag
+`v2.0-rc`.
