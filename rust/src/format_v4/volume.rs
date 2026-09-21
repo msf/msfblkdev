@@ -1,7 +1,7 @@
 //! The public format-4 engine: open, read, write, flush, discard, growth and close.
 use super::{
     Geometry, HeadId,
-    budget::{self, HeapBudget, SupportingState},
+    budget::{self, CleanerShape, HeapBudget, SupportingState},
     checkpoint_load,
     geometry::MAX_SEGMENTS,
     heads::Reserve,
@@ -22,6 +22,7 @@ use std::{fs::File, io, os::unix::fs::MetadataExt, path::Path};
 
 mod discard;
 mod growth;
+pub(crate) mod reclaim;
 mod write;
 
 /// Limit buffer allocation to a quarter of the segment capacity, as format 3 did for its log.
@@ -43,6 +44,7 @@ pub struct Volume {
     pub(crate) reserve: Reserve,
     budget: HeapBudget,
     pub(crate) actual_backing_blocks: u64,
+    pub(crate) reclaim: reclaim::Reclaim,
     pub(crate) failed: bool,
 }
 
@@ -92,12 +94,14 @@ pub(crate) fn open(
     let write_buffer = WriteBackBuffer::with_capacity(buffer_blocks);
     let logical_bytes = u64::from(geometry.volume_blocks) * BLOCK_SIZE as u64;
     let supporting = SupportingState {
-        resident_index_bytes: log.index.allocated_bytes() as u64,
+        // The scan view is a second copy of the snapshot locations.
+        resident_index_bytes: log.index.allocated_bytes() as u64
+            + u64::from(geometry.page_count) * 4,
         segment_state_bytes: log.segments.allocated_bytes() as u64,
         write_buffer_lookup_bytes: write_buffer.lookup_bytes() as u64,
         fixed_scratch_bytes: fixed_scratch_bytes(geometry, buffer_blocks),
     };
-    let (budget, sizing, _cleaner_shape) = budget::divide(
+    let (budget, sizing, cleaner_shape) = budget::divide(
         options.heap,
         logical_bytes,
         buffer_blocks as u64 * BLOCK_SIZE as u64,
@@ -114,6 +118,12 @@ pub(crate) fn open(
         ));
     }
     let reserve = Reserve::compute(geometry, sizing.capacity as u64);
+    let reclaim = reclaim::Reclaim::new(geometry, cleaner_shape, options.backing_discard)?;
+    assert!(
+        reclaim.allocated_bytes() as u64
+            <= budget.cleaner_bytes + u64::from(geometry.page_count) * 4,
+        "cleaner storage fits its share"
+    );
     let recovered = recovery::recover(
         &mut backing_io,
         &backing,
@@ -144,6 +154,7 @@ pub(crate) fn open(
         reserve,
         budget,
         actual_backing_blocks,
+        reclaim,
         failed: false,
     })
 }

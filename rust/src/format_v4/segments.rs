@@ -23,6 +23,11 @@ pub(crate) struct Segments {
     used_blocks: Box<[u32]>,
     /// An authorized backing discard is outstanding; the allocator skips the segment.
     discard_pending: Box<[bool]>,
+    /// Freed by the last barrier and not yet offered for backing discard.
+    discard_due: Box<[bool]>,
+    /// A completed scan left references the cleaner cannot move; cleared when live counts
+    /// change so the segment becomes a candidate again.
+    stuck: Box<[bool]>,
     table_block: Box<[u32]>,
     table_dirty: Box<[bool]>,
     free_count: u32,
@@ -53,6 +58,8 @@ impl Segments {
             metadata_blocks: filled(count, 0)?,
             used_blocks: filled(count, 0)?,
             discard_pending: filled(count, false)?,
+            discard_due: filled(count, false)?,
+            stuck: filled(count, false)?,
             table_block: filled(table_capacity, 0)?,
             table_dirty: filled(table_capacity, false)?,
             free_count: geometry.segment_count,
@@ -63,6 +70,7 @@ impl Segments {
         Ok(segments)
     }
 
+    #[cfg(test)]
     pub(crate) fn geometry(&self) -> Geometry {
         self.geometry
     }
@@ -79,6 +87,8 @@ impl Segments {
             + std::mem::size_of_val(self.metadata_blocks.as_ref())
             + std::mem::size_of_val(self.used_blocks.as_ref())
             + std::mem::size_of_val(self.discard_pending.as_ref())
+            + std::mem::size_of_val(self.discard_due.as_ref())
+            + std::mem::size_of_val(self.stuck.as_ref())
             + std::mem::size_of_val(self.table_block.as_ref())
             + std::mem::size_of_val(self.table_dirty.as_ref())
     }
@@ -132,6 +142,26 @@ impl Segments {
 
     pub(crate) fn table_dirty(&self, table: u32) -> bool {
         self.table_dirty[table as usize]
+    }
+
+    /// Forces the next publication to rewrite `table`, moving it out of a victim.
+    pub(crate) fn mark_table_dirty(&mut self, table: u32) {
+        self.table_dirty[table as usize] = true;
+    }
+
+    pub(crate) fn is_stuck(&self, segment: u32) -> bool {
+        self.stuck[segment as usize]
+    }
+
+    pub(crate) fn mark_stuck(&mut self, segment: u32) {
+        self.stuck[segment as usize] = true;
+    }
+
+    /// The next segment freed by a barrier that has not been offered for discard.
+    pub(crate) fn take_discard_due(&mut self) -> Option<u32> {
+        let segment = self.discard_due.iter().position(|due| *due)?;
+        self.discard_due[segment] = false;
+        Some(u32::try_from(segment).expect("bounded"))
     }
 
     pub(crate) fn dirty_table_pages(&self) -> impl Iterator<Item = u32> + '_ {
@@ -319,8 +349,9 @@ impl Segments {
     }
 
     /// The descriptor naming the current table pages is durable: apply barrier transitions.
-    pub(crate) fn checkpoint_published(&mut self) -> Vec<u32> {
-        let mut freed = Vec::new();
+    /// Returns how many segments became free.
+    pub(crate) fn checkpoint_published(&mut self) -> u32 {
+        let mut freed = 0;
         for segment in 0..self.geometry.segment_count {
             let index = segment as usize;
             let recorded = self.publication_entry(segment);
@@ -330,9 +361,11 @@ impl Segments {
                 self.flags[index] = SegmentEntry::FREE.flags();
                 self.seal_lsn[index] = 0;
                 self.used_blocks[index] = 0;
+                self.stuck[index] = false;
+                self.discard_due[index] = true;
                 self.pending_free_count -= 1;
                 self.free_count += 1;
-                freed.push(segment);
+                freed += 1;
             }
             self.published_flags[index] = self.flags[index];
         }
@@ -378,6 +411,7 @@ impl Segments {
         self.live_blocks[segment] = self.live_blocks[segment]
             .checked_sub(1)
             .ok_or_else(|| invalid_data("live block count underflow"))?;
+        self.stuck[segment] = false;
         Ok(())
     }
 
@@ -427,6 +461,7 @@ impl Segments {
 
     /// Whether the counts still describe the segments: every segment is in one state and no
     /// live or metadata block exceeds what was written there.
+    #[cfg(test)]
     pub(crate) fn check_conservation(&self) -> io::Result<()> {
         let mut free = 0;
         let mut pending = 0;
@@ -535,7 +570,7 @@ mod tests {
         let image = segments.table_page_image(0).unwrap();
         assert_eq!(image.entries[0], SegmentEntry::pending_free(9));
         assert_eq!(segments.published_free_transitions(), 0);
-        assert!(segments.checkpoint_published().is_empty());
+        assert_eq!(segments.checkpoint_published(), 0);
         assert_eq!(segments.state(0), SegmentState::PendingFree);
         // Publication B records Free and the segment becomes allocatable after the descriptor.
         assert_eq!(
@@ -543,7 +578,9 @@ mod tests {
             SegmentEntry::FREE
         );
         assert_eq!(segments.published_free_transitions(), 1);
-        assert_eq!(segments.checkpoint_published(), [0]);
+        assert_eq!(segments.checkpoint_published(), 1);
+        assert_eq!(segments.take_discard_due(), Some(0));
+        assert_eq!(segments.take_discard_due(), None);
         assert_eq!(segments.entry(0).unwrap(), SegmentEntry::FREE);
         assert_eq!(segments.free_count(), 5);
         assert_eq!(segments.used_blocks(0), 0);
@@ -645,7 +682,7 @@ mod tests {
         assert!(segments.check_conservation().is_err());
         assert_eq!(
             segments.allocated_bytes(),
-            8 * (1 + 8 + 1 + 4 + 4 + 4 + 1) + 4 + 1
+            8 * (1 + 8 + 1 + 4 + 4 + 4 + 1 + 1 + 1) + 4 + 1
         );
     }
 }

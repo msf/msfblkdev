@@ -189,11 +189,10 @@ pub(crate) fn zero_blocks(
             (batch as usize * BLOCK_SIZE) as i32,
         )?;
         #[cfg(any(test, feature = "test-failpoints"))]
-        crate::pause_at_test_failpoint(&format!(
-            "{}-{}",
+        crate::pause_at_indexed_failpoint(
             crate::STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT,
-            offset / BATCH_BLOCKS as u64
-        ))?;
+            offset / BATCH_BLOCKS as u64,
+        )?;
         offset += batch;
     }
     Ok(())

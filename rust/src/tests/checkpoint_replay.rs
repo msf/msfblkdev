@@ -402,15 +402,7 @@ fn log_full_write_does_not_publish_live_checkpoint() -> io::Result<()> {
     let state = (
         mapping_arrays(&volume)?.0.clone(),
         mapping_arrays(&volume)?.1.clone(),
-        last_lsn(&volume),
-        volume.log.checkpoint_lsn(),
-        user_position(&volume),
-        volume.log.active_slot,
-        log_bytes_since_checkpoint(&volume),
     );
-    let file = File::open(&backing.0)?;
-    let mut descriptors = [0; 2 * BLOCK_SIZE];
-    file.read_exact_at(&mut descriptors, 0)?;
     assert_eq!(
         volume
             .write_block(0, &[0xff; BLOCK_SIZE])
@@ -418,24 +410,30 @@ fn log_full_write_does_not_publish_live_checkpoint() -> io::Result<()> {
             .raw_os_error(),
         Some(libc::ENOSPC)
     );
+    // Reclamation under pressure may publish, but it never relocates live data on an all-live
+    // volume and never changes the mapping.
     assert_eq!(
         (
             mapping_arrays(&volume)?.0.clone(),
             mapping_arrays(&volume)?.1.clone(),
-            last_lsn(&volume),
-            volume.log.checkpoint_lsn(),
-            user_position(&volume),
-            volume.log.active_slot,
-            log_bytes_since_checkpoint(&volume),
         ),
         state
     );
-    let mut unchanged_descriptors = [0; 2 * BLOCK_SIZE];
-    file.read_exact_at(&mut unchanged_descriptors, 0)?;
-    assert_eq!(unchanged_descriptors, descriptors);
+    assert_eq!(volume.reclaim_stats().enospc_all_live, 1);
+    assert_eq!(volume.reclaim_stats().payloads_copied, 0);
     let mut actual = [0; BLOCK_SIZE];
     volume.read_block(0, &mut actual)?;
     assert_eq!(actual, [1; BLOCK_SIZE]);
+    // The same request fails again without another publication: the barrier already ran.
+    let lsn = volume.log.checkpoint_lsn();
+    assert_eq!(
+        volume
+            .write_block(0, &[0xff; BLOCK_SIZE])
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOSPC)
+    );
+    assert_eq!(volume.log.checkpoint_lsn(), lsn);
     Ok(())
 }
 

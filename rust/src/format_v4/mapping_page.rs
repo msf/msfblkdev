@@ -1,6 +1,5 @@
 use super::{
-    Geometry, RecordHeader, RecordKind, decode_metadata_framing, decode_metadata_record,
-    require_zero, seal_metadata_record,
+    Geometry, RecordHeader, RecordKind, decode_metadata_record, require_zero, seal_metadata_record,
 };
 use crate::mapping_cache::{ENTRIES_PER_PAGE, MappingEntries};
 use crate::{BLOCK_SIZE, invalid_data, read_u32, read_u64};
@@ -77,12 +76,13 @@ impl MappingPageRecord {
     }
 
     /// Validates traversal fields and the page ID without accepting the mapping entries.
+    #[cfg(test)]
     pub(crate) fn decode_framing(
         bytes: &[u8],
         geometry: Geometry,
         volume_id: u64,
     ) -> io::Result<(RecordHeader, u32)> {
-        let header = decode_metadata_framing(bytes, geometry, volume_id)?;
+        let header = super::decode_metadata_framing(bytes, geometry, volume_id)?;
         if header.kind != RecordKind::MappingPage {
             return Err(invalid_data("expected mapping-page framing"));
         }

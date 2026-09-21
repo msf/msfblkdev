@@ -78,7 +78,7 @@ impl Log {
             };
             record.encode(geometry, &mut self.scratch[batch.count].0)?;
             #[cfg(any(test, feature = "test-failpoints"))]
-            crate::pause_at_test_failpoint(&format!("mapping-page-write-before-{page_id}"))?;
+            crate::pause_at_indexed_failpoint("mapping-page-write-before", u64::from(page_id))?;
             batch.headers[batch.count] = header;
             batch.ids[batch.count] = page_id;
             batch.count += 1;
@@ -103,10 +103,10 @@ impl Log {
         for index in 0..batch.count {
             self.snapshot_written(batch.ids[index], batch.headers[index].boundary)?;
             #[cfg(any(test, feature = "test-failpoints"))]
-            crate::pause_at_test_failpoint(&format!(
-                "mapping-page-write-complete-{}",
-                batch.ids[index]
-            ))?;
+            crate::pause_at_indexed_failpoint(
+                "mapping-page-write-complete",
+                u64::from(batch.ids[index]),
+            )?;
         }
         batch.count = 0;
         Ok(())
@@ -178,10 +178,14 @@ impl Log {
                 self.direct_written(id, block)?;
             }
             #[cfg(any(test, feature = "test-failpoints"))]
-            crate::pause_at_test_failpoint(&format!(
-                "{}-page-write-complete-{id}",
-                if indirect { "indirect" } else { "direct" }
-            ))?;
+            crate::pause_at_indexed_failpoint(
+                if indirect {
+                    "indirect-page-write-complete"
+                } else {
+                    "direct-page-write-complete"
+                },
+                u64::from(id),
+            )?;
         }
         batch.count = 0;
         Ok(())
@@ -232,10 +236,10 @@ impl Log {
             self.segments
                 .table_page_written(batch.ids[index], batch.headers[index].boundary)?;
             #[cfg(any(test, feature = "test-failpoints"))]
-            crate::pause_at_test_failpoint(&format!(
-                "table-page-write-complete-{}",
-                batch.ids[index]
-            ))?;
+            crate::pause_at_indexed_failpoint(
+                "table-page-write-complete",
+                u64::from(batch.ids[index]),
+            )?;
         }
         batch.count = 0;
         Ok(())
@@ -299,7 +303,7 @@ impl Log {
         crate::pause_at_test_failpoint(crate::DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT)?;
         self.active_slot = descriptor.slot;
         self.root_lsn[descriptor.slot as usize] = Some(descriptor.checkpoint_lsn);
-        self.segments.checkpoint_published();
+        let _freed = self.segments.checkpoint_published();
         cache.checkpoint_published();
         self.blocks_since_checkpoint = 0;
         Ok(())

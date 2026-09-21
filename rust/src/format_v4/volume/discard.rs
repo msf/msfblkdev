@@ -62,11 +62,10 @@ impl Volume {
         }
         let reservation =
             Reservation::for_metadata(1, page_count, self.mapping.cache.dirty_pages().count())?;
-        ensure_user_space(
-            &self.log,
-            self.reserve,
-            reservation.demanded_blocks(self.log.geometry),
-        )?;
+        let demanded = reservation.demanded_blocks(self.log.geometry) + self.maintenance_debt();
+        if ensure_user_space(&self.log, self.reserve, demanded).is_err() {
+            self.reclaim_for_space(demanded)?;
+        }
         self.log.append_metadata(
             &mut self.backing_io,
             &self.backing,

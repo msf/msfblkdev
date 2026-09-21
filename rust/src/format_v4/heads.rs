@@ -3,6 +3,7 @@ use super::{Geometry, HeadId, NO_PREVIOUS_BOUNDARY, RecordHeader};
 use crate::MAXIMUM_PAYLOAD_BLOCKS;
 
 /// One append position: the last record's LSN and boundary.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LogPosition {
     pub(crate) lsn: u64,
@@ -95,6 +96,7 @@ impl Head {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn position(self) -> LogPosition {
         LogPosition {
             lsn: self.last_lsn,
