@@ -1030,9 +1030,11 @@ the [implementation record](GOAL-ADR08.md).
 
 ### Evidence
 
-Gates before each commit: `make lint test`. Milestones: `make test-acceptance` (SIGKILL matrices at
-publication, recovery, stale-tail, relocation, link, discard and growth boundaries). Live:
-`make test-ublk-fio` on a format-4 fixture with a sustained-overwrite scenario that wraps the log.
+Gates before each commit: `make lint test` (328 tests at the tag). Milestones: `make test-acceptance`
+(SIGKILL matrices at publication, recovery, stale-tail, relocation, link, discard and growth
+boundaries; PASS on the tagged commit). Live: `make test-ublk-fio` on a format-4 fixture with a
+sustained-overwrite scenario that wraps the log (PASS on the tagged commit: 1810 blocks appended
+into a 320-block log, 53 segments freed, 177 cleaner wake-ups for 615 maintenance ticks).
 The ext4, XFS and SQLite gates could not run in the implementation clone: their preflight requires
 the installed root-owned mount helper to be byte-identical to the helper built from the tree, and
 installing helpers was out of scope; they are reported as unverified. Logs live under

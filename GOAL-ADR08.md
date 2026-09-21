@@ -54,16 +54,22 @@ Phase 4: gates, live acceptance, performance, ADR update, tag `v2.0-rc`.
       preflight requires the installed root-owned mount helper to be byte-identical to the
       helper built from the current tree, and installing helpers is not authorized here
       (`check-ext4-8af23f1.log`, `check-xfs-8af23f1.log`). Reported as unverified.
-- [x] Acceptance on the candidate `2303843`: PASS, 326 tests, 85 s
-      (`evidence/adr08-implementation/acceptance-2303843.log`).
+- [x] Acceptance: PASS on `2303843` (326 tests), `8e7e0e2` (328) and the final candidate `8c7f650`
+      (328 tests, 86 s, `evidence/adr08-implementation/acceptance-8c7f650.log`).
+- [x] ublk-fio on the final candidate `8c7f650`: PASS, 8 scenarios × 3 in 44 s; wraparound appended
+      1810 blocks into a 320-block log and freed 53 segments; exhaustion at 146 written blocks;
+      615 maintenance ticks with 177 cleaner wake-ups across the daemon lifetimes
+      (`ublk-fio-8c7f650.log` and the full lab log beside it).
 - [x] Performance comparisons (`tools/adr08-bench/`): baseline `57d56cc` against the candidate,
       3 interleaved repetitions, 72 runs each on a btrfs fixture (`perf/report-btrfs.md`) and on
-      tmpfs (`perf/report-tmpfs.md`); summarized in `ADR-08-PERF-RESULTS.md`.
+      tmpfs (`perf/report-tmpfs-8c7f650.md` for the tagged commit; earlier tmpfs runs beside it);
+      summarized in `ADR-08-PERF-RESULTS.md`.
 - [x] ADR-08 implementation decisions, review dispositions and README notes (`2303843`).
 - [x] Final read-only review of the complete diff: three blockers found and fixed (decision 22),
       idle watermark added (decision 23), unused `CleanerShape::proposal_payloads` removed,
       `maintenance_ready` wired into the daemon's timer arming.
-- [ ] Gates on the final candidate, re-measured performance, tag `v2.0-rc`.
+- [x] Gates on the final candidate `8c7f650` (lint/test, acceptance, ublk-fio), performance
+      re-measured, tag `v2.0-rc`.
 
 ## Decisions (resolved draft gaps)
 
@@ -179,8 +185,12 @@ make test-acceptance           # exhaustive crash matrix (~10 min at baseline)
 
 ## Status
 
-Last green commit: see `git log`; every implementation commit carries its `make lint test` log
-under `evidence/adr08-implementation/`. Acceptance: PASS on `0d41533` (314 tests) and on
-`2303843` (326 tests). Live: ublk-fio PASS on `8af23f1`; ext4, XFS and SQLite gates unavailable in
-this clone (mount helper identity). Remaining: performance report write-up, final diff review, tag
-`v2.0-rc`.
+Complete. The tag `v2.0-rc` marks the final candidate `8c7f650`. Every implementation commit
+carries its `make lint test` log under `evidence/adr08-implementation/`. Acceptance: PASS on
+`0d41533` (314 tests), `2303843` (326), `8e7e0e2` (328) and `8c7f650` (328). Live: ublk-fio PASS
+on `8af23f1` and `8c7f650`; the run on `8e7e0e2` failed on the lab's old exhaustion floor and is
+kept as evidence of the defect fixed in `8c7f650`. ext4, XFS and SQLite gates were unavailable in
+this clone (mount helper identity) and are unverified. Known flaky tests outside this work:
+`io_accounting::tests::new_writer_refuses_abandoned_pending_work_without_repair` (WouldBlock
+under parallel load) and `ublk_fio::tests::cleanup_refuses_changed_identity_and_preserves_backing`
+(evidence file name collision when two tests start in the same nanosecond); both pass alone.
