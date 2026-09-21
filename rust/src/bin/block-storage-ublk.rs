@@ -6,17 +6,22 @@ mod io_ledger;
 #[path = "ublk_support/request_counts.rs"]
 mod request_counts;
 
-use block_storage::{log_debug, log_info};
+use block_storage::{
+    BackingDiscard, DEFAULT_IDLE_WAIT, DEFAULT_MAXIMUM_INTERVAL, HeapBudgetOptions,
+    MaintenanceStep, Scheduler, SelectionMode, log_debug, log_info,
+};
+use io_uring::{opcode, types};
 use libublk::ctrl::{UblkCtrl, UblkCtrlBuilder};
 use libublk::helpers::IoBuf;
-use libublk::io::{BufDescList, UblkDev, UblkQueue};
+use libublk::io::{BufDescList, UblkDev, UblkIOCtx, UblkQueue};
 #[cfg(test)]
 use libublk::sys::UBLK_F_USER_RECOVERY;
 use libublk::sys::{
     UBLK_ATTR_VOLATILE_CACHE, UBLK_F_UNPRIVILEGED_DEV, UBLK_IO_F_FAILFAST_DEV,
     UBLK_IO_F_FAILFAST_DRIVER, UBLK_IO_F_FAILFAST_TRANSPORT, UBLK_IO_F_FUA, UBLK_IO_F_META,
-    UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE, UBLK_PARAM_TYPE_BASIC, ublk_param_basic,
-    ublk_params, ublksrv_io_desc,
+    UBLK_IO_F_NOUNMAP, UBLK_IO_OP_DISCARD, UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE,
+    UBLK_IO_OP_WRITE_ZEROES, UBLK_PARAM_TYPE_BASIC, UBLK_PARAM_TYPE_DISCARD, ublk_param_basic,
+    ublk_param_discard, ublk_params, ublksrv_io_desc,
 };
 use libublk::{BufDesc, UblkError, UblkFlags, UblkIORes};
 use std::ffi::{OsStr, OsString};
@@ -28,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const BLOCK_SHIFT: u8 = 12;
 const LOGICAL_BLOCK_BYTES: u32 = 1 << BLOCK_SHIFT;
@@ -56,38 +61,77 @@ const SHUTDOWN_COMPLETION: i32 = -libc::ESHUTDOWN;
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const DEVICE_REMOVAL_TIMEOUT: Duration = Duration::from_secs(2);
 const CONTROL_FLAGS: u64 = UBLK_F_UNPRIVILEGED_DEV as u64;
+// Two ring slots beyond the queue depth: the maintenance timer and the cleaner wake-up poll.
+const EXTRA_IOS: u16 = 2;
+const MAINTENANCE_TIMER_SLOT: u16 = 0;
+const CLEANER_WAKEUP_SLOT: u16 = 1;
+// Target-io operation codes in libublk user data, so completions are classified before any
+// tag indexes a request buffer.
+const TARGET_OP_TIMER: u32 = 1;
+const TARGET_OP_WAKEUP: u32 = 2;
+const DISCARD_GRANULARITY_BYTES: u32 = LOGICAL_BLOCK_BYTES;
 
 static SIGTERM_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// SIGUSR1 asks the daemon to claim an externally grown backing file (ADR-08: no automatic
+/// growth controller; the operator enlarges the file, then signals).
+static GROWTH_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 unsafe extern "C" fn sigterm_handler(_signal: libc::c_int) {
     SIGTERM_REQUESTED.store(true, Ordering::Relaxed);
 }
 
+unsafe extern "C" fn sigusr1_handler(_signal: libc::c_int) {
+    GROWTH_REQUESTED.store(true, Ordering::Relaxed);
+}
+
 struct SignalGuard {
-    previous: libc::sigaction,
+    previous_term: libc::sigaction,
+    previous_usr1: libc::sigaction,
     installed: bool,
 }
 
 impl SignalGuard {
     fn install() -> io::Result<Self> {
         SIGTERM_REQUESTED.store(false, Ordering::Relaxed);
-        // SAFETY: sigaction is initialized before use, the handler has the required ABI, and
-        // it performs only a lock-free atomic store.
+        GROWTH_REQUESTED.store(false, Ordering::Relaxed);
+        // SAFETY: each sigaction is initialized before use, the handlers have the required ABI,
+        // and they perform only a lock-free atomic store.
+        unsafe {
+            let previous_term = Self::install_handler(libc::SIGTERM, sigterm_handler)?;
+            let previous_usr1 = match Self::install_handler(libc::SIGUSR1, sigusr1_handler) {
+                Ok(previous) => previous,
+                Err(error) => {
+                    libc::sigaction(libc::SIGTERM, &previous_term, std::ptr::null_mut());
+                    return Err(error);
+                }
+            };
+            Ok(Self {
+                previous_term,
+                previous_usr1,
+                installed: true,
+            })
+        }
+    }
+
+    /// # Safety
+    /// `handler` must be async-signal-safe.
+    unsafe fn install_handler(
+        signal: libc::c_int,
+        handler: unsafe extern "C" fn(libc::c_int),
+    ) -> io::Result<libc::sigaction> {
+        // SAFETY: the caller's contract; the structures are zeroed before sigaction reads them.
         unsafe {
             let mut action: libc::sigaction = std::mem::zeroed();
-            action.sa_sigaction = sigterm_handler as *const () as usize;
+            action.sa_sigaction = handler as *const () as usize;
             action.sa_flags = 0;
             if libc::sigemptyset(&mut action.sa_mask) != 0 {
                 return Err(io::Error::last_os_error());
             }
             let mut previous = std::mem::zeroed();
-            if libc::sigaction(libc::SIGTERM, &action, &mut previous) != 0 {
+            if libc::sigaction(signal, &action, &mut previous) != 0 {
                 return Err(io::Error::last_os_error());
             }
-            Ok(Self {
-                previous,
-                installed: true,
-            })
+            Ok(previous)
         }
     }
 
@@ -99,8 +143,12 @@ impl SignalGuard {
         if !self.installed {
             return Ok(());
         }
-        // SAFETY: previous was populated by a successful sigaction call.
-        if unsafe { libc::sigaction(libc::SIGTERM, &self.previous, std::ptr::null_mut()) } != 0 {
+        // SAFETY: both previous actions were populated by successful sigaction calls.
+        let restored = unsafe {
+            libc::sigaction(libc::SIGTERM, &self.previous_term, std::ptr::null_mut()) == 0
+                && libc::sigaction(libc::SIGUSR1, &self.previous_usr1, std::ptr::null_mut()) == 0
+        };
+        if !restored {
             return Err(io::Error::last_os_error());
         }
         self.installed = false;
@@ -217,6 +265,19 @@ struct ServeConfig {
     inflight_memory_bytes: u64,
     write_buffer_bytes: u64,
     mapping_cache_bytes: Option<u64>,
+    /// Heap budget as parts per million of the logical volume (ADR-08 default 1%).
+    heap_ppm: u32,
+    /// Replaces the proportional heap total.
+    heap_bytes: Option<u64>,
+    /// The cleaner's share for read windows and proposals.
+    cleaner_bytes: Option<u64>,
+    /// Backing bytes the segment state is preallocated for; None allows twice the backing.
+    growth_capacity_bytes: Option<u64>,
+    backing_discard: BackingDiscard,
+    /// Gap without requests before idle maintenance runs.
+    idle_wait: Duration,
+    /// Longest stretch of continuous requests before maintenance runs anyway.
+    maximum_maintenance_interval: Duration,
 }
 
 impl Default for ServeConfig {
@@ -226,6 +287,13 @@ impl Default for ServeConfig {
             inflight_memory_bytes: DEFAULT_INFLIGHT_MEMORY_BYTES,
             write_buffer_bytes: DEFAULT_WRITE_BUFFER_BYTES,
             mapping_cache_bytes: None,
+            heap_ppm: block_storage::DEFAULT_HEAP_PROPORTION_PPM,
+            heap_bytes: None,
+            cleaner_bytes: None,
+            growth_capacity_bytes: None,
+            backing_discard: BackingDiscard::default(),
+            idle_wait: DEFAULT_IDLE_WAIT,
+            maximum_maintenance_interval: DEFAULT_MAXIMUM_INTERVAL,
         }
     }
 }
@@ -258,6 +326,18 @@ impl ServeConfig {
                 "--write-buffer-bytes must be a positive multiple of 4096 and at most 16 MiB",
             ));
         }
+        if self.heap_ppm == 0 || self.heap_ppm > 1_000_000 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--heap-ppm must be between 1 and 1000000",
+            ));
+        }
+        if self.idle_wait.is_zero() || self.idle_wait > self.maximum_maintenance_interval {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--idle-wait-us must be positive and at most --max-maintenance-interval-ms",
+            ));
+        }
         Ok(())
     }
 
@@ -265,6 +345,13 @@ impl ServeConfig {
         block_storage::VolumeOpenOptions {
             write_buffer_bytes: self.write_buffer_bytes,
             cache_budget_bytes: self.mapping_cache_bytes,
+            heap: HeapBudgetOptions {
+                proportion_ppm: self.heap_ppm,
+                total_bytes: self.heap_bytes,
+                cleaner_bytes: self.cleaner_bytes,
+            },
+            growth_capacity_bytes: self.growth_capacity_bytes,
+            backing_discard: self.backing_discard,
             ..block_storage::VolumeOpenOptions::default()
         }
     }
@@ -308,7 +395,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N (or --size-bytes N --prealloc-bytes N) [--segment-bytes N]",
+                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] [--heap-ppm N] [--heap-bytes N] [--cleaner-bytes N] [--growth-capacity-bytes N] [--backing-discard off|punch] [--idle-wait-us N] [--max-maintenance-interval-ms N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N (or --size-bytes N --prealloc-bytes N) [--segment-bytes N]",
                 PathBuf::from(&program).display()
             ),
         )
@@ -432,6 +519,31 @@ fn parse_serve_config(
             Some("--mapping-cache-bytes") => {
                 config.mapping_cache_bytes = Some(parse_bytes(&value)?);
             }
+            Some("--heap-ppm") => {
+                config.heap_ppm = u32::try_from(parse_bytes(&value)?).map_err(|_| usage())?;
+            }
+            Some("--heap-bytes") => {
+                config.heap_bytes = Some(parse_bytes(&value)?);
+            }
+            Some("--cleaner-bytes") => {
+                config.cleaner_bytes = Some(parse_bytes(&value)?);
+            }
+            Some("--growth-capacity-bytes") => {
+                config.growth_capacity_bytes = Some(parse_bytes(&value)?);
+            }
+            Some("--backing-discard") => {
+                config.backing_discard = match value.to_str() {
+                    Some("off") => BackingDiscard::Off,
+                    Some("punch") => BackingDiscard::HolePunch,
+                    _ => return Err(usage()),
+                };
+            }
+            Some("--idle-wait-us") => {
+                config.idle_wait = Duration::from_micros(parse_bytes(&value)?);
+            }
+            Some("--max-maintenance-interval-ms") => {
+                config.maximum_maintenance_interval = Duration::from_millis(parse_bytes(&value)?);
+            }
             _ => return Err(usage()),
         }
     }
@@ -494,19 +606,29 @@ struct TargetConfiguration {
 }
 
 fn target_configuration(volume_blocks: u32, max_request_bytes: u32) -> TargetConfiguration {
+    let max_sectors = max_request_bytes >> SECTOR_SHIFT;
     TargetConfiguration {
         device_bytes: u64::from(volume_blocks) * u64::from(LOGICAL_BLOCK_BYTES),
         parameters: ublk_params {
-            types: UBLK_PARAM_TYPE_BASIC,
+            types: UBLK_PARAM_TYPE_BASIC | UBLK_PARAM_TYPE_DISCARD,
             basic: ublk_param_basic {
                 attrs: UBLK_ATTR_VOLATILE_CACHE,
                 logical_bs_shift: BLOCK_SHIFT,
                 physical_bs_shift: BLOCK_SHIFT,
                 io_opt_shift: BLOCK_SHIFT,
                 io_min_shift: BLOCK_SHIFT,
-                max_sectors: max_request_bytes >> SECTOR_SHIFT,
+                max_sectors,
                 dev_sectors: u64::from(volume_blocks) * SECTORS_PER_BLOCK,
                 ..Default::default()
+            },
+            // Discards and write-zeroes unmap whole logical blocks; one range per request.
+            discard: ublk_param_discard {
+                discard_alignment: 0,
+                discard_granularity: DISCARD_GRANULARITY_BYTES,
+                max_discard_sectors: max_sectors,
+                max_write_zeroes_sectors: max_sectors,
+                max_discard_segments: 1,
+                reserved0: 0,
             },
             ..Default::default()
         },
@@ -518,6 +640,8 @@ enum Request {
     Read { lba: u32, blocks: u32 },
     Write { lba: u32, blocks: u32, fua: bool },
     Flush,
+    Discard { lba: u32, blocks: u32 },
+    WriteZeroes { lba: u32, blocks: u32, fua: bool },
 }
 
 /// Names the ublk opcode for diagnostics; unknown opcodes keep their number.
@@ -526,6 +650,8 @@ fn operation_name(op_flags: u32) -> &'static str {
         UBLK_IO_OP_READ => "read",
         UBLK_IO_OP_WRITE => "write",
         UBLK_IO_OP_FLUSH => "flush",
+        UBLK_IO_OP_DISCARD => "discard",
+        UBLK_IO_OP_WRITE_ZEROES => "write_zeroes",
         _ => "unsupported",
     }
 }
@@ -543,6 +669,8 @@ fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Requ
         }
         // FUA is a per-write durability request under the advertised volatile cache: release now.
         UBLK_IO_OP_WRITE => UBLK_IO_F_META | UBLK_IO_F_FUA,
+        // Unmapped blocks read as zeros either way, so NOUNMAP changes nothing here.
+        UBLK_IO_OP_WRITE_ZEROES => UBLK_IO_F_NOUNMAP | UBLK_IO_F_FUA,
         _ => 0,
     };
     if flags & !allowed_hints != 0 {
@@ -550,7 +678,7 @@ fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Requ
     }
 
     match operation {
-        UBLK_IO_OP_READ | UBLK_IO_OP_WRITE => {
+        UBLK_IO_OP_READ | UBLK_IO_OP_WRITE | UBLK_IO_OP_DISCARD | UBLK_IO_OP_WRITE_ZEROES => {
             let nr_sectors = u64::from(descriptor.nr_sectors);
             if nr_sectors == 0
                 || !nr_sectors.is_multiple_of(SECTORS_PER_BLOCK)
@@ -564,15 +692,13 @@ fn decode_request(descriptor: &ublksrv_io_desc, dev_sectors: u64) -> Result<Requ
                 .map_err(|_| -libc::EINVAL)?;
             let blocks =
                 u32::try_from(nr_sectors / SECTORS_PER_BLOCK).map_err(|_| -libc::EINVAL)?;
-            if operation == UBLK_IO_OP_READ {
-                Ok(Request::Read { lba, blocks })
-            } else {
-                Ok(Request::Write {
-                    lba,
-                    blocks,
-                    fua: flags & UBLK_IO_F_FUA != 0,
-                })
-            }
+            let fua = flags & UBLK_IO_F_FUA != 0;
+            Ok(match operation {
+                UBLK_IO_OP_READ => Request::Read { lba, blocks },
+                UBLK_IO_OP_WRITE => Request::Write { lba, blocks, fua },
+                UBLK_IO_OP_DISCARD => Request::Discard { lba, blocks },
+                _ => Request::WriteZeroes { lba, blocks, fua },
+            })
         }
         UBLK_IO_OP_FLUSH => Ok(Request::Flush),
         _ => Err(-libc::EOPNOTSUPP),
@@ -629,6 +755,32 @@ fn handle_request(
             }
         }
         Request::Flush => complete_flush(volume.flush(), 0),
+        Request::Discard { lba, blocks } => complete_unmap(volume.discard_blocks(lba, blocks)),
+        Request::WriteZeroes { lba, blocks, fua } => {
+            let outcome = complete_unmap(volume.write_zeroes(lba, blocks));
+            if fua && outcome.completion >= 0 {
+                complete_flush(volume.flush(), outcome.completion)
+            } else {
+                outcome
+            }
+        }
+    }
+}
+
+/// Discards carry no data: success completes with zero, `ENOSPC` is not fatal.
+fn complete_unmap(result: io::Result<()>) -> RequestOutcome {
+    match result {
+        Ok(()) => RequestOutcome {
+            completion: 0,
+            fatal: false,
+        },
+        Err(error) => {
+            let completion = engine_error(error);
+            RequestOutcome {
+                completion,
+                fatal: completion != -libc::ENOSPC,
+            }
+        }
     }
 }
 
@@ -788,6 +940,185 @@ fn close_after_queue(
     );
 }
 
+/// Maintenance scheduling inside the queue loop: timeout SQEs that fire at the scheduler's
+/// hints and one poll SQE on the cleaner's wake-up descriptor. Both complete as target I/O,
+/// classified by operation code before any tag indexes a request buffer.
+///
+/// Timers carry a generation: when a request arrives while the armed timer is far away, a
+/// short timer is armed for the idle wait and the far one is ignored when it fires. That costs
+/// one SQE per burst of requests, never one per request.
+struct Maintenance {
+    scheduler: Scheduler,
+    /// Referenced by timeout SQEs until the ring flushes them; two generations can be pending.
+    timers: [Box<types::Timespec>; 2],
+    generation: u16,
+    /// Whether the newest timer fires within one idle wait of arming.
+    timer_short: bool,
+    timer_tag: u16,
+    wakeup_tag: u16,
+    wakeup_fd: i32,
+    slice: Duration,
+    ticks: u64,
+    wakeups: u64,
+    /// Ticks that ran maintenance because the maximum interval passed under continuous requests.
+    due_ticks: u64,
+    growths: u64,
+    stale_timers: u64,
+    last_step: Option<MaintenanceStep>,
+}
+
+impl Maintenance {
+    fn new(config: ServeConfig, depth: u16, wakeup_fd: i32, now: Instant) -> Self {
+        Self {
+            scheduler: Scheduler::new(now, config.idle_wait, config.maximum_maintenance_interval),
+            timers: [
+                Box::new(types::Timespec::new()),
+                Box::new(types::Timespec::new()),
+            ],
+            generation: 0,
+            timer_short: false,
+            timer_tag: depth + MAINTENANCE_TIMER_SLOT,
+            wakeup_tag: depth + CLEANER_WAKEUP_SLOT,
+            wakeup_fd,
+            slice: config.idle_wait,
+            ticks: 0,
+            wakeups: 0,
+            due_ticks: 0,
+            growths: 0,
+            stale_timers: 0,
+            last_step: None,
+        }
+    }
+
+    /// Arms the next timer: soon when maintenance has work or requests were just completed,
+    /// else at the deadline.
+    fn arm_timer(&mut self, queue: &UblkQueue, now: Instant) -> Result<(), UblkError> {
+        let work_pending = !matches!(
+            self.last_step,
+            Some(MaintenanceStep::Idle | MaintenanceStep::Waiting)
+        );
+        let wait = if work_pending {
+            self.scheduler.wait_hint(now)
+        } else {
+            self.scheduler.until_deadline(now)
+        };
+        self.arm_timer_for(queue, wait)
+    }
+
+    fn arm_timer_for(&mut self, queue: &UblkQueue, wait: Duration) -> Result<(), UblkError> {
+        self.generation = self.generation.wrapping_add(1);
+        self.timer_short = wait <= self.scheduler.idle_wait();
+        let slot = &mut self.timers[usize::from(self.generation % 2)];
+        **slot = types::Timespec::new()
+            .sec(wait.as_secs())
+            .nsec(wait.subsec_nanos());
+        let entry = opcode::Timeout::new(&**slot)
+            .flags(types::TimeoutFlags::ETIME_SUCCESS)
+            .build()
+            .user_data(UblkIOCtx::build_user_data(
+                self.timer_tag,
+                TARGET_OP_TIMER,
+                u32::from(self.generation),
+                true,
+            ));
+        queue.ublk_submit_sqe_sync(entry)
+    }
+
+    /// Whether a timer completion belongs to the newest generation.
+    fn timer_is_current(&mut self, user_data: u64) -> bool {
+        let generation = ((user_data >> 24) & 0xffff) as u16;
+        if generation == self.generation {
+            true
+        } else {
+            self.stale_timers += 1;
+            false
+        }
+    }
+
+    /// A request completed: make sure a timer fires within one idle wait.
+    fn request_completed(&mut self, queue: &UblkQueue, now: Instant) -> Result<(), UblkError> {
+        self.scheduler.request_completed(now);
+        if self.timer_short {
+            return Ok(());
+        }
+        let wait = self.scheduler.idle_wait();
+        self.arm_timer_for(queue, wait)
+    }
+
+    fn arm_wakeup(&self, queue: &UblkQueue) -> Result<(), UblkError> {
+        let entry = opcode::PollAdd::new(types::Fd(self.wakeup_fd), libc::POLLIN as u32)
+            .build()
+            .user_data(UblkIOCtx::build_user_data(
+                self.wakeup_tag,
+                TARGET_OP_WAKEUP,
+                0,
+                true,
+            ));
+        queue.ublk_submit_sqe_sync(entry)
+    }
+
+    /// Runs maintenance when the queue is idle or the maximum interval has passed.
+    fn tick(&mut self, volume: &mut block_storage::Volume, now: Instant) -> Result<(), io::Error> {
+        let idle = self.scheduler.idle(now);
+        if !idle && !self.scheduler.maintenance_due(now) {
+            return Ok(());
+        }
+        if GROWTH_REQUESTED.swap(false, Ordering::Relaxed) {
+            self.claim_growth(volume);
+        }
+        self.ticks += 1;
+        if !idle {
+            self.due_ticks += 1;
+        }
+        let step = volume.maintain_for(SelectionMode::Idle, self.slice);
+        let lateness = self.scheduler.maintained(now);
+        if lateness > self.slice {
+            log_debug!(
+                "event=maintenance_late lateness_us={}",
+                lateness.as_micros()
+            );
+        }
+        match step {
+            Ok(step) => {
+                self.last_step = Some(step);
+                Ok(())
+            }
+            // Space that maintenance cannot free is reported by the next write, not here.
+            Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Claims the backing file's current length after SIGUSR1.
+    fn claim_growth(&mut self, volume: &mut block_storage::Volume) {
+        let result = volume
+            .backing_len()
+            .and_then(|bytes| volume.grow_backing(bytes).map(|()| bytes));
+        match result {
+            Ok(bytes) => {
+                self.growths += 1;
+                log_info!("event=backing_growth_claimed backing_bytes={bytes}");
+            }
+            Err(error) => log_info!("event=backing_growth_rejected error={error}"),
+        }
+    }
+
+    fn summary(&self) -> String {
+        format!(
+            "maintenance_ticks={} maintenance_due_ticks={} cleaner_wakeups={} stale_timers={} maintenance_runs={} maintenance_worst_lateness_us={} maintenance_total_lateness_us={} growths_claimed={} last_step={:?}",
+            self.ticks,
+            self.due_ticks,
+            self.wakeups,
+            self.stale_timers,
+            self.scheduler.maintenance_runs(),
+            self.scheduler.worst_lateness().as_micros(),
+            self.scheduler.total_lateness().as_micros(),
+            self.growths,
+            self.last_step,
+        )
+    }
+}
+
 fn run_queue(
     qid: u16,
     dev: &UblkDev,
@@ -826,7 +1157,47 @@ fn run_queue(
 
     let mut queue_error = None;
     let mut requests = request_counts::RequestCounts::new();
-    queue.wait_and_handle_io(|queue, tag, _context| {
+    let mut maintenance =
+        Maintenance::new(config, depth, volume.cleaner_wakeup_fd(), Instant::now());
+    // The first tick runs after one idle wait, then maintenance settles into its own cadence.
+    if let Err(error) = maintenance
+        .arm_timer_for(&queue, config.idle_wait)
+        .and_then(|()| maintenance.arm_wakeup(&queue))
+    {
+        drain.queue_failed.store(true, Ordering::Release);
+        queue_error = Some(ublk_error(error));
+    }
+    queue.wait_and_handle_io(|queue, tag, context| {
+        if context.is_tgt_io() {
+            let now = Instant::now();
+            let operation = UblkIOCtx::user_data_to_op(context.user_data());
+            let rearm = match operation {
+                TARGET_OP_TIMER if !maintenance.timer_is_current(context.user_data()) => Ok(()),
+                TARGET_OP_TIMER => {
+                    let ticked = maintenance.tick(&mut volume, now);
+                    if let Err(error) = ticked {
+                        drain.queue_failed.store(true, Ordering::Release);
+                        queue_error.get_or_insert(error);
+                    }
+                    maintenance.arm_timer(queue, now)
+                }
+                TARGET_OP_WAKEUP => {
+                    maintenance.wakeups += 1;
+                    let ticked = maintenance.tick(&mut volume, now);
+                    if let Err(error) = ticked {
+                        drain.queue_failed.store(true, Ordering::Release);
+                        queue_error.get_or_insert(error);
+                    }
+                    maintenance.arm_wakeup(queue)
+                }
+                _ => Ok(()),
+            };
+            if let Err(error) = rearm {
+                drain.queue_failed.store(true, Ordering::Release);
+                queue_error.get_or_insert(ublk_error(error));
+            }
+            return;
+        }
         let before_ready = !drain.device_ready.load(Ordering::Acquire);
         let descriptor = *queue.get_iod(tag);
         let op_flags = descriptor.op_flags;
@@ -860,6 +1231,10 @@ fn run_queue(
                 queue_error = Some(ublk_error(error));
             }
         }
+        if let Err(error) = maintenance.request_completed(queue, Instant::now()) {
+            drain.queue_failed.store(true, Ordering::Release);
+            queue_error.get_or_insert(ublk_error(error));
+        }
     });
 
     if let Err(error) = requests.report(&mut io::stderr().lock()) {
@@ -873,6 +1248,10 @@ fn run_queue(
         "event=mapping_stats phase=before_close {}",
         volume.mapping_stats().summary()
     );
+    log_info!("event=maintenance {}", maintenance.summary());
+    log_info!("event=reclaim_stats {}", volume.reclaim_stats().summary());
+    log_info!("event=log_writes {}", volume.log_writes().summary());
+    log_info!("event=heap_budget {}", volume.heap_budget().summary());
     match volume.space_usage() {
         Ok(usage) => log_info!("event=space phase=shutdown {}", usage.summary()),
         Err(error) => log_info!("event=space phase=shutdown error={error}"),
@@ -935,12 +1314,19 @@ fn serve(
     let accounting = io_ledger::open_optional(ledger_path)?;
     let _backing_lock = BackingLock::acquire(backing_path)?;
     log_info!(
-        "event=serve_config max_request_bytes={} inflight_memory_bytes={} depth={} buffer_memory_bytes={} write_buffer_bytes={}",
+        "event=serve_config max_request_bytes={} inflight_memory_bytes={} depth={} buffer_memory_bytes={} write_buffer_bytes={} heap_ppm={} heap_bytes={:?} cleaner_bytes={:?} growth_capacity_bytes={:?} backing_discard={:?} idle_wait_us={} max_maintenance_interval_ms={}",
         config.max_request_bytes,
         config.inflight_memory_bytes,
         config.queue_depth(),
         config.buffer_memory_bytes(),
         config.write_buffer_bytes,
+        config.heap_ppm,
+        config.heap_bytes,
+        config.cleaner_bytes,
+        config.growth_capacity_bytes,
+        config.backing_discard,
+        config.idle_wait.as_micros(),
+        config.maximum_maintenance_interval.as_millis(),
     );
     let signal_guard = SignalGuard::install()?;
     let drain = Arc::new(DrainState::new());
@@ -962,6 +1348,10 @@ fn serve(
         log_info!(
             "event=mapping_stats phase=open {}",
             volume.mapping_stats().summary()
+        );
+        log_info!(
+            "event=heap_budget phase=open {}",
+            volume.heap_budget().summary()
         );
         if let Ok(usage) = volume.space_usage() {
             log_info!("event=space phase=open {}", usage.summary());
@@ -1001,6 +1391,10 @@ fn serve(
                     move |dev| {
                         dev.tgt.dev_size = target.device_bytes;
                         dev.tgt.params = target.parameters;
+                        // Ring room for the maintenance timer and the cleaner wake-up poll.
+                        dev.tgt.extra_ios = EXTRA_IOS;
+                        dev.tgt.sq_depth += EXTRA_IOS;
+                        dev.tgt.cq_depth += EXTRA_IOS;
                         Ok(())
                     },
                     move |qid, dev| {
@@ -1427,6 +1821,60 @@ mod tests {
             }
         );
         assert_eq!(
+            parse_args(
+                [
+                    "daemon",
+                    "serve",
+                    "volume.img",
+                    "3",
+                    "--heap-ppm",
+                    "20000",
+                    "--heap-bytes",
+                    "33554432",
+                    "--cleaner-bytes",
+                    "4194304",
+                    "--growth-capacity-bytes",
+                    "1073741824",
+                    "--backing-discard",
+                    "off",
+                    "--idle-wait-us",
+                    "1000",
+                    "--max-maintenance-interval-ms",
+                    "50",
+                ]
+                .map(OsString::from)
+            )
+            .unwrap(),
+            CliCommand::Serve {
+                backing_path: PathBuf::from("volume.img"),
+                device_id: 3,
+                config: ServeConfig {
+                    heap_ppm: 20_000,
+                    heap_bytes: Some(33_554_432),
+                    cleaner_bytes: Some(4_194_304),
+                    growth_capacity_bytes: Some(1 << 30),
+                    backing_discard: BackingDiscard::Off,
+                    idle_wait: Duration::from_millis(1),
+                    maximum_maintenance_interval: Duration::from_millis(50),
+                    ..ServeConfig::default()
+                },
+            }
+        );
+        assert!(
+            parse_args(
+                [
+                    "daemon",
+                    "serve",
+                    "volume.img",
+                    "3",
+                    "--backing-discard",
+                    "maybe"
+                ]
+                .map(OsString::from)
+            )
+            .is_err()
+        );
+        assert_eq!(
             parse_args(["daemon", "delete", "7"].map(OsString::from)).unwrap(),
             CliCommand::Delete { device_id: 7 }
         );
@@ -1576,7 +2024,10 @@ mod tests {
 
         assert_eq!(target.device_bytes, 37 * 4096);
         assert_eq!(params.len, 0);
-        assert_eq!(params.types, UBLK_PARAM_TYPE_BASIC);
+        assert_eq!(
+            params.types,
+            UBLK_PARAM_TYPE_BASIC | UBLK_PARAM_TYPE_DISCARD
+        );
         assert_eq!(basic.attrs, UBLK_ATTR_VOLATILE_CACHE);
         assert_eq!(basic.logical_bs_shift, BLOCK_SHIFT);
         assert_eq!(basic.physical_bs_shift, BLOCK_SHIFT);
@@ -1587,10 +2038,16 @@ mod tests {
         assert_eq!(basic.dev_sectors, 37 * 8);
         assert_eq!(basic.virt_boundary_mask, 0);
         assert_eq!(params.discard.discard_alignment, 0);
-        assert_eq!(params.discard.discard_granularity, 0);
-        assert_eq!(params.discard.max_discard_sectors, 0);
-        assert_eq!(params.discard.max_write_zeroes_sectors, 0);
-        assert_eq!(params.discard.max_discard_segments, 0);
+        assert_eq!(params.discard.discard_granularity, 4096);
+        assert_eq!(
+            params.discard.max_discard_sectors,
+            DEFAULT_MAX_REQUEST_BYTES >> SECTOR_SHIFT
+        );
+        assert_eq!(
+            params.discard.max_write_zeroes_sectors,
+            DEFAULT_MAX_REQUEST_BYTES >> SECTOR_SHIFT
+        );
+        assert_eq!(params.discard.max_discard_segments, 1);
         assert_eq!(params.discard.reserved0, 0);
         assert_eq!(params.devt.char_major, 0);
         assert_eq!(params.devt.char_minor, 0);
@@ -1695,6 +2152,33 @@ mod tests {
     #[test]
     fn serve_config_validation_and_depth_derivation() {
         assert!(ServeConfig::default().validate().is_ok());
+        // The idle wait must be positive and within the maximum interval; the heap
+        // proportion must be a real fraction.
+        assert!(
+            ServeConfig {
+                idle_wait: Duration::ZERO,
+                ..ServeConfig::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            ServeConfig {
+                idle_wait: Duration::from_millis(200),
+                maximum_maintenance_interval: Duration::from_millis(100),
+                ..ServeConfig::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            ServeConfig {
+                heap_ppm: 0,
+                ..ServeConfig::default()
+            }
+            .validate()
+            .is_err()
+        );
         // Not a block multiple.
         assert!(
             ServeConfig {
@@ -1903,12 +2387,101 @@ mod tests {
             );
         }
         assert_eq!(
+            decode_request(&descriptor(UBLK_IO_OP_DISCARD, 0, 8), dev_sectors),
+            Ok(Request::Discard { lba: 0, blocks: 1 })
+        );
+        assert_eq!(
+            decode_request(&descriptor(UBLK_IO_OP_WRITE_ZEROES, 8, 16), dev_sectors),
+            Ok(Request::WriteZeroes {
+                lba: 1,
+                blocks: 2,
+                fua: false
+            })
+        );
+        let mut zeroes = descriptor(UBLK_IO_OP_WRITE_ZEROES, 8, 8);
+        zeroes.op_flags |= UBLK_IO_F_NOUNMAP | UBLK_IO_F_FUA;
+        assert_eq!(
+            decode_request(&zeroes, dev_sectors),
+            Ok(Request::WriteZeroes {
+                lba: 1,
+                blocks: 1,
+                fua: true
+            })
+        );
+        let mut flagged_discard = descriptor(UBLK_IO_OP_DISCARD, 8, 8);
+        flagged_discard.op_flags |= UBLK_IO_F_FUA;
+        assert_eq!(
+            decode_request(&flagged_discard, dev_sectors),
+            Err(-libc::EOPNOTSUPP)
+        );
+        for invalid in [
+            descriptor(UBLK_IO_OP_DISCARD, 0, 7),
+            descriptor(UBLK_IO_OP_DISCARD, 32, 8),
+            descriptor(UBLK_IO_OP_WRITE_ZEROES, 1, 8),
+            descriptor(UBLK_IO_OP_WRITE_ZEROES, 0, 0),
+        ] {
+            assert_eq!(decode_request(&invalid, dev_sectors), Err(-libc::EINVAL));
+        }
+        assert_eq!(
             decode_request(
-                &descriptor(libublk::sys::UBLK_IO_OP_DISCARD, 0, 8),
+                &descriptor(libublk::sys::UBLK_IO_OP_WRITE_SAME, 0, 8),
                 dev_sectors
             ),
             Err(-libc::EOPNOTSUPP)
         );
+    }
+
+    #[test]
+    fn discard_and_write_zeroes_unmap_blocks_and_persist() -> io::Result<()> {
+        let backing = TemporaryBacking::formatted(8)?;
+        let mut volume = block_storage::open(&backing.0)?;
+        let payload = [0x5a; LOGICAL_BLOCK_BYTES as usize];
+        let mut buffer = payload;
+        for lba in 0..4 {
+            assert_eq!(
+                handle_request(
+                    &mut volume,
+                    &descriptor(UBLK_IO_OP_WRITE, lba * 8, 8),
+                    &mut buffer
+                )
+                .completion,
+                4096
+            );
+        }
+        // Discard LBAs 1..3; write zeroes with FUA over LBA 3 so it is released at once.
+        assert_eq!(
+            handle_request(
+                &mut volume,
+                &descriptor(UBLK_IO_OP_DISCARD, 8, 16),
+                &mut buffer
+            ),
+            RequestOutcome {
+                completion: 0,
+                fatal: false
+            }
+        );
+        let mut zeroes = descriptor(UBLK_IO_OP_WRITE_ZEROES, 24, 8);
+        zeroes.op_flags |= UBLK_IO_F_FUA;
+        assert_eq!(
+            handle_request(&mut volume, &zeroes, &mut buffer),
+            RequestOutcome {
+                completion: 0,
+                fatal: false
+            }
+        );
+        drop(volume);
+        let mut reopened = block_storage::open(&backing.0)?;
+        let expected = [payload, [0; 4096], [0; 4096], [0; 4096]];
+        for (lba, expected) in expected.iter().enumerate() {
+            buffer.fill(0xff);
+            let read = descriptor(UBLK_IO_OP_READ, lba as u64 * 8, 8);
+            assert_eq!(
+                handle_request(&mut reopened, &read, &mut buffer).completion,
+                4096
+            );
+            assert_eq!(&buffer, expected, "LBA {lba}");
+        }
+        Ok(())
     }
 
     #[test]

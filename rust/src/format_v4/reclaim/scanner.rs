@@ -10,7 +10,7 @@ use crate::format_v4::{
 };
 use crate::{
     AlignedBlock, BLOCK_SIZE, MAXIMUM_PAYLOAD_BLOCKS,
-    accounted_io::{BackingIo, submit_exact},
+    accounted_io::{BackingIo, submit_exact, submit_exact_unaccounted},
     invalid_data,
     mapping_cache::{ENTRIES_PER_PAGE, MappingEntries},
     payload_checksum, read_block_exact, read_u32, read_u64,
@@ -95,8 +95,8 @@ impl Scanner {
         })
     }
 
-    pub(crate) fn allocated_bytes(&self) -> usize {
-        // The ring is a kernel resource, reported separately; only heap scratch counts here.
+    /// Scratch the cleaner thread holds. The ring is a kernel resource, reported separately.
+    pub(crate) fn allocated_bytes() -> usize {
         size_of::<AlignedBlock>() + PAGE_CACHE_BYTES
     }
 
@@ -178,6 +178,15 @@ impl Scanner {
         buffer.last_window = cursor.done;
         buffer.sort_payloads();
         Ok(report)
+    }
+
+    /// Punches a hole over `length` bytes at `start`.
+    pub(crate) fn punch_hole(&mut self, backing: &File, start: u64, length: u64) -> io::Result<()> {
+        let punch = opcode::Fallocate::new(types::Fd(backing.as_raw_fd()), length)
+            .offset(start)
+            .mode(libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE)
+            .build();
+        submit_exact_unaccounted(&mut self.io, punch, start, 0)
     }
 
     fn read_window(

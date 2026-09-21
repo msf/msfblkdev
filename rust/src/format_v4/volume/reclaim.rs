@@ -1,4 +1,5 @@
-//! The writer's side of reclamation: apply proposals, run the freeing barrier, discard.
+//! The writer's side of reclamation: hand windows to the cleaner thread, apply what it
+//! proposes, run the freeing barrier and hand freed segments over for discard.
 use super::*;
 use crate::format_v4::{
     RecordHeader, RecordKind,
@@ -6,30 +7,44 @@ use crate::format_v4::{
     mapping_page::{MappingPageRecord, PageExpectation},
     reclaim::{
         Entry, MetadataKind, ProposalBuffer, ReclaimStats, View,
-        scanner::{ScanContext, ScanCursor, Scanner},
+        cleaner::{CleanerHandle, Command, DISCARD_SLOTS, Event},
+        scanner::ScanCursor,
         select::{Selection, SelectionMode, select},
     },
     reservation::ensure_user_space,
 };
-use crate::{
-    MAXIMUM_PAYLOAD_BLOCKS,
-    accounted_io::{submit_exact, submit_exact_unaccounted},
-};
+use crate::{MAXIMUM_PAYLOAD_BLOCKS, accounted_io::submit_exact};
 use io_uring::{opcode, types};
 use std::collections::VecDeque;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, RawFd};
+use std::time::Duration;
+
+/// How long a write under pressure waits for one cleaner window before it fails.
+const PRESSURE_WAIT: Duration = Duration::from_secs(60);
 
 /// What one maintenance step did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MaintenanceStep {
     /// A scanned window was applied.
     Applied,
-    /// A victim window was read.
-    Scanned,
+    /// A victim window was handed to the cleaner for reading.
+    Scanning,
     /// A checkpoint advanced the freeing barrier; `freed` segments became allocatable.
     Published { freed: u32 },
+    /// The cleaner holds the only work there is; nothing changes until its event arrives.
+    Waiting,
     /// Nothing to do: no pending release, no proposals and no eligible victim.
     Idle,
+}
+
+/// Where the current victim's scan stands on the writer's side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScanState {
+    None,
+    /// The next window can be requested with this cursor.
+    Ready(ScanCursor),
+    /// The cleaner holds the cursor and one window buffer.
+    InFlight,
 }
 
 /// How free segments are returned to the backing.
@@ -42,22 +57,26 @@ pub enum BackingDiscard {
 }
 
 pub(crate) struct Reclaim {
-    scanner: Scanner,
-    view: View,
-    /// The checkpoint LSN the view was copied at; a newer root refreshes it before a scan.
+    cleaner: CleanerHandle,
+    /// The view the writer refills and swaps into the cleaner; None while the swap is in flight.
+    spare_view: Option<Box<View>>,
+    /// The checkpoint LSN the cleaner's view was copied at; a newer root refreshes it.
     view_checkpoint_lsn: Option<u64>,
     pool: Vec<ProposalBuffer>,
     queue: VecDeque<ProposalBuffer>,
-    cursor: Option<ScanCursor>,
+    scan: ScanState,
     accepted: Box<[u32]>,
     pub(crate) stats: ReclaimStats,
     discard: BackingDiscard,
     discard_disabled: bool,
+    discards_in_flight: usize,
 }
 
 impl Reclaim {
     pub(crate) fn new(
+        backing: &File,
         geometry: Geometry,
+        volume_id: u64,
         shape: CleanerShape,
         discard: BackingDiscard,
     ) -> io::Result<Self> {
@@ -71,22 +90,27 @@ impl Reclaim {
         queue
             .try_reserve_exact(shape.proposal_buffers as usize)
             .map_err(|_| io::Error::other("proposal queue allocation failed"))?;
+        let cleaner_view = Box::new(View::new(geometry)?);
+        let spare_view = Box::new(View::new(geometry)?);
         Ok(Self {
-            scanner: Scanner::new()?,
-            view: View::new(geometry)?,
+            cleaner: CleanerHandle::spawn(backing, geometry, volume_id, cleaner_view)?,
+            spare_view: Some(spare_view),
             view_checkpoint_lsn: None,
             pool,
             queue,
-            cursor: None,
+            scan: ScanState::None,
             accepted: crate::format_v4::segments::filled(shape.window_blocks as usize, 0)?,
             stats: ReclaimStats::default(),
             discard,
             discard_disabled: false,
+            discards_in_flight: 0,
         })
     }
 
-    pub(crate) fn allocated_bytes(&self) -> usize {
-        self.view.allocated_bytes()
+    /// Heap held by the writer's side and lent to the cleaner: both views, every window buffer
+    /// and the acceptance scratch. The cleaner's own scratch is counted by `Scanner`.
+    pub(crate) fn allocated_bytes(&self, geometry: Geometry) -> usize {
+        2 * View::allocated_bytes_for(geometry)
             + self
                 .pool
                 .iter()
@@ -94,7 +118,7 @@ impl Reclaim {
                 .map(|buffer| buffer.allocated_bytes())
                 .sum::<usize>()
             + std::mem::size_of_val(self.accepted.as_ref())
-            + self.scanner.allocated_bytes()
+            + crate::format_v4::reclaim::scanner::Scanner::allocated_bytes()
     }
 }
 
@@ -109,15 +133,87 @@ impl Volume {
         self.log.writes
     }
 
-    /// Runs one bounded maintenance step. Under `Pressure` the writer prefers the emptiest
-    /// victim; `Idle` prefers old, mostly dead segments. Running out of space during
-    /// maintenance is reported as `ENOSPC` without failing the volume.
+    /// Runs one bounded maintenance step without blocking. Under `Pressure` the writer
+    /// prefers the emptiest victim; `Idle` prefers old, mostly dead segments. Running out of
+    /// space during maintenance is reported as `ENOSPC` without failing the volume.
     pub fn maintain(&mut self, mode: SelectionMode) -> io::Result<MaintenanceStep> {
         self.check_operational()?;
         match self.maintain_step(mode) {
             Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => Err(error),
             result => self.latch(result),
         }
+    }
+
+    /// Waits up to `timeout` for the cleaner to report on outstanding work and applies the
+    /// report to the writer's state. `Ok(false)` when nothing is outstanding or the wait timed
+    /// out; the next `maintain` acts on what arrived.
+    pub fn wait_for_cleaner(&mut self, timeout: Duration) -> io::Result<bool> {
+        self.check_operational()?;
+        if self.reclaim.cleaner.outstanding() == 0 {
+            return Ok(false);
+        }
+        let waited = self.reclaim.cleaner.recv_timeout(timeout);
+        match waited {
+            Ok(Some(event)) => {
+                let handled = self.handle_cleaner_event(event);
+                self.latch(handled)?;
+                let polled = self.poll_cleaner();
+                self.latch(polled)?;
+                Ok(true)
+            }
+            Ok(None) => Ok(false),
+            Err(error) => self.latch::<bool>(Err(error)),
+        }
+    }
+
+    /// Commands the cleaner has not reported on yet: scans, view swaps and discards.
+    pub fn cleaner_outstanding(&self) -> usize {
+        self.reclaim.cleaner.outstanding()
+    }
+
+    /// A descriptor that becomes readable when the cleaner has reported; a request loop polls
+    /// it and then calls `maintain`.
+    pub fn cleaner_wakeup_fd(&self) -> RawFd {
+        self.reclaim.cleaner.wakeup_fd()
+    }
+
+    /// Whether `maintain` has work that does not depend on the cleaner reporting first.
+    pub fn maintenance_ready(&self) -> bool {
+        !self.reclaim.queue.is_empty()
+            || matches!(self.reclaim.scan, ScanState::Ready(_)) && !self.reclaim.pool.is_empty()
+            || self.log.segments.pending_free_count() > 0
+    }
+
+    /// Runs maintenance steps until the volume is idle, waits on the cleaner, or `slice`
+    /// elapses, and returns the last step. Request loops call this at safe boundaries so
+    /// that maintenance never holds the writer longer than one step past the slice.
+    pub fn maintain_for(
+        &mut self,
+        mode: SelectionMode,
+        slice: Duration,
+    ) -> io::Result<MaintenanceStep> {
+        let start = std::time::Instant::now();
+        // Bounded by the slice: every step that continues the loop did bounded work.
+        loop {
+            let step = self.maintain(mode)?;
+            match step {
+                MaintenanceStep::Idle | MaintenanceStep::Waiting => return Ok(step),
+                _ if start.elapsed() >= slice => return Ok(step),
+                _ => {}
+            }
+        }
+    }
+
+    /// Makes the cleaner sleep before every window read (tests of delayed cleaner I/O).
+    #[cfg(test)]
+    pub(crate) fn delay_cleaner(&mut self, delay: Duration) -> io::Result<()> {
+        self.reclaim.cleaner.send(Command::Delay(delay))
+    }
+
+    /// Makes the cleaner report its next window read as failed (tests of cleaner failure).
+    #[cfg(test)]
+    pub(crate) fn fail_next_cleaner_scan(&mut self) -> io::Result<()> {
+        self.reclaim.cleaner.send(Command::FailNextScan)
     }
 
     /// Whether `copy_blocks` on the Relocation head and `publications` checkpoints on the
@@ -170,20 +266,26 @@ impl Volume {
     }
 
     fn maintain_step(&mut self, mode: SelectionMode) -> io::Result<MaintenanceStep> {
+        self.poll_cleaner()?;
+        // Ask for the next window before applying the last one, so the cleaner reads while
+        // the writer copies.
+        let dispatched = self.dispatch_scan()?;
         if let Some(buffer) = self.reclaim.queue.pop_front() {
             let result = self.apply_buffer(&buffer);
             self.reclaim.pool.push(buffer);
             result?;
             return Ok(MaintenanceStep::Applied);
         }
-        if self.reclaim.cursor.is_some_and(|cursor| !cursor.done) {
-            return Ok(if self.scan_next_window()? {
-                MaintenanceStep::Scanned
-            } else {
-                // Every window buffer is held elsewhere; nothing can be read until one returns.
-                MaintenanceStep::Idle
-            });
+        if dispatched {
+            return Ok(MaintenanceStep::Scanning);
         }
+        match self.reclaim.scan {
+            ScanState::InFlight => return Ok(MaintenanceStep::Waiting),
+            // Every window buffer is held elsewhere; nothing can be read until one returns.
+            ScanState::Ready(_) => return Ok(MaintenanceStep::Idle),
+            ScanState::None => {}
+        }
+        self.offer_discards()?;
         if self.log.segments.pending_free_count() > 0 {
             return self.barrier_publication();
         }
@@ -193,24 +295,94 @@ impl Volume {
                 Ok(MaintenanceStep::Idle)
             }
             Selection::Victim(victim) => {
-                self.refresh_view();
+                self.refresh_view()?;
                 let cursor = ScanCursor::start(
                     self.log.geometry,
                     victim,
                     self.log.segments.seal_lsn(victim),
                 )?;
-                self.reclaim.cursor = Some(cursor);
+                self.reclaim.scan = ScanState::Ready(cursor);
                 self.reclaim.stats.victims_selected += 1;
-                Ok(if self.scan_next_window()? {
-                    MaintenanceStep::Scanned
+                Ok(if self.dispatch_scan()? {
+                    MaintenanceStep::Scanning
                 } else {
-                    MaintenanceStep::Idle
+                    MaintenanceStep::Waiting
                 })
             }
             // A recently sealed segment becomes eligible once both roots pass its seal LSN.
             Selection::AwaitPublication => self.barrier_publication(),
+            Selection::Nothing if self.reclaim.discards_in_flight > 0 => {
+                Ok(MaintenanceStep::Waiting)
+            }
             Selection::Nothing => Ok(MaintenanceStep::Idle),
         }
+    }
+
+    /// Applies every event the cleaner has reported so far.
+    fn poll_cleaner(&mut self) -> io::Result<()> {
+        self.reclaim.cleaner.drain_wakeup();
+        while let Some(event) = self.reclaim.cleaner.try_recv()? {
+            self.handle_cleaner_event(event)?;
+        }
+        Ok(())
+    }
+
+    fn handle_cleaner_event(&mut self, event: Event) -> io::Result<()> {
+        match event {
+            Event::Scanned {
+                cursor,
+                buffer,
+                report,
+            } => {
+                assert_eq!(self.reclaim.scan, ScanState::InFlight, "one scan at a time");
+                self.reclaim.stats.windows_scanned += 1;
+                self.reclaim.stats.scan_blocks_read += report.blocks_read;
+                self.reclaim.stats.payloads_proposed += report.payloads_live;
+                self.reclaim.stats.payloads_corrupt += report.payloads_corrupt;
+                self.reclaim.queue.push_back(buffer);
+                self.reclaim.scan = if cursor.done {
+                    ScanState::None
+                } else {
+                    ScanState::Ready(cursor)
+                };
+            }
+            Event::ViewReturned(view) => {
+                assert!(self.reclaim.spare_view.is_none(), "one view swap at a time");
+                self.reclaim.spare_view = Some(view);
+            }
+            Event::Discarded { segment, result } => {
+                self.reclaim.discards_in_flight -= 1;
+                self.log.segments.finish_discard(segment);
+                match result {
+                    Ok(()) => self.reclaim.stats.discards_issued += 1,
+                    Err(error) => {
+                        // A free segment holds no live data, so a failed punch costs only space.
+                        self.reclaim.stats.discards_failed += 1;
+                        self.reclaim.discard_disabled = true;
+                        if error.raw_os_error() != Some(libc::EOPNOTSUPP) {
+                            crate::log_info!("event=backing_discard_disabled error={error}");
+                        }
+                    }
+                }
+            }
+            Event::ScanFailed(error) => return Err(error),
+        }
+        Ok(())
+    }
+
+    /// Hands the next window of the current victim to the cleaner when a buffer is free.
+    fn dispatch_scan(&mut self) -> io::Result<bool> {
+        let ScanState::Ready(cursor) = self.reclaim.scan else {
+            return Ok(false);
+        };
+        let Some(buffer) = self.reclaim.pool.pop() else {
+            return Ok(false);
+        };
+        self.reclaim.scan = ScanState::InFlight;
+        self.reclaim
+            .cleaner
+            .send(Command::Scan { cursor, buffer })?;
+        Ok(true)
     }
 
     /// Takes the next scanned window out of the queue without applying it (tests only).
@@ -237,56 +409,35 @@ impl Volume {
         }
         self.reclaim.stats.barrier_publications += 1;
         self.reclaim.stats.segments_freed += u64::from(freed);
-        self.discard_freed_segments()?;
+        self.offer_discards()?;
         Ok(MaintenanceStep::Published { freed })
     }
 
-    /// Copies the resident index into the scan view when a newer root exists. An eligible
-    /// victim sealed at or before both roots' LSNs has every write into it reflected in the
-    /// active root, so a payload this view calls dead can never become live again; a payload
-    /// it calls live may have died since, which the apply check catches.
-    fn refresh_view(&mut self) {
+    /// Copies the resident index into the spare view and swaps it into the cleaner when a
+    /// newer root exists. An eligible victim sealed at or before both roots' LSNs has every
+    /// write into it reflected in the active root, so a payload this view calls dead can never
+    /// become live again; a payload it calls live may have died since, which the apply check
+    /// catches. Commands are ordered, so the swap lands before the victim's first window.
+    fn refresh_view(&mut self) -> io::Result<()> {
         let checkpoint_lsn = self.log.checkpoint_lsn();
         if self.reclaim.view_checkpoint_lsn == Some(checkpoint_lsn) {
-            return;
+            return Ok(());
         }
+        let mut view = self
+            .reclaim
+            .spare_view
+            .take()
+            .expect("the previous swap returned before this victim's windows");
         self.log
             .index
             .snapshot_blocks()
             .iter()
-            .zip(self.reclaim.view.snapshot_block.iter_mut())
+            .zip(view.snapshot_block.iter_mut())
             .for_each(|(block, target)| *target = *block);
-        self.reclaim.view.maximum_lsn = self.log.next_lsn - 1;
+        view.maximum_lsn = self.log.next_lsn - 1;
+        self.reclaim.cleaner.send(Command::Refresh(view))?;
         self.reclaim.view_checkpoint_lsn = Some(checkpoint_lsn);
-    }
-
-    /// Reads the next window of the current victim; false when no window buffer is free.
-    fn scan_next_window(&mut self) -> io::Result<bool> {
-        let mut cursor = self
-            .reclaim
-            .cursor
-            .take()
-            .expect("a victim is being scanned");
-        let Some(mut buffer) = self.reclaim.pool.pop() else {
-            self.reclaim.cursor = Some(cursor);
-            return Ok(false);
-        };
-        let context = ScanContext {
-            backing: &self.backing,
-            geometry: self.log.geometry,
-            volume_id: self.log.volume_id,
-            view: &self.reclaim.view,
-        };
-        let report = self
-            .reclaim
-            .scanner
-            .scan_window(&context, &mut cursor, &mut buffer)?;
-        self.reclaim.stats.windows_scanned += 1;
-        self.reclaim.stats.scan_blocks_read += report.blocks_read;
-        self.reclaim.stats.payloads_proposed += report.payloads_live;
-        self.reclaim.queue.push_back(buffer);
-        self.reclaim.cursor = Some(cursor);
-        Ok(true)
+        Ok(())
     }
 
     /// Validates one scanned window against live state and appends the accepted copies.
@@ -335,7 +486,6 @@ impl Volume {
             // mapping change touches it again.
             segments.mark_stuck(victim);
         }
-        self.reclaim.cursor = None;
     }
 
     /// Filters the window's payloads against current mappings and buffered writes, then packs
@@ -571,43 +721,33 @@ impl Volume {
         }
     }
 
-    /// Punches holes for segments freed by the last barrier while excluding them from
-    /// allocation. A backing without hole punching disables further discards.
-    fn discard_freed_segments(&mut self) -> io::Result<()> {
-        while let Some(segment) = self.log.segments.take_discard_due() {
+    /// Hands segments freed by the last barrier to the cleaner for hole punching, at most
+    /// `DISCARD_SLOTS` at a time, excluding each from allocation until its punch completes.
+    /// A backing without hole punching disables further discards.
+    fn offer_discards(&mut self) -> io::Result<()> {
+        // Bounded by the segments marked due and the discard slots.
+        loop {
             if self.reclaim.discard == BackingDiscard::Off || self.reclaim.discard_disabled {
-                continue;
+                while self.log.segments.take_discard_due().is_some() {}
+                return Ok(());
             }
+            if self.reclaim.discards_in_flight >= DISCARD_SLOTS {
+                return Ok(());
+            }
+            let Some(segment) = self.log.segments.take_discard_due() else {
+                return Ok(());
+            };
             self.log.segments.begin_discard(segment)?;
-            let start = u64::from(self.log.geometry.segment_start(segment)?) * BLOCK_SIZE as u64;
-            let length = u64::from(self.log.geometry.blocks_per_segment) * BLOCK_SIZE as u64;
-            let punch = opcode::Fallocate::new(types::Fd(self.backing.as_raw_fd()), length)
-                .offset(start)
-                .mode(libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE)
-                .build();
-            // Discards are neither reads nor writes: the accounting ledger does not count them.
-            let result = submit_exact_unaccounted(&mut self.backing_io, punch, start, 0);
-            #[cfg(any(test, feature = "test-failpoints"))]
-            crate::pause_at_test_failpoint("backing-discard-complete")?;
-            self.log.segments.finish_discard(segment);
-            match result {
-                Ok(()) => self.reclaim.stats.discards_issued += 1,
-                Err(error) => {
-                    // A free segment holds no live data, so a failed punch costs only space.
-                    self.reclaim.stats.discards_failed += 1;
-                    self.reclaim.discard_disabled = true;
-                    if error.raw_os_error() != Some(libc::EOPNOTSUPP) {
-                        crate::log_info!("event=backing_discard_disabled error={error}");
-                    }
-                }
-            }
+            self.reclaim.discards_in_flight += 1;
+            self.reclaim.cleaner.send(Command::Discard { segment })?;
         }
-        Ok(())
     }
 
     /// Runs maintenance under pressure until `demanded_blocks` fit or nothing can free space.
+    /// A step that only waits for the cleaner blocks on its report instead of spinning.
     pub(crate) fn reclaim_for_space(&mut self, demanded_blocks: u64) -> io::Result<()> {
-        // Bounded: every non-idle step scans, applies or publishes; Idle ends the loop.
+        // Bounded: every non-idle step scans, applies, publishes or waits for one report;
+        // Idle ends the loop.
         loop {
             if ensure_user_space(&self.log, self.reserve, demanded_blocks).is_ok() {
                 return Ok(());
@@ -617,6 +757,15 @@ impl Volume {
                 MaintenanceStep::Idle => {
                     self.reclaim.stats.enospc_all_live += 1;
                     return Err(io::Error::from_raw_os_error(libc::ENOSPC));
+                }
+                MaintenanceStep::Waiting => {
+                    self.reclaim.stats.pressure_waits += 1;
+                    if !self.wait_for_cleaner(PRESSURE_WAIT)? {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "cleaner did not report within the pressure wait",
+                        ));
+                    }
                 }
                 _ => continue,
             }

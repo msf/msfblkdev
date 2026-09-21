@@ -3,6 +3,11 @@ use crate::format_v4::{RecordKind, small_records::BackingGrowth};
 use std::io::{Seek, SeekFrom};
 
 impl Volume {
+    /// The backing file's current length, which an operator may have grown.
+    pub fn backing_len(&self) -> io::Result<u64> {
+        Ok(self.backing.metadata()?.len())
+    }
+
     /// Claims an externally grown backing up to `new_backing_bytes`. Idempotent by target
     /// bound: a retry at the recovered bound succeeds without another record.
     pub fn grow_backing(&mut self, new_backing_bytes: u64) -> io::Result<()> {

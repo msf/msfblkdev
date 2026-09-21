@@ -11,6 +11,7 @@ use xxhash_rust::xxh3::Xxh3;
 mod accounted_io;
 mod format_v4;
 mod mapping_cache;
+mod wakeup;
 
 pub mod io_accounting;
 pub mod logging;
@@ -22,6 +23,7 @@ pub use format_v4::budget::{
 pub use format_v4::log::LogWrites;
 pub use format_v4::metrics::{MappingIo, MappingStats, SpaceUsage};
 pub use format_v4::reclaim::ReclaimStats;
+pub use format_v4::reclaim::scheduler::{DEFAULT_IDLE_WAIT, DEFAULT_MAXIMUM_INTERVAL, Scheduler};
 pub use format_v4::reclaim::select::SelectionMode;
 pub use format_v4::storage::FormatOptions;
 pub use format_v4::volume::Volume;

@@ -1,7 +1,12 @@
-//! Serialized raw reclamation: wraparound, release, stale sources, discard and growth.
+//! Raw reclamation through the cleaner thread: wraparound, release, stale sources, discard
+//! and growth.
 use super::*;
 use crate::format_v4::segment_table::SegmentState;
 use crate::{BackingDiscard, MaintenanceStep, SelectionMode};
+use std::time::Duration;
+
+/// Longest a test waits for one cleaner report before it fails.
+const CLEANER_WAIT: Duration = Duration::from_secs(20);
 
 const SEGMENTS: u64 = 12;
 /// Wraparound fixtures use 64-block segments so that packed records fill them.
@@ -49,6 +54,7 @@ fn value(index: u32) -> [u8; BLOCK_SIZE] {
 }
 
 /// Runs maintenance until it reports Idle, returning the steps taken. Bounded by `limit`.
+/// A step that waits on the cleaner blocks for its report instead of spinning.
 fn drain(
     volume: &mut Volume,
     mode: SelectionMode,
@@ -58,13 +64,38 @@ fn drain(
     for _ in 0..limit {
         let step = volume.maintain(mode)?;
         steps.push(step);
-        if step == MaintenanceStep::Idle {
-            return Ok(steps);
+        match step {
+            MaintenanceStep::Idle => return Ok(steps),
+            MaintenanceStep::Waiting => {
+                assert!(volume.wait_for_cleaner(CLEANER_WAIT)?, "cleaner report");
+            }
+            _ => {}
         }
     }
     Err(io::Error::other(format!(
         "maintenance did not become idle within {limit} steps: {steps:?}"
     )))
+}
+
+/// Waits until the cleaner has reported on everything it was handed.
+fn settle(volume: &mut Volume) -> io::Result<()> {
+    while volume.cleaner_outstanding() > 0 {
+        assert!(volume.wait_for_cleaner(CLEANER_WAIT)?, "cleaner report");
+    }
+    Ok(())
+}
+
+/// Runs maintenance until one window has been handed over and reported back, so the next
+/// step applies it.
+fn scan_one_window(volume: &mut Volume) -> io::Result<()> {
+    for _ in 0..8 {
+        if volume.maintain(SelectionMode::Idle)? == MaintenanceStep::Scanning {
+            // The view swap reports first; wait until the window itself is back.
+            settle(volume)?;
+            return Ok(());
+        }
+    }
+    Err(io::Error::other("no window was scanned"))
 }
 
 fn verify(volume: &mut Volume, oracle: &[Option<u32>]) -> io::Result<()> {
@@ -153,13 +184,18 @@ fn entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched() -> io
 
     let mut steps = Vec::new();
     // Bounded: two publications make segment 0 eligible, one scan finds it dead, two more free it.
-    for _ in 0..12 {
+    for _ in 0..16 {
         let step = volume.maintain(SelectionMode::Idle)?;
         steps.push(step);
-        if matches!(step, MaintenanceStep::Published { freed } if freed > 0) {
-            break;
+        match step {
+            MaintenanceStep::Published { freed } if freed > 0 => break,
+            MaintenanceStep::Waiting => {
+                assert!(volume.wait_for_cleaner(CLEANER_WAIT)?);
+            }
+            _ => {}
         }
     }
+    settle(&mut volume)?;
     let stats = volume.reclaim_stats();
     assert!(
         matches!(steps.last(), Some(MaintenanceStep::Published { freed: 1 })),
@@ -225,14 +261,7 @@ fn user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy() -> 
         assert_eq!(volume.log.segments.live_blocks(0), 2);
         volume.flush()?;
         // Publish twice so segment 0 is eligible, then scan it.
-        let mut scanned = false;
-        for _ in 0..8 {
-            if volume.maintain(SelectionMode::Idle)? == MaintenanceStep::Scanned {
-                scanned = true;
-                break;
-            }
-        }
-        assert!(scanned);
+        scan_one_window(&mut volume)?;
         assert_eq!(volume.reclaim_stats().payloads_proposed, 2);
         // The user changes LBA 1 before the writer applies the window.
         if discard {
@@ -283,14 +312,7 @@ fn proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn() -> io::Result<()>
     volume.write_block(3, &value(4))?;
     assert_eq!(volume.log.segments.state(0), SegmentState::Sealed);
     volume.flush()?;
-    let mut scanned = false;
-    for _ in 0..8 {
-        if volume.maintain(SelectionMode::Idle)? == MaintenanceStep::Scanned {
-            scanned = true;
-            break;
-        }
-    }
-    assert!(scanned);
+    scan_one_window(&mut volume)?;
     let held = volume.take_queued().expect("a scanned window");
     assert_eq!(held.victim, 0);
     let old_seal = held.seal_lsn;
@@ -524,6 +546,8 @@ fn steady_state_writes_reads_and_maintenance_allocate_nothing() -> io::Result<()
         volume.write_block(random.next() % 48, &value(index))?;
     }
     volume.flush()?;
+    // The first blocking wait on a channel allocates its thread-local waiter once.
+    drain(&mut volume, SelectionMode::Idle, 60)?;
     let (result, allocations) = super::allocations::measure(|| -> io::Result<()> {
         let mut bytes = [0; BLOCK_SIZE];
         for index in 301..=1500 {
@@ -533,9 +557,13 @@ fn steady_state_writes_reads_and_maintenance_allocate_nothing() -> io::Result<()
             }
             volume.read_block(random.next() % 16, &mut bytes)?;
         }
-        for _ in 0..40 {
-            if volume.maintain(SelectionMode::Idle)? == MaintenanceStep::Idle {
-                break;
+        for _ in 0..60 {
+            match volume.maintain(SelectionMode::Idle)? {
+                MaintenanceStep::Idle => break,
+                MaintenanceStep::Waiting => {
+                    volume.wait_for_cleaner(CLEANER_WAIT)?;
+                }
+                _ => {}
             }
         }
         volume.flush()
