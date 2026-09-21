@@ -8,9 +8,11 @@ const RANDOM_SEED: u32 = 74_703;
 /// Full-region overwrite passes in the wraparound scenario. Each write-through pass appends two
 /// blocks per written block, so the passes append several times the log capacity.
 pub(super) const WRAP_PASSES: u32 = 12;
-/// The fewest blocks the thin exhaustion write must land before `ENOSPC`: well below the
-/// capacity the engine reaches even without compaction (measured 182–190 of 320 blocks).
-pub(super) const EXHAUSTION_MINIMUM_BLOCKS: u64 = 128;
+/// The fewest blocks the thin exhaustion write must land before `ENOSPC`: the space foreground
+/// writes may use without any compaction is five of the ten segments (two open heads and a
+/// three-segment reserve are excluded), 31 writable blocks each, so 77 write-through records of
+/// two blocks. Compaction under pressure lands more (102–190 observed).
+pub(super) const EXHAUSTION_MINIMUM_BLOCKS: u64 = 77;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Scenario {

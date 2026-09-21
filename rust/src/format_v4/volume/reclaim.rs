@@ -335,6 +335,11 @@ impl Volume {
             return Ok(MaintenanceStep::Idle);
         }
         match select(&self.log, mode, None) {
+            Selection::Victim(_) | Selection::Nothing if self.reclaim.discards_in_flight > 0 => {
+                // A freed segment is still being punched; it becomes allocatable when the
+                // cleaner reports, so this is not the all-live case yet.
+                Ok(MaintenanceStep::Waiting)
+            }
             Selection::Victim(victim) if !self.can_start_victim(victim, mode) => {
                 // Copies would eat into the space the freeing publications need.
                 Ok(MaintenanceStep::Idle)
@@ -356,9 +361,6 @@ impl Volume {
             }
             // A recently sealed segment becomes eligible once both roots pass its seal LSN.
             Selection::AwaitPublication => self.barrier_publication(),
-            Selection::Nothing if self.reclaim.discards_in_flight > 0 => {
-                Ok(MaintenanceStep::Waiting)
-            }
             Selection::Nothing => Ok(MaintenanceStep::Idle),
         }
     }
@@ -808,18 +810,29 @@ impl Volume {
         }
     }
 
-    /// Runs maintenance under pressure until `demanded_blocks` fit or nothing can free space.
-    /// A step that only waits for the cleaner blocks on its report instead of spinning. When
-    /// nothing is left to clean while writes are buffered, the buffer is released once: a
+    /// Runs maintenance under pressure until `demanded_blocks` fit or cleaning cannot make
+    /// space. A step that only waits for the cleaner blocks on its report instead of spinning.
+    /// When nothing is left to clean while writes are buffered, the buffer is released once: a
     /// buffered overwrite keeps the victim's old payload live until it lands, so victims that
-    /// ended their scan with such payloads are stuck exactly until then.
+    /// ended their scan with such payloads are stuck exactly until then. When the live data,
+    /// its footers, the current metadata and the demanded blocks cannot fit the segments that
+    /// cleaning could ever free, the loop ends with `ENOSPC` at once: otherwise every freed
+    /// segment would be consumed again by copies and the barrier's own table pages and the
+    /// writer would compact forever. A stall bound of one cycle per segment backs that check.
     pub(crate) fn reclaim_for_space(&mut self, demanded_blocks: u64) -> io::Result<()> {
         let mut released = false;
+        let mut best_available = self.user_available();
+        let mut stalled_cycles = 0;
+        let stall_bound = self.log.geometry.segment_count;
         // Bounded: every non-idle step scans, applies, publishes or waits for one report; the
-        // buffer is released at most once; Idle ends the loop.
+        // buffer is released at most once; Idle, infeasible space or stalled cycles end the loop.
         loop {
             if ensure_user_space(&self.log, self.reserve, demanded_blocks).is_ok() {
                 return Ok(());
+            }
+            if !self.space_feasible(demanded_blocks) {
+                self.reclaim.stats.enospc_all_live += 1;
+                return Err(io::Error::from_raw_os_error(libc::ENOSPC));
             }
             self.reclaim.stats.pressure_steps += 1;
             match self.maintain(SelectionMode::Pressure)? {
@@ -840,8 +853,48 @@ impl Volume {
                         ));
                     }
                 }
+                MaintenanceStep::Published { freed } if freed > 0 => {
+                    let available = self.user_available();
+                    if available > best_available {
+                        best_available = available;
+                        stalled_cycles = 0;
+                    } else {
+                        stalled_cycles += 1;
+                        if stalled_cycles >= stall_bound {
+                            self.reclaim.stats.enospc_all_live += 1;
+                            return Err(io::Error::from_raw_os_error(libc::ENOSPC));
+                        }
+                    }
+                }
                 _ => continue,
             }
         }
+    }
+
+    /// Whether the live payloads, their footers when packed, the current metadata and the
+    /// demanded blocks fit the segments cleaning could ever free: every segment except the two
+    /// open heads and the reserve.
+    fn space_feasible(&self, demanded_blocks: u64) -> bool {
+        let geometry = self.log.geometry;
+        let writable = u64::from(geometry.blocks_per_segment - 1);
+        let usable_segments =
+            u64::from(geometry.segment_count).saturating_sub(2 + u64::from(self.reserve.segments));
+        let metadata: u64 = (0..geometry.segment_count)
+            .map(|segment| u64::from(self.log.segments.metadata_blocks(segment)))
+            .sum();
+        let live = self.live_blocks;
+        live + live.div_ceil(MAXIMUM_PAYLOAD_BLOCKS as u64) + metadata + demanded_blocks
+            <= usable_segments * writable
+    }
+
+    /// Blocks foreground writes may claim now: the User head's room plus the segments above
+    /// the reserve.
+    fn user_available(&self) -> u64 {
+        crate::format_v4::heads::user_available_blocks(
+            self.log.geometry,
+            self.log.head(HeadId::User).room(self.log.geometry),
+            self.log.segments.allocatable_count(),
+            self.reserve,
+        )
     }
 }
