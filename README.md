@@ -10,15 +10,21 @@ ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem
 
 SQLite passed 87 fresh runs on each of ext4 and XFS across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. Each matrix passed 348 filesystem checks and 174 logical validations. [SQLite/ext4](docs/SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and selected baselines. RocksDB and PostgreSQL remain unimplemented.
 
-ADR-08 is implemented as release candidate **v2.0-rc**: on-disk format 4, a segmented log with two
-fixed append heads, raw space reclamation by a cleaner thread, client discard and write-zeroes,
-durable backing growth and a proportional heap budget. Engine and crash matrices, the live
-ublk/fio gate (including a sustained overwrite that wraps the log) and the four performance
-comparisons passed; the ext4, XFS and SQLite gates were not run for `v2.0-rc` because their
-preflight requires a mount helper byte-identical to the build, which the implementation clone could
-not install. [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) records the decisions, review
-dispositions and evidence; [ADR-08-PERF-RESULTS.md](ADR-08-PERF-RESULTS.md) the measurements.
-Format-3 images are rejected without modification; there is no migration.
+ADR-08 is implemented as release candidate **v2.0-rc**. It introduces on-disk format 4:
+
+- a segmented log with two fixed append heads,
+- raw space reclamation by a cleaner thread,
+- client discard and write-zeroes,
+- durable backing growth,
+- a proportional heap budget.
+
+The engine and crash matrices passed. The live ublk/fio gate passed, including a sustained overwrite
+that wraps the log. The four performance comparisons passed. The ext4, XFS and SQLite gates were not
+run for `v2.0-rc`: their preflight requires a mount helper byte-identical to the build, and the
+implementation clone could not install one. [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md)
+records the decisions, the review dispositions and the evidence.
+[ADR-08-PERF-RESULTS.md](ADR-08-PERF-RESULTS.md) records the measurements. Format-3 images are
+rejected without modification. There is no migration.
 
 ADR-07 was complete at **v1.2.3**, with 336-entry mapping pages,
 sorted snapshot publication, and adjacent-page prefetch after sequential demand.
@@ -64,23 +70,31 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 
 ### Segmented log and space reclamation (format 4)
 
-The Rust engine formats and opens ADR-08 version 4 only. Version-1, version-2, version-3 and
-unknown-format images are rejected before recovery writes; there is no migration path. Use
-freshly formatted disposable images.
+The Rust engine formats and opens ADR-08 version 4 only. It rejects version-1, version-2, version-3
+and unknown-format images before recovery writes anything. There is no migration path. Use freshly
+formatted disposable images.
 
-The backing holds two checkpoint descriptors and then whole segments (8 MiB up to a 2 GiB backing,
-then 16 or 32 MiB; `format --segment-bytes` overrides). New writes append on the User head and
-relocated copies on the Relocation head; both share one global LSN sequence. A cleaner thread reads
-sealed segments through fixed 339-block windows and returns proposals through bounded channels; the
-writer validates each proposal against the current mapping and the victim's seal LSN, copies live
-payloads, dirties current metadata, and frees a victim only after two checkpoint publications. Free
-segments are hole-punched on regular files. Idle maintenance runs 2 ms after the last request or at
-least every 100 ms; space pressure reclaims inline. `Volume::maintain`, `maintain_for` and
-`wait_for_cleaner` drive maintenance from a request loop; `reclaim_stats`, `log_writes`,
-`heap_budget` and `space_usage` report it.
+The backing holds two checkpoint descriptors, then whole segments. A segment is 8 MiB up to a 2 GiB
+backing, then 16 or 32 MiB. `format --segment-bytes` overrides the size. New writes append on the
+User head. Relocated copies append on the Relocation head. Both heads share one global LSN
+sequence.
 
-Heap is budgeted as `max(1% of the logical volume, 16 MiB)` and divided between the write buffer,
-the cleaner, the mapping cache and supporting state; a 1 GiB volume runs under a 12 MiB total.
+Space reclamation works in this way:
+
+- A cleaner thread reads sealed segments through fixed 339-block windows.
+- The cleaner returns proposals through bounded channels.
+- The writer validates each proposal against the current mapping and the victim's seal LSN.
+- The writer copies the live payloads and dirties the current metadata.
+- The writer frees a victim only after two checkpoint publications.
+- Free segments are hole-punched on regular files.
+
+Idle maintenance runs 2 ms after the last request, or at least every 100 ms. Space pressure reclaims
+inline, inside the write. `Volume::maintain`, `maintain_for` and `wait_for_cleaner` drive
+maintenance from a request loop. `reclaim_stats`, `log_writes`, `heap_budget` and `space_usage`
+report it.
+
+The heap budget is `max(1% of the logical volume, 16 MiB)`. It is divided between the write buffer,
+the cleaner, the mapping cache and the supporting state. A 1 GiB volume runs under a 12 MiB total.
 After open, ordinary writes, reads, checkpoints and cleaning allocate nothing.
 
 ### Paged mapping and CLOCK cache
@@ -136,9 +150,10 @@ these records with daemon stderr.
 A flush persists the packed data records; it does not require a checkpoint or clear
 dirty mapping flags. Recovery replays
 those records, using bounded cache windows when the dirty working set exceeds capacity.
-Admission reserves data records, footers, segment crossings and mapping snapshots before accepting
-a new buffered LBA, and never lets foreground writes consume the cleaner's reserve. The log wraps:
-overwrites beyond the backing's capacity are served as long as live data plus the reserve fit.
+Before it accepts a new buffered LBA, admission reserves space for the data records, the footers,
+the segment crossings and the mapping snapshots. Foreground writes never consume the cleaner's
+reserve. The log wraps: overwrites beyond the backing's capacity are served as long as the live data
+plus the reserve fit.
 
 Run cache-only tests with `cd rust && cargo test --lib mapping_cache`; these need no
 backing file or `io_uring`. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md) records the exact
@@ -166,10 +181,15 @@ Volume::space_usage, reclaim_stats, log_writes, heap_budget, mapping_stats
 Scheduler
 ```
 
-The ublk daemon adds `serve` flags for the heap (`--heap-ppm`, `--heap-bytes`, `--cleaner-bytes`),
-growth capacity (`--growth-capacity-bytes`), backing discard (`--backing-discard off|punch`) and
-scheduling (`--idle-wait-us`, `--max-maintenance-interval-ms`); it advertises discard and
-write-zeroes, and claims an operator-grown backing file on `SIGUSR1`.
+The ublk daemon adds these `serve` flags:
+
+- heap: `--heap-ppm`, `--heap-bytes`, `--cleaner-bytes`;
+- growth capacity: `--growth-capacity-bytes`;
+- backing discard: `--backing-discard off|punch`;
+- scheduling: `--idle-wait-us`, `--max-maintenance-interval-ms`.
+
+The daemon advertises discard and write-zeroes. On `SIGUSR1` it claims an operator-grown backing
+file.
 
 `format_with_accounting` and `open_with_accounting` add opt-in cumulative I/O budgets through a private shared ledger. The ordinary APIs remain unmetered. See the unsafe file-lifetime contract in `rust/src/io_accounting.rs` before using this API.
 
