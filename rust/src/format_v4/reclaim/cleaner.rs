@@ -31,6 +31,8 @@ pub(crate) enum Command {
     Discard {
         segment: u32,
     },
+    /// The backing grew: later scans and discards address segments in the new range.
+    Geometry(Geometry),
     /// Sleep before every scan (tests of delayed cleaner I/O).
     #[cfg(test)]
     Delay(Duration),
@@ -45,6 +47,7 @@ impl Command {
     fn reports(&self) -> bool {
         match self {
             Command::Scan { .. } | Command::Refresh(_) | Command::Discard { .. } => true,
+            Command::Geometry(_) => false,
             #[cfg(test)]
             Command::Delay(_) | Command::FailNextScan => false,
             Command::Shutdown => false,
@@ -223,6 +226,10 @@ impl Cleaner {
                     segment,
                     result: self.discard(segment),
                 },
+                Command::Geometry(geometry) => {
+                    self.geometry = geometry;
+                    continue;
+                }
                 #[cfg(test)]
                 Command::Delay(delay) => {
                     self.delay = delay;

@@ -35,9 +35,10 @@ fn eligible_victim(volume: &mut Volume) -> io::Result<()> {
     }
     volume.write_block(2, &value(20))?;
     volume.flush()?;
-    // Bounded: two barrier publications make the sealed segment eligible.
+    // Bounded: two barrier publications make the sealed segment eligible. Pressure mode: idle
+    // cleaning rests while most of the log is free.
     for _ in 0..4 {
-        match volume.maintain(SelectionMode::Idle)? {
+        match volume.maintain(SelectionMode::Pressure)? {
             MaintenanceStep::Published { .. } => {}
             MaintenanceStep::Scanning => return Ok(()),
             other => return Err(io::Error::other(format!("unexpected step {other:?}"))),
@@ -121,9 +122,14 @@ fn pressure_blocks_on_the_delayed_report_instead_of_failing() -> io::Result<()> 
     let mut volume = open_with_options(&backing.0, options(4))?;
     volume.delay_cleaner(Duration::from_millis(50))?;
     let capacity = volume.space_usage()?.log_capacity_bytes / BLOCK_SIZE as u64;
-    // Three passes over the capacity force reclamation under pressure.
+    // Three passes over the capacity force reclamation under pressure; random overwrites of 48
+    // blocks leave every victim partially live, so windows must be read.
+    let mut random = Random(0x1234_5678);
+    let mut oracle = [0_u32; 48];
     for index in 1..=(3 * capacity as u32) {
-        volume.write_block(index % 16, &value(index))?;
+        let lba = random.next() % 48;
+        volume.write_block(lba, &value(index))?;
+        oracle[lba as usize] = index;
         if index % 5 == 0 {
             volume.flush()?;
         }
@@ -135,16 +141,14 @@ fn pressure_blocks_on_the_delayed_report_instead_of_failing() -> io::Result<()> 
     assert_eq!(stats.enospc_all_live, 0, "{stats:?}");
     assert!(stats.segments_freed > 0, "{stats:?}");
     let mut bytes = [0; BLOCK_SIZE];
-    for lba in 0..16_u32 {
-        volume.read_block(lba, &mut bytes)?;
-        let last = (1..=(3 * capacity as u32))
-            .rev()
-            .find(|index| index % 16 == lba);
-        assert_eq!(
-            bytes,
-            value(last.expect("every LBA was written")),
-            "LBA {lba}"
-        );
+    for (lba, expected) in oracle.iter().enumerate() {
+        volume.read_block(lba as u32, &mut bytes)?;
+        let expected = if *expected == 0 {
+            [0; BLOCK_SIZE]
+        } else {
+            value(*expected)
+        };
+        assert_eq!(bytes, expected, "LBA {lba}");
     }
     volume.close()
 }

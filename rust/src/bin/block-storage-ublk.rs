@@ -992,12 +992,21 @@ impl Maintenance {
 
     /// Arms the next timer: soon when maintenance has work or requests were just completed,
     /// else at the deadline.
-    fn arm_timer(&mut self, queue: &UblkQueue, now: Instant) -> Result<(), UblkError> {
-        let work_pending = !matches!(
-            self.last_step,
-            Some(MaintenanceStep::Idle | MaintenanceStep::Waiting)
-        );
-        let wait = if work_pending {
+    /// Arms the next timer: at the wait hint while requests flow or maintenance has work, so
+    /// the idle gap after a burst is detected; at the deadline when the volume is idle with
+    /// nothing to do.
+    fn arm_timer(
+        &mut self,
+        queue: &UblkQueue,
+        volume: &block_storage::Volume,
+        now: Instant,
+    ) -> Result<(), UblkError> {
+        let work_pending = volume.maintenance_ready()
+            || !matches!(
+                self.last_step,
+                Some(MaintenanceStep::Idle | MaintenanceStep::Waiting)
+            );
+        let wait = if work_pending || !self.scheduler.idle(now) {
             self.scheduler.wait_hint(now)
         } else {
             self.scheduler.until_deadline(now)
@@ -1061,7 +1070,9 @@ impl Maintenance {
     fn tick(&mut self, volume: &mut block_storage::Volume, now: Instant) -> Result<(), io::Error> {
         let idle = self.scheduler.idle(now);
         if !idle && !self.scheduler.maintenance_due(now) {
-            return Ok(());
+            // Not yet: take the cleaner's reports and clear its wake-up, or the re-armed poll
+            // would complete at once and spin until the deadline.
+            return volume.poll_cleaner_events();
         }
         if GROWTH_REQUESTED.swap(false, Ordering::Relaxed) {
             self.claim_growth(volume);
@@ -1179,7 +1190,7 @@ fn run_queue(
                         drain.queue_failed.store(true, Ordering::Release);
                         queue_error.get_or_insert(error);
                     }
-                    maintenance.arm_timer(queue, now)
+                    maintenance.arm_timer(queue, &volume, now)
                 }
                 TARGET_OP_WAKEUP => {
                     maintenance.wakeups += 1;

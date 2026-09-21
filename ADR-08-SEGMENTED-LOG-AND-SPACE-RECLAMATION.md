@@ -952,9 +952,11 @@ the [implementation record](GOAL-ADR08.md).
     is selected, refreshed only when the checkpoint LSN changed. An eligible victim has every write
     into it reflected there, so a payload the view calls dead never becomes live again; live-in-view
     payloads are re-checked at apply against the cache and the buffered writes.
-15. **Stuck victims.** A completed scan that could not empty its victim (a live payload whose bytes
-    fail their checksum) marks it stuck; the next mapping change that touches the segment clears the
-    mark, and a remap that empties it releases it.
+15. **Stuck victims.** A completed scan that could not empty its victim marks it stuck: a live
+    payload whose bytes fail their checksum, a payload a buffered overwrite will replace, or
+    resident current metadata that the next publication re-emits. A remap that removes a live
+    payload or a publication that re-emits the segment's metadata clears the mark, and whichever
+    of them empties the segment releases it (decision 20).
 16. **Ownership.** The cleaner thread holds a duplicate backing descriptor, its own ring, the scan
     scratch and one view. Window buffers travel writer → cleaner → writer with the scan cursor as
     the token, so one victim has one window in flight while the writer applies the previous one; the
@@ -968,19 +970,33 @@ the [implementation record](GOAL-ADR08.md).
 18. **Backing discards** run on the cleaner thread after the freeing publication, at most four in
     flight; a segment stays excluded from allocation until its punch completes, and a segment reused
     before its punch was offered drops its discard mark. The first failure disables further punches.
-19. **Idle cleaning policy.** Idle cleaning takes a victim only when at least a quarter of it is dead
-    and only when its copies and two publications fit without touching the reserve. Before both
-    rules, idle maintenance after every write-through record drove a 64-block volume into `ENOSPC`
-    after 38 writes by copying live data between packed segments forever.
+19. **Idle cleaning policy.** Idle cleaning takes a victim only when at least a quarter of it is dead,
+    only when its copies and two publications fit without touching the reserve, and only while
+    fewer than half the log's segments are free (never below the reserve plus one). Before the
+    first two rules, idle maintenance after every write-through record drove a 64-block volume
+    into `ENOSPC` after 38 writes by copying live data between packed segments forever; without
+    the free-space floor, the stale table pages that every barrier publication leaves behind
+    re-created victims indefinitely. Pressure cleaning has no floor because the write that
+    triggered it stops it as soon as it fits.
 20. **Emptied segments need no scan.** A user or relocation remap that removes the last live payload
     from a sealed segment without current metadata marks it `PendingFree` at once. Metadata moves do
     not, because they run inside a publication after its table images were built and a state change
-    there would desynchronize the in-memory record of the durable root. Before this rule a
-    quarter-full 128 MiB volume under random overwrite accumulated 23 stuck victims whose copies had
-    consumed the reserve.
+    there would desynchronize the in-memory record of the durable root; instead, once the
+    descriptor is durable and `published_flags` match it, the publication releases every sealed
+    segment it emptied, and open does the same for segments the last publication of the previous
+    run emptied. Before this rule a quarter-full 128 MiB volume under random overwrite accumulated
+    23 stuck victims whose copies had consumed the reserve.
 21. **Pressure release.** When nothing is left to clean while writes are buffered, pressure releases
     the write buffer once before returning `ENOSPC`, because buffered overwrites keep victims' old
     payloads live until they land.
+22. **Geometry follows growth.** The cleaner thread learns a grown geometry through a command sent
+    after `grow_backing` and after recovery replayed a growth record, so scans and discards in the
+    grown range address the right blocks. Found by the final review: the first grown-range scan
+    would have latched the volume.
+23. **Wake-up draining.** A daemon tick that decides not to maintain still takes the cleaner's
+    reports and clears its eventfd, because the re-armed one-shot poll on a readable descriptor
+    completes at once. Found by the final review from the first live log: 90,414 wake-ups for 156
+    ticks.
 
 ### Review finding dispositions
 
@@ -1002,6 +1018,7 @@ the [implementation record](GOAL-ADR08.md).
 | T14 cleaner memory bound | Fixed window buffers, one victim, one window in flight, budgeted share (decision 16). | `steady_state_writes_reads_and_maintenance_allocate_nothing`, budget tests |
 | T15 greedy versus service cost | Pressure remains greedy; apply is bounded per window; the maintenance slice bounds foreground impact. | performance report (comparison 3) |
 | T16 cold-by-update | Stated as a heuristic; unchanged. | — |
+| Final review (this implementation) | Frozen cleaner geometry after growth, metadata-only victims stuck forever, undrained wake-up spinning the queue loop; all fixed (decisions 15, 20, 22, 23). | `cleaner_follows_backing_growth_at_runtime_and_after_replay`, `victim_left_with_only_current_metadata_is_released_after_the_next_publication`, ublk-fio maintenance counters |
 
 ### Evidence
 

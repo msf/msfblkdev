@@ -186,8 +186,8 @@ pub struct ReclaimStats {
     pub index_pages_dirtied: u64,
     pub table_pages_dirtied: u64,
     pub victims_pending: u64,
-    /// Sealed segments released without a scan because writes emptied them.
-    pub segments_emptied_by_writes: u64,
+    /// Sealed segments released without a scan: remaps or a publication emptied them.
+    pub segments_released_without_scan: u64,
     pub segments_freed: u64,
     pub barrier_publications: u64,
     pub discards_issued: u64,
@@ -203,7 +203,7 @@ pub struct ReclaimStats {
 impl ReclaimStats {
     pub fn summary(&self) -> String {
         format!(
-            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_emptied_by_writes={} reclaim_segments_freed={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={}",
+            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_released_without_scan={} reclaim_segments_freed={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={}",
             self.victims_selected,
             self.windows_scanned,
             self.scan_blocks_read,
@@ -216,7 +216,7 @@ impl ReclaimStats {
             self.index_pages_dirtied,
             self.table_pages_dirtied,
             self.victims_pending,
-            self.segments_emptied_by_writes,
+            self.segments_released_without_scan,
             self.segments_freed,
             self.barrier_publications,
             self.discards_issued,

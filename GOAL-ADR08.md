@@ -60,7 +60,10 @@ Phase 4: gates, live acceptance, performance, ADR update, tag `v2.0-rc`.
       3 interleaved repetitions, 72 runs each on a btrfs fixture (`perf/report-btrfs.md`) and on
       tmpfs (`perf/report-tmpfs.md`); summarized in `ADR-08-PERF-RESULTS.md`.
 - [x] ADR-08 implementation decisions, review dispositions and README notes (`2303843`).
-- [ ] Final diff review and tag `v2.0-rc`.
+- [x] Final read-only review of the complete diff: three blockers found and fixed (decision 22),
+      idle watermark added (decision 23), unused `CleanerShape::proposal_payloads` removed,
+      `maintenance_ready` wired into the daemon's timer arming.
+- [ ] Gates on the final candidate, re-measured performance, tag `v2.0-rc`.
 
 ## Decisions (resolved draft gaps)
 
@@ -144,6 +147,20 @@ See the "Implementation decisions" section of ADR-08 once written. Working list:
     follow. When nothing is left to clean while writes are buffered, pressure releases the
     buffer once before returning `ENOSPC`, since buffered overwrites keep victims' old payloads
     live until they land. A segment reused before its punch was offered drops its discard mark.
+22. Findings of the final read-only review, all fixed with regression tests: the cleaner thread
+    kept the geometry it was spawned with, so the first scan or discard in a grown range would
+    have latched the volume (now `Command::Geometry` after `grow_backing` and after replay);
+    a victim whose scan left only resident current metadata behind stayed stuck forever (now
+    `move_metadata` clears the mark and a publication that empties a sealed segment releases
+    it, as does open for segments the last publication emptied); the daemon's early-returning
+    tick never drained the cleaner's eventfd, so the re-armed poll completed at once and the
+    queue loop spun until the deadline (90,414 wake-ups for 156 ticks in the first ublk-fio
+    log; now the tick drains and applies reports before returning).
+23. Idle cleaning rests while at least half the log's segments are free
+    (`idle_watermark`, never below the reserve plus one): every barrier publication leaves
+    stale table pages behind, and on small segments those alone re-create victims, so idle
+    cleaning without a free-space floor fed itself forever. Pressure cleaning has no floor of
+    its own because `reclaim_for_space` stops when the write fits.
 ## Commands
 
 ```sh

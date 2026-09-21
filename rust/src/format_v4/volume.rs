@@ -139,7 +139,7 @@ pub(crate) fn open(
         Some(sizing.requested_bytes),
         &mut live_blocks,
     )?;
-    Ok(Volume {
+    let mut volume = Volume {
         backing,
         backing_io,
         log,
@@ -163,7 +163,15 @@ pub(crate) fn open(
         actual_backing_blocks,
         reclaim,
         failed: false,
-    })
+    };
+    // Replay may have applied a growth record after the cleaner was spawned.
+    volume.update_cleaner_geometry()?;
+    // Sealed segments the last publication emptied are recorded as Sealed in the root; release
+    // them now so the barrier frees them without a scan.
+    for segment in 0..volume.log.geometry.segment_count {
+        volume.log.segments.release_if_empty(segment)?;
+    }
+    Ok(volume)
 }
 
 /// Fixed per-volume scratch: staging batch, read and footer blocks, read-ahead, iovecs and the
