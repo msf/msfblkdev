@@ -245,3 +245,45 @@ fn scheduled_idle_and_due_ticks_reclaim_ahead_of_pressure() -> io::Result<()> {
     );
     Ok(())
 }
+
+/// Idle maintenance after every write-through record must never starve the writer: idle
+/// cleaning keeps the foreground reserve untouched and skips victims whose only dead blocks
+/// are footers and links of packed records, so it cannot copy live data around forever.
+#[test]
+fn idle_maintenance_between_writes_never_starves_the_writer_or_treadmills() -> io::Result<()> {
+    let backing = fixture(64, 32)?;
+    let mut volume = open_with_options(&backing.0, options(1))?;
+    let capacity = volume.space_usage()?.log_capacity_bytes / BLOCK_SIZE as u64;
+    let writes = 3 * capacity as u32;
+    for index in 1..=writes {
+        // Before the reserve-preserving gate, this write returned ENOSPC after 38 iterations.
+        volume.write_block(index % 64, &value(index))?;
+        volume.flush()?;
+        // Bounded: each step applies, scans, publishes or waits; Idle ends the drain.
+        for _ in 0..200 {
+            match volume.maintain(SelectionMode::Idle)? {
+                MaintenanceStep::Idle => break,
+                MaintenanceStep::Waiting => {
+                    assert!(volume.wait_for_cleaner(CLEANER_WAIT)?);
+                }
+                _ => {}
+            }
+        }
+    }
+    let stats = volume.reclaim_stats();
+    assert_eq!(stats.enospc_all_live, 0, "{stats:?}");
+    assert!(stats.segments_freed > 0, "{stats:?}");
+    // Footer compaction copies each write-through payload about once; a treadmill would copy
+    // live data many times over.
+    assert!(
+        stats.payloads_copied < 4 * u64::from(writes),
+        "copy amplification too high: {stats:?}"
+    );
+    let mut bytes = [0; BLOCK_SIZE];
+    for lba in 0..64_u32 {
+        volume.read_block(lba, &mut bytes)?;
+        let last = (1..=writes).rev().find(|index| index % 64 == lba);
+        assert_eq!(bytes, value(last.expect("written")), "LBA {lba}");
+    }
+    volume.close()
+}

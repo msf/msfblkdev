@@ -1,9 +1,8 @@
 use crate::evidence::Evidence;
 use crate::process::{ManagedChild, Outcome};
-#[cfg(test)]
-use crate::ublk::RECORD_CAPACITY;
 use crate::ublk::{
     self, BLOCK_BYTES, DevicePath, FileIdentity, FioOptions, FioRw, Geometry, OwnedTempDir,
+    WRAP_REGION_BLOCKS,
 };
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};

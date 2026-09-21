@@ -217,8 +217,9 @@ impl Volume {
     }
 
     /// Whether `copy_blocks` on the Relocation head and `publications` checkpoints on the
-    /// User head fit the room of each head plus the allocatable segments.
-    fn maintenance_fits(&self, copy_blocks: u64, publications: u64) -> bool {
+    /// User head fit the room of each head plus the allocatable segments, leaving
+    /// `keep_segments` untouched.
+    fn maintenance_fits(&self, copy_blocks: u64, publications: u64, keep_segments: u32) -> bool {
         let geometry = self.log.geometry;
         let writable = u64::from(geometry.blocks_per_segment - 1);
         let room_user = u64::from(self.log.head(HeadId::User).room(geometry));
@@ -230,7 +231,8 @@ impl Volume {
         let publication_segments = publication_blocks
             .saturating_sub(room_user)
             .div_ceil(writable);
-        copy_segments + publication_segments <= u64::from(self.log.segments.allocatable_count())
+        copy_segments + publication_segments + u64::from(keep_segments)
+            <= u64::from(self.log.segments.allocatable_count())
     }
 
     /// Blocks user admission must leave alone while a victim waits for its second publication.
@@ -252,17 +254,22 @@ impl Volume {
     }
 
     /// Whether relocating `victim` and then publishing twice fits the space left, so that a
-    /// started victim can always be released (the progress contract).
-    fn can_start_victim(&self, victim: u32) -> bool {
+    /// started victim can always be released (the progress contract). Idle cleaning also
+    /// leaves the foreground reserve alone, so it can never push a write into `ENOSPC`.
+    fn can_start_victim(&self, victim: u32, mode: SelectionMode) -> bool {
         let live = u64::from(self.log.segments.live_blocks(victim));
         let copies = live + live.div_ceil(MAXIMUM_PAYLOAD_BLOCKS as u64) + 1;
-        self.maintenance_fits(copies, 2)
+        let keep = match mode {
+            SelectionMode::Pressure => 0,
+            SelectionMode::Idle => self.reserve.segments,
+        };
+        self.maintenance_fits(copies, 2, keep)
     }
 
     /// Whether one publication fits the space left. A publication that cannot fit fails with
     /// `ENOSPC` instead of latching the volume.
     fn publication_fits(&self) -> bool {
-        self.maintenance_fits(0, 1)
+        self.maintenance_fits(0, 1, 0)
     }
 
     fn maintain_step(&mut self, mode: SelectionMode) -> io::Result<MaintenanceStep> {
@@ -290,7 +297,7 @@ impl Volume {
             return self.barrier_publication();
         }
         match select(&self.log, mode, None) {
-            Selection::Victim(victim) if !self.can_start_victim(victim) => {
+            Selection::Victim(victim) if !self.can_start_victim(victim, mode) => {
                 // Copies would eat into the space the freeing publications need.
                 Ok(MaintenanceStep::Idle)
             }

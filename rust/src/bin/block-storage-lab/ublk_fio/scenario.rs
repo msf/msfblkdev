@@ -5,6 +5,13 @@ pub(super) const FAILPOINT: &str = "descriptor-write-complete";
 #[cfg(test)]
 const RANDOM_SEED: u32 = 74_703;
 
+/// Full-region overwrite passes in the wraparound scenario. Each write-through pass appends two
+/// blocks per written block, so the passes append several times the log capacity.
+pub(super) const WRAP_PASSES: u32 = 12;
+/// The fewest blocks the thin exhaustion write must land before `ENOSPC`: well below the
+/// capacity the engine reaches even without compaction (measured 182–190 of 320 blocks).
+pub(super) const EXHAUSTION_MINIMUM_BLOCKS: u64 = 128;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Scenario {
     Sequential,
@@ -13,10 +20,14 @@ pub(super) enum Scenario {
     GracefulRestart,
     SigkillRestart,
     DescriptorCloseFailpoint,
+    /// Distinct blocks beyond the log's capacity: `ENOSPC`, then the written prefix survives.
     Exhaustion,
+    /// Overwrites the same region until the log has wrapped several times, then restarts
+    /// gracefully and by SIGKILL; the last pass must verify after each restart.
+    SustainedOverwrite,
 }
 
-pub(super) const SCENARIOS: [Scenario; 7] = [
+pub(super) const SCENARIOS: [Scenario; 8] = [
     Scenario::Sequential,
     Scenario::Random,
     Scenario::Overwrite,
@@ -24,6 +35,7 @@ pub(super) const SCENARIOS: [Scenario; 7] = [
     Scenario::SigkillRestart,
     Scenario::DescriptorCloseFailpoint,
     Scenario::Exhaustion,
+    Scenario::SustainedOverwrite,
 ];
 
 #[cfg(test)]
@@ -72,6 +84,7 @@ impl Scenario {
             Self::SigkillRestart => "sigkill-restart",
             Self::DescriptorCloseFailpoint => "descriptor-close-failpoint",
             Self::Exhaustion => "exhaustion",
+            Self::SustainedOverwrite => "sustained-overwrite",
         }
     }
 
@@ -83,13 +96,9 @@ impl Scenario {
             | Self::GracefulRestart
             | Self::SigkillRestart
             | Self::DescriptorCloseFailpoint => 8,
-            Self::Exhaustion => 33,
+            Self::Exhaustion => Geometry::expected().volume_blocks,
+            Self::SustainedOverwrite => u64::from(WRAP_PASSES) * WRAP_REGION_BLOCKS,
         }
-    }
-
-    #[cfg(test)]
-    pub fn successful_writes(self) -> u64 {
-        self.attempted_writes().min(RECORD_CAPACITY)
     }
 
     #[cfg(test)]
@@ -111,6 +120,17 @@ impl Scenario {
                 Restart,
                 Verify,
             ],
+            Self::SustainedOverwrite => &[
+                Start,
+                Workload,
+                GracefulStop,
+                Restart,
+                Verify,
+                Sigkill,
+                RemoveOldDevice,
+                Restart,
+                Verify,
+            ],
         }
     }
 
@@ -127,28 +147,59 @@ impl Scenario {
             Self::GracefulRestart => restart_jobs("graceful", 0x1122_3344, 8),
             Self::SigkillRestart => restart_jobs("sigkill", 0x5566_7788, 8),
             Self::DescriptorCloseFailpoint => restart_jobs("close-failpoint", 0x99aa_bbcc, 8),
-            Self::Exhaustion => vec![
-                FioJob {
-                    name: "exhaustion",
-                    pattern: 0xdead_beef,
-                    rw: FioRw::Write,
-                    blocks: 33,
-                    options: FioOptions {
-                        do_verify: Some(false),
-                        // One flush per write, so every write becomes its own record of one
-                        // payload plus one footer. That is the write-through economics the
-                        // geometry encodes: RECORD_CAPACITY records fill the log exactly.
-                        // Batched writes amortise footers and fit far more, which the engine
-                        // test enospc_is_returned_by_the_offending_write_not_a_later_flush pins.
-                        fsync: Some(1),
-                        output_json: true,
-                        ..FioOptions::default()
-                    },
+            Self::Exhaustion => vec![FioJob {
+                name: "exhaustion",
+                pattern: 0xdead_beef,
+                rw: FioRw::Write,
+                // The thin volume holds more distinct blocks than the log can ever store,
+                // so this write must end in ENOSPC whatever the cleaner compacts. One flush
+                // per write makes every write its own record. The verify job is built at
+                // run time from the bytes fio reports as written.
+                blocks: Geometry::expected().volume_blocks,
+                options: FioOptions {
+                    do_verify: Some(false),
+                    fsync: Some(1),
+                    output_json: true,
+                    ..FioOptions::default()
                 },
-                verify("exhaustion", 0xdead_beef, 32),
-            ],
+            }],
+            Self::SustainedOverwrite => wrap_jobs(),
         }
     }
+}
+
+/// The wraparound passes: each rewrites the whole region with its own pattern, write-through,
+/// and verifies it; the final verify jobs re-check the last pass after each restart.
+fn wrap_jobs() -> Vec<FioJob> {
+    let mut jobs: Vec<FioJob> = (1..=WRAP_PASSES)
+        .map(|pass| {
+            let pattern = 0x5750_0000 | pass;
+            FioJob {
+                name: "sustained-overwrite",
+                pattern,
+                rw: FioRw::Write,
+                blocks: WRAP_REGION_BLOCKS,
+                options: FioOptions {
+                    do_verify: Some(true),
+                    fsync: Some(1),
+                    ..FioOptions::default()
+                },
+            }
+        })
+        .collect();
+    let last = jobs.last().expect("at least one pass").pattern;
+    jobs.push(verify("sustained-overwrite", last, WRAP_REGION_BLOCKS));
+    jobs
+}
+
+/// The verify job for whatever prefix the exhaustion write landed.
+pub(super) fn exhaustion_verify(blocks: u64) -> FioJob {
+    verify("exhaustion", 0xdead_beef, blocks)
+}
+
+/// Blocks the wraparound passes append at least: two per write-through record.
+pub(super) fn wrap_appended_blocks() -> u64 {
+    2 * u64::from(WRAP_PASSES) * WRAP_REGION_BLOCKS
 }
 
 fn write_verify(name: &'static str, pattern: u32, rw: FioRw, blocks: u64) -> FioJob {
@@ -237,6 +288,21 @@ fn output_pair(label: &str, sequence: u32) -> (String, String) {
     )
 }
 
+/// Reads `name=NUMBER` from the daemon's structured log lines.
+pub(super) fn statistic(text: &str, name: &str) -> io::Result<u64> {
+    let key = format!(" {name}=");
+    let position = text
+        .rfind(&key)
+        .ok_or_else(|| io::Error::other(format!("daemon log lacks {name}")))?;
+    let digits: String = text[position + key.len()..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits
+        .parse()
+        .map_err(|_| io::Error::other(format!("daemon log has no number for {name}")))
+}
+
 pub(super) fn parse_exhaustion_json(input: &str) -> io::Result<(u64, u64)> {
     let jobs = object_after_key(input, "jobs")?;
     let job = jobs
@@ -293,17 +359,34 @@ mod tests {
 
     #[test]
     fn scenario_count_repetitions_and_write_budgets_are_exact() {
-        assert_eq!(SCENARIOS.len(), 7);
+        assert_eq!(SCENARIOS.len(), 8);
         assert_eq!(REPETITIONS, 3);
         assert_eq!(
             SCENARIOS
                 .iter()
                 .map(|s| s.attempted_writes())
                 .collect::<Vec<_>>(),
-            [16, 16, 8, 8, 8, 8, 33]
+            [16, 16, 8, 8, 8, 8, 1024, 768]
         );
-        assert!(SCENARIOS[..6].iter().all(|s| s.successful_writes() <= 16));
-        assert_eq!(Scenario::Exhaustion.successful_writes(), 32);
+        let geometry = Geometry::expected();
+        // Exhaustion must exceed the log even when perfectly compacted; the wraparound passes
+        // must append more than three times the log capacity.
+        assert!(Scenario::Exhaustion.attempted_writes() > geometry.log_capacity_blocks());
+        assert!(EXHAUSTION_MINIMUM_BLOCKS < geometry.log_capacity_blocks());
+        assert!(wrap_appended_blocks() >= 3 * geometry.log_capacity_blocks());
+        assert_eq!(exhaustion_verify(190).blocks, 190);
+        assert!(exhaustion_verify(190).options.verify_only);
+        let wrap = Scenario::SustainedOverwrite.fio_jobs();
+        assert_eq!(wrap.len(), WRAP_PASSES as usize + 1);
+        assert!(
+            wrap[..WRAP_PASSES as usize]
+                .iter()
+                .all(|job| job.options.fsync == Some(1))
+        );
+        assert_eq!(
+            wrap[WRAP_PASSES as usize].pattern,
+            wrap[WRAP_PASSES as usize - 1].pattern
+        );
     }
 
     #[test]
@@ -327,6 +410,13 @@ mod tests {
             Scenario::DescriptorCloseFailpoint.transitions()[3],
             Transition::WaitForFailpoint
         );
+        let wrap = Scenario::SustainedOverwrite.transitions();
+        assert_eq!(
+            wrap.iter().filter(|t| **t == Transition::Restart).count(),
+            2
+        );
+        assert_eq!(wrap.iter().filter(|t| **t == Transition::Verify).count(), 2);
+        assert!(wrap.contains(&Transition::Sigkill));
     }
 
     #[test]
@@ -348,6 +438,15 @@ mod tests {
     }
 
     #[test]
+    fn statistics_are_read_from_the_last_structured_log_line() {
+        let text = "event=reclaim_stats reclaim_segments_freed=3 reclaim_pressure_steps=9\nevent=log_writes log_link_blocks=12\nevent=reclaim_stats reclaim_segments_freed=17 x=1\n";
+        assert_eq!(statistic(text, "reclaim_segments_freed").unwrap(), 17);
+        assert_eq!(statistic(text, "log_link_blocks").unwrap(), 12);
+        assert!(statistic(text, "segments_freed").is_err());
+        assert!(statistic("event=x reclaim_segments_freed=", "reclaim_segments_freed").is_err());
+    }
+
+    #[test]
     fn parses_only_required_fio_numeric_fields() {
         let json = r#"{"jobs":[{"job options":{"rw":"write"},"error" : 28, "read":{"io_bytes":0}, "write" : {"io_bytes" : 131072}}]}"#;
         assert_eq!(parse_exhaustion_json(json).unwrap(), (28, 131_072));
@@ -365,7 +464,7 @@ mod tests {
     #[test]
     fn every_exact_command_shape_has_expected_budget_and_seed() {
         let commands = all_fio_commands(Path::new("/nonexistent/fio-target"));
-        assert_eq!(commands.len(), 18);
+        assert_eq!(commands.len(), 17 + WRAP_PASSES as usize + 1);
         for command in commands {
             let args = command
                 .get_args()

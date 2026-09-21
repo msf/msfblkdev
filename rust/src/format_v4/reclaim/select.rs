@@ -1,5 +1,15 @@
 //! Victim selection: greedy under pressure, cost-benefit when idle (ADR-08, F2FS §2.5).
-use crate::format_v4::{log::Log, segment_table::SegmentState};
+use crate::format_v4::{Geometry, log::Log, segment_table::SegmentState};
+
+/// Idle cleaning takes a victim only when at least this fraction of the segment is dead. Every
+/// sealed segment has a dead link block and dead footers, so without a floor idle cleaning would
+/// copy live data from one packed segment to the next forever.
+const IDLE_GAIN_DIVISOR: u32 = 4;
+
+/// The fewest dead blocks that make a victim worth cleaning while idle.
+pub(crate) fn idle_minimum_dead(geometry: Geometry) -> u32 {
+    (geometry.blocks_per_segment / IDLE_GAIN_DIVISOR).max(2)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SelectionMode {
@@ -50,7 +60,7 @@ pub(crate) fn select(log: &Log, mode: SelectionMode, excluded: Option<u32>) -> S
             continue;
         }
         let dead = dead_blocks(log, segment);
-        if dead == 0 {
+        if dead == 0 || mode == SelectionMode::Idle && dead < idle_minimum_dead(log.geometry) {
             continue;
         }
         if !eligible(log, segment) {
