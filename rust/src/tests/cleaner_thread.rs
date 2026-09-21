@@ -46,6 +46,19 @@ fn eligible_victim(volume: &mut Volume) -> io::Result<()> {
     Err(io::Error::other("segment 0 never became a victim"))
 }
 
+struct Random(u32);
+
+impl Random {
+    fn next(&mut self) -> u32 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.0 = x;
+        x
+    }
+}
+
 /// Whether the wake-up descriptor is readable within `timeout`.
 fn wakeup_readable(fd: i32, timeout: Duration) -> bool {
     let mut poll = libc::pollfd {
@@ -194,11 +207,15 @@ fn a_failed_cleaner_read_latches_the_volume_and_leaves_the_backing_consistent() 
     reopened.close()
 }
 
+/// The daemon's policy driven by a synthetic clock: idle ticks after quiet gaps, due ticks
+/// under continuous traffic, and either way the overwrite workload never sees `ENOSPC`. Pressure
+/// step counts are not compared: idle cleaning refuses to spend the reserve, so pressure work
+/// is not monotone in the amount of idle cleaning.
 #[test]
-fn scheduled_idle_and_due_ticks_reclaim_ahead_of_pressure() -> io::Result<()> {
+fn scheduled_idle_and_due_ticks_run_and_the_workload_never_starves() -> io::Result<()> {
     let idle_wait = Duration::from_millis(2);
     let maximum_interval = Duration::from_millis(100);
-    let mut pressure_steps = [0_u64; 2];
+    let mut freed = [0_u64; 2];
     for (run, ticks) in [false, true].into_iter().enumerate() {
         let backing = fixture(64, 64)?;
         let mut volume = open_with_options(&backing.0, options(4))?;
@@ -235,13 +252,14 @@ fn scheduled_idle_and_due_ticks_reclaim_ahead_of_pressure() -> io::Result<()> {
             assert!(due_ticks > 0, "due ticks ran under continuous requests");
             assert!(scheduler.maintenance_runs() == idle_ticks + due_ticks);
         }
-        pressure_steps[run] = volume.reclaim_stats().pressure_steps;
-        assert_eq!(volume.reclaim_stats().enospc_all_live, 0);
+        let stats = volume.reclaim_stats();
+        assert_eq!(stats.enospc_all_live, 0, "{stats:?}");
+        freed[run] = stats.segments_freed;
         volume.close()?;
     }
     assert!(
-        pressure_steps[1] < pressure_steps[0],
-        "scheduled maintenance reduces pressure work: {pressure_steps:?}"
+        freed.iter().all(|freed| *freed > 0),
+        "both runs wrapped: {freed:?}"
     );
     Ok(())
 }
@@ -286,4 +304,73 @@ fn idle_maintenance_between_writes_never_starves_the_writer_or_treadmills() -> i
         assert_eq!(bytes, value(last.expect("written")), "LBA {lba}");
     }
     volume.close()
+}
+
+/// The bench's aged shape: a quarter-full 128 MiB volume overwritten for one log capacity with
+/// scheduled ticks must close and reopen without `ENOSPC`.
+#[test]
+fn aged_quarter_full_volume_closes_publishes_and_reopens() -> io::Result<()> {
+    let backing = TemporaryBacking::new()?;
+    backing.create_sized(256 << 20)?;
+    format(&backing.0, 128 << 20)?;
+    let options = VolumeOpenOptions {
+        write_buffer_bytes: 4 << 20,
+        checkpoint_after_bytes: 64 << 20,
+        ..VolumeOpenOptions::default()
+    };
+    let mut volume = open_with_options(&backing.0, options)?;
+    let working_set = 16384_u32;
+    for lba in 0..working_set {
+        volume.write_block(lba, &value(lba))?;
+        if lba % 256 == 255 {
+            volume.flush()?;
+        }
+    }
+    volume.flush()?;
+    let mut random = Random(0x2545_f491);
+    let overwrites = (256 << 20) / BLOCK_SIZE as u32;
+    let mut scheduler = Scheduler::new(
+        Instant::now(),
+        Duration::from_millis(2),
+        Duration::from_millis(100),
+    );
+    for index in 0..overwrites {
+        let lba = random.next() % working_set;
+        if let Err(error) = volume.write_block(lba, &value(lba ^ 0x8000_0000)) {
+            let usage = volume.space_usage()?;
+            let stats = volume.reclaim_stats();
+            return Err(io::Error::new(
+                error.kind(),
+                format!("overwrite {index}: {error}; {usage:?}; {stats:?}"),
+            ));
+        }
+        if index % 256 == 255 {
+            volume.flush()?;
+        }
+        let now = Instant::now();
+        scheduler.request_completed(now);
+        if index % 16 == 15 && scheduler.maintenance_due(now) {
+            match volume.maintain_for(SelectionMode::Idle, Duration::from_millis(2)) {
+                Ok(_) => {}
+                Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {}
+                Err(error) => return Err(error),
+            }
+            scheduler.maintained(now);
+        }
+    }
+    volume.flush()?;
+    let usage = volume.space_usage()?;
+    let stats = volume.reclaim_stats();
+    volume.close().map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("close: {error}; {usage:?}; {stats:?}"),
+        )
+    })?;
+    let reopened = open_with_options(&backing.0, options)?;
+    let usage = reopened.space_usage()?;
+    reopened.close().map_err(|error| {
+        io::Error::new(error.kind(), format!("second close: {error}; {usage:?}"))
+    })?;
+    Ok(())
 }

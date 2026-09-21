@@ -131,6 +131,8 @@ enum ReleaseTrigger {
     Full,
     /// An explicit flush, FUA, close, or checkpoint drained the buffer.
     Flush,
+    /// Space pressure: buffered overwrites keep victims' old payloads alive until released.
+    Pressure,
 }
 
 /// Opt-in, in-memory batching counters. The payloads-per-record distribution and the
@@ -149,6 +151,8 @@ pub struct ReleaseStats {
     pub full_releases: u64,
     /// Releases triggered by flush, FUA, close, or checkpoint.
     pub flush_releases: u64,
+    /// Releases triggered by space pressure while victims waited on buffered overwrites.
+    pub pressure_releases: u64,
     /// Payloads-per-record histogram: [1], [2], [3-8], [9-32], [33-128], [129-337], [338].
     pub payload_histogram: [u64; 7],
 }
@@ -180,7 +184,7 @@ impl ReleaseStats {
             (self.footer_bytes + self.payload_bytes) as f64 / self.payload_bytes as f64
         };
         format!(
-            "records={} payloads={} payloads_per_record={:.3} backing_over_payload={:.3} footer_bytes={} payload_bytes={} full_releases={} flush_releases={} histogram={:?}",
+            "records={} payloads={} payloads_per_record={:.3} backing_over_payload={:.3} footer_bytes={} payload_bytes={} full_releases={} flush_releases={} pressure_releases={} histogram={:?}",
             self.records,
             self.payloads,
             if self.records == 0 {
@@ -193,6 +197,7 @@ impl ReleaseStats {
             self.payload_bytes,
             self.full_releases,
             self.flush_releases,
+            self.pressure_releases,
             self.payload_histogram,
         )
     }

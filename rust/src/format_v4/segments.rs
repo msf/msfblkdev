@@ -28,6 +28,8 @@ pub(crate) struct Segments {
     /// A completed scan left references the cleaner cannot move; cleared when live counts
     /// change so the segment becomes a candidate again.
     stuck: Box<[bool]>,
+    /// Sealed segments that writes or metadata moves emptied without a scan.
+    emptied_count: u64,
     table_block: Box<[u32]>,
     table_dirty: Box<[bool]>,
     free_count: u32,
@@ -65,6 +67,7 @@ impl Segments {
             free_count: geometry.segment_count,
             pending_free_count: 0,
             discard_pending_count: 0,
+            emptied_count: 0,
         };
         segments.table_dirty[..geometry.table_pages as usize].fill(true);
         Ok(segments)
@@ -241,6 +244,8 @@ impl Segments {
         self.set(segment, SegmentEntry::open(head));
         self.free_count -= 1;
         self.used_blocks[segment as usize] = 0;
+        // A segment reused before its punch was offered holds live data again: no discard.
+        self.discard_due[segment as usize] = false;
         Ok(segment)
     }
 
@@ -252,7 +257,16 @@ impl Segments {
             SegmentState::Free => self.free_count -= 1,
             SegmentState::PendingFree => self.pending_free_count -= 1,
             SegmentState::Open | SegmentState::Sealed => {
-                return Err(invalid_data("replayed link opens a segment in use"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "replayed link opens segment {segment} in use ({:?}, head {:?}, live {}, metadata {})",
+                        entry.state,
+                        entry.head,
+                        self.live_blocks[segment as usize],
+                        self.metadata_blocks[segment as usize]
+                    ),
+                ));
             }
         }
         if self.discard_pending[segment as usize] {
@@ -287,6 +301,29 @@ impl Segments {
     }
 
     /// A sealed segment without live payloads or current metadata enters the barrier.
+    /// A sealed segment that no longer holds a live payload or current metadata has no
+    /// references left; it goes straight to `PendingFree` and the barrier frees it. This is how
+    /// victims whose last payloads died after their scan, and segments overwrites emptied on
+    /// their own, are released without another scan. Only user and relocation remaps call
+    /// this: metadata moves happen inside a publication, after its table images were built,
+    /// and a state change there would desynchronize `published_flags` from the durable root.
+    pub(crate) fn release_if_empty(&mut self, segment: u32) -> io::Result<bool> {
+        let index = segment as usize;
+        if self.state(segment) != SegmentState::Sealed
+            || self.live_blocks[index] != 0
+            || self.metadata_blocks[index] != 0
+        {
+            return Ok(false);
+        }
+        self.mark_pending_free(segment)?;
+        self.emptied_count += 1;
+        Ok(true)
+    }
+
+    pub(crate) fn emptied_count(&self) -> u64 {
+        self.emptied_count
+    }
+
     pub(crate) fn mark_pending_free(&mut self, segment: u32) -> io::Result<()> {
         let entry = self.entry(segment)?;
         let index = segment as usize;

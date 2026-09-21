@@ -1,0 +1,5 @@
+commit: 8af23f190cfb4c49a925c88a3874dd2413a51d10
+cmd: make test-ublk-fio
+evidence: /home/miguel/play/_worktrees/msfblkdev-adr08/evidence/ublk-fio-1789961799502620609-8af23f190cfb4c49a925c88a3874dd2413a51d10.log
+make test-ublk-fio  33,20s user 3,35s system 71% cpu 50,900 total
+exit: 0

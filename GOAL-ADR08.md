@@ -46,6 +46,16 @@ Phase 3: cleaner thread and scheduling
       flags, SIGUSR1 claims an operator-grown backing, statistics at close.
 
 Phase 4: gates, live acceptance, performance, ADR update, tag `v2.0-rc`.
+- [x] ublk-fio lab on format 4 (`8af23f1`): PASS, 8 scenarios × 3 repetitions in 44 s, including
+      sustained overwrite that appended 2544 blocks into a 320-block log and freed 74 segments,
+      and thin-volume exhaustion at 182–190 written blocks
+      (`evidence/adr08-implementation/ublk-fio-8af23f1.log`, full lab log beside it).
+- [ ] `make test-ext4`, `make test-xfs`, SQLite matrices: UNAVAILABLE in this clone. The lab's
+      preflight requires the installed root-owned mount helper to be byte-identical to the
+      helper built from the current tree, and installing helpers is not authorized here
+      (`check-ext4-8af23f1.log`, `check-xfs-8af23f1.log`). Reported as unverified.
+- [ ] Performance comparisons (`tools/adr08-bench/`): baseline `57d56cc` against the candidate.
+- [ ] ADR-08 update, README notes, final diff review, acceptance on the final candidate, tag.
 
 ## Decisions (resolved draft gaps)
 
@@ -115,6 +125,20 @@ See the "Implementation decisions" section of ADR-08 once written. Working list:
     by a probe in which idle maintenance after every write-through record drove a 64-block
     volume to `ENOSPC` after 38 writes; with both rules 4096 writes and 12 full overwrite passes
     complete (`tests/cleaner_thread.rs`).
+20. Emptied segments need no scan: when a user or relocation remap removes the last live
+    payload from a sealed segment that holds no current metadata, the writer marks it
+    `PendingFree` at once (`Segments::release_if_empty`) and the barrier frees it. Metadata
+    moves do not do this, because they run inside a publication after its table images were
+    built, and a state change there would desynchronize the in-memory record of the durable
+    root (found by the fallback-after-reuse test). Victims whose last payloads had buffered
+    overwrites at apply time are therefore released by the release of those writes instead of
+    staying stuck; before this rule a quarter-full 128 MiB volume under random overwrite
+    accumulated 23 stuck victims whose copies had consumed the reserve and hit `ENOSPC`.
+21. Pressure gates count publications at the reserve's worst-case size, not the current dirty
+    set, because relocation copies dirty mapping pages and enlarge the publications that must
+    follow. When nothing is left to clean while writes are buffered, pressure releases the
+    buffer once before returning `ENOSPC`, since buffered overwrites keep victims' old payloads
+    live until they land. A segment reused before its punch was offered drops its discard mark.
 ## Commands
 
 ```sh

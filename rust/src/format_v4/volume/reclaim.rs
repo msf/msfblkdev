@@ -125,7 +125,10 @@ impl Reclaim {
 impl Volume {
     /// Reclamation statistics since open.
     pub fn reclaim_stats(&self) -> ReclaimStats {
-        self.reclaim.stats
+        ReclaimStats {
+            segments_emptied_by_writes: self.log.segments.emptied_count(),
+            ..self.reclaim.stats
+        }
     }
 
     /// Bytes appended per head and record class since open.
@@ -216,23 +219,33 @@ impl Volume {
         self.reclaim.cleaner.send(Command::FailNextScan)
     }
 
-    /// Whether `copy_blocks` on the Relocation head and `publications` checkpoints on the
-    /// User head fit the room of each head plus the allocatable segments, leaving
-    /// `keep_segments` untouched.
+    /// Whether `copy_blocks` on the Relocation head and `publications` worst-case checkpoints
+    /// fit the Relocation head's room plus the allocatable segments, leaving `keep_segments`
+    /// untouched. Publications are counted at their reserve size because the copies themselves
+    /// dirty mapping pages and enlarge the publications that must follow them.
     fn maintenance_fits(&self, copy_blocks: u64, publications: u64, keep_segments: u32) -> bool {
         let geometry = self.log.geometry;
         let writable = u64::from(geometry.blocks_per_segment - 1);
-        let room_user = u64::from(self.log.head(HeadId::User).room(geometry));
         let room_relocation = u64::from(self.log.head(HeadId::Relocation).room(geometry));
         let copy_segments = copy_blocks
             .saturating_sub(room_relocation)
             .div_ceil(writable);
-        let publication_blocks = publications * self.publication_blocks();
-        let publication_segments = publication_blocks
-            .saturating_sub(room_user)
-            .div_ceil(writable);
+        let publication_segments = publications * u64::from(self.reserve.publication_segments);
         copy_segments + publication_segments + u64::from(keep_segments)
             <= u64::from(self.log.segments.allocatable_count())
+    }
+
+    /// Whether one publication of the current dirty set fits the User head's room plus the
+    /// allocatable segments.
+    fn publication_fits(&self) -> bool {
+        let geometry = self.log.geometry;
+        let writable = u64::from(geometry.blocks_per_segment - 1);
+        let room_user = u64::from(self.log.head(HeadId::User).room(geometry));
+        let segments = self
+            .publication_blocks()
+            .saturating_sub(room_user)
+            .div_ceil(writable);
+        segments <= u64::from(self.log.segments.allocatable_count())
     }
 
     /// Blocks user admission must leave alone while a victim waits for its second publication.
@@ -264,12 +277,6 @@ impl Volume {
             SelectionMode::Idle => self.reserve.segments,
         };
         self.maintenance_fits(copies, 2, keep)
-    }
-
-    /// Whether one publication fits the space left. A publication that cannot fit fails with
-    /// `ENOSPC` instead of latching the volume.
-    fn publication_fits(&self) -> bool {
-        self.maintenance_fits(0, 1, 0)
     }
 
     fn maintain_step(&mut self, mode: SelectionMode) -> io::Result<MaintenanceStep> {
@@ -346,8 +353,16 @@ impl Volume {
                 self.reclaim.stats.scan_blocks_read += report.blocks_read;
                 self.reclaim.stats.payloads_proposed += report.payloads_live;
                 self.reclaim.stats.payloads_corrupt += report.payloads_corrupt;
-                self.reclaim.queue.push_back(buffer);
-                self.reclaim.scan = if cursor.done {
+                let sealed = self.log.segments.state(buffer.victim)
+                    == crate::format_v4::segment_table::SegmentState::Sealed;
+                if sealed {
+                    self.reclaim.queue.push_back(buffer);
+                } else {
+                    // Overwrites emptied the victim during its scan: nothing left to apply.
+                    self.reclaim.stats.proposals_rejected_source += 1;
+                    self.reclaim.pool.push(buffer);
+                }
+                self.reclaim.scan = if cursor.done || !sealed {
                     ScanState::None
                 } else {
                     ScanState::Ready(cursor)
@@ -483,14 +498,20 @@ impl Volume {
 
     fn finish_victim(&mut self, victim: u32) {
         let segments = &mut self.log.segments;
+        if segments.state(victim) != crate::format_v4::segment_table::SegmentState::Sealed {
+            // The last payload died while the windows were applied; the remap released it.
+            return;
+        }
         if segments.live_blocks(victim) == 0 && segments.metadata_blocks(victim) == 0 {
             segments
                 .mark_pending_free(victim)
                 .expect("sealed victim without references");
             self.reclaim.stats.victims_pending += 1;
         } else {
-            // Something the scan could not move stays live; leave the victim alone until a
-            // mapping change touches it again.
+            // Something the scan could not move stays live: a payload whose bytes fail their
+            // checksum, or a payload a buffered overwrite will replace. The next mapping change
+            // that touches the segment clears the mark, and an emptied segment is released by
+            // the remap itself.
             segments.mark_stuck(victim);
         }
     }
@@ -744,6 +765,12 @@ impl Volume {
             let Some(segment) = self.log.segments.take_discard_due() else {
                 return Ok(());
             };
+            if self.log.segments.state(segment)
+                != crate::format_v4::segment_table::SegmentState::Free
+            {
+                // Reallocated while it waited for a discard slot.
+                continue;
+            }
             self.log.segments.begin_discard(segment)?;
             self.reclaim.discards_in_flight += 1;
             self.reclaim.cleaner.send(Command::Discard { segment })?;
@@ -751,16 +778,24 @@ impl Volume {
     }
 
     /// Runs maintenance under pressure until `demanded_blocks` fit or nothing can free space.
-    /// A step that only waits for the cleaner blocks on its report instead of spinning.
+    /// A step that only waits for the cleaner blocks on its report instead of spinning. When
+    /// nothing is left to clean while writes are buffered, the buffer is released once: a
+    /// buffered overwrite keeps the victim's old payload live until it lands, so victims that
+    /// ended their scan with such payloads are stuck exactly until then.
     pub(crate) fn reclaim_for_space(&mut self, demanded_blocks: u64) -> io::Result<()> {
-        // Bounded: every non-idle step scans, applies, publishes or waits for one report;
-        // Idle ends the loop.
+        let mut released = false;
+        // Bounded: every non-idle step scans, applies, publishes or waits for one report; the
+        // buffer is released at most once; Idle ends the loop.
         loop {
             if ensure_user_space(&self.log, self.reserve, demanded_blocks).is_ok() {
                 return Ok(());
             }
             self.reclaim.stats.pressure_steps += 1;
             match self.maintain(SelectionMode::Pressure)? {
+                MaintenanceStep::Idle if !released && self.write_buffer.len() > 0 => {
+                    released = true;
+                    self.release_records(crate::ReleaseTrigger::Pressure)?;
+                }
                 MaintenanceStep::Idle => {
                     self.reclaim.stats.enospc_all_live += 1;
                     return Err(io::Error::from_raw_os_error(libc::ENOSPC));
