@@ -4,6 +4,19 @@ A Linux-only log-structured block device experiment. Rust is authoritative and i
 
 ## Current status
 
+The latest release is **v1.2.3**. It uses on-disk format 3 from ADR-07. The log is finite: overwrites consume backing space and are never reclaimed.
+
+| ADR | Subject | State |
+| --- | --- | --- |
+| 01–03 | Architecture, basic read/write, minimum credible device | Implemented; regression baseline |
+| 04 | Growable thin-provisioned format | Proposed; not implemented |
+| 05 | Fault model, failure handling and fault testing | Under review; not implemented |
+| 06 | Filesystem and database correctness | ext4, XFS and SQLite accepted; RocksDB and PostgreSQL open |
+| 07 | Paged mapping and bounded cache (format 3) | Implemented in v1.2–v1.2.3 |
+| 08 | Segmented log and space reclamation (format 4) | Draft; not implemented |
+| 09 | Compression at relocation | Deferred draft; not implemented |
+| 10 | Workbench tests and reports | Reporting implemented; VM workload execution open |
+
 Goals 1 and 2 are complete. ADR-03's engine, serialized ublk frontend and live regular-file `fio` acceptance gates pass. V0.8 acceptance is complete.
 
 ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem passed three fresh-image lifecycles, all 12 filesystem checks, exact content verification, clean daemon restarts and cleanup. The final `make lint test` passed. This does not establish crash or power-loss durability.
@@ -24,7 +37,11 @@ by 45–51% versus v1.2.2 at equal cache budgets. Random throughput stays within
 ordinary sequential payload results are mixed.
 The same report retains historical results and separates throughput, tails, memory, and close cost.
 
+[ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) specifies format 4: a segmented log with two fixed append heads, a background cleaner, two-checkpoint segment reuse, client and backing discard, and backing growth. Its approach is decided; encodings, sizing and thresholds still need review and measurement. [ADR-09](ADR-09-RELOCATION-COMPRESSION.md) defers compression until raw reclamation passes. [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) remains proposed; ADR-08 replaces its replacement-image compaction with segment reclamation.
+
 [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
+
+[ADR-10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines the workbench test goals and KPI reports. The [reporting CLI](tools/workbench/README.md) prints the planned 48-case performance matrix and summarizes existing SQLite and go-ycsb evidence. [Native tool recipes](tools/README.md) build pinned SQLite, RocksDB and go-ycsb. The KVM boot probe runs; VM workload execution is not implemented.
 
 The completed minimum credible device sequence is:
 
@@ -38,15 +55,26 @@ V0.4 closure
 
 Rust is authoritative. The Zig implementation is a completed initial experiment and may diverge.
 
+## Next work
+
+- Derive an ADR-08 evaluation suite from the specification, independent of any implementation. Run it against v1.0 onwards to show how fast format 3 fills its backing and which workloads it cannot hold in a given space.
+- Fault-test v1.x before format 4. Cover white-box tests with instrumented `io_uring` and other external interfaces, and black-box tests. Revisit ADR-05 where it does not cover this.
+- Complete the workbench so the test suites audit real device performance.
+- Implement ADR-08 and review it adversarially before releasing it as v2.0.
+- Later: extend the replicated log into a distributed replicated log.
+
 ## Design and delivery specifications
 
 - [ADR-01: log-structured block device](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md) defines the architecture, persistent format and high-level roadmap.
 - [ADR-02: basic read and write](ADR-02-GOAL-1-BASIC-READ-WRITE.md) records V0.0 through V0.4 and its closure gate.
 - [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5 through V0.8.
-- [RALPH.md](RALPH.md) defines the bounded worker loop for one-hour implementation sessions.
+- [ADR-04: growable thin-provisioned format](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) proposes logical and physical growth. It is not implemented.
 - [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
 - [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 and SQLite on both filesystems are complete. RocksDB and PostgreSQL remain open.
 - [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the implemented version-3 format, mapping cache, checkpoint publication, and bounded recovery.
+- [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) specifies format 4 and the cleaner. [The technical review](docs/REVIEW-ADR-08.md) records its open findings. It is not implemented.
+- [ADR-09: compression at relocation](ADR-09-RELOCATION-COMPRESSION.md) is a deferred extension of ADR-08.
+- [ADR-10: workbench tests and reports](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines test goals, commands and KPIs. [TMD-WORKBENCH](TMD-WORKBENCH.md), the [VM environment](docs/WORKBENCH-VM.md) and the [v1.3 benchmark plan](docs/V1.3-BENCHMARK-PLAN.md) support it.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API
@@ -303,7 +331,7 @@ To revoke the helper grant, remove `/etc/sudoers.d/block-storage-ext4-<user>` an
 
 ### XFS development and acceptance
 
-[GOAL-XFS.md](GOAL-XFS.md) records the completed V1.0 scope. After operator approval and protocol-3 helper installation, run:
+After operator approval and protocol-3 helper installation, run:
 
 ```sh
 make check-xfs
@@ -384,4 +412,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, 4 KiB payloads, a finite log, and no compaction or wraparound. Version 3 packs up to 338 buffered payloads per data record after sorting the complete buffer by LBA. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 and XFS clean-restart matrices. The remaining ADR-06 acceptance targets v1.3; RocksDB and PostgreSQL are still open. Medium-write faults, compaction and wraparound remain outside ADR-03.
+The engine has one serialized writer, 4 KiB payloads, a finite log, and no compaction or wraparound. Version 3 packs up to 338 buffered payloads per data record after sorting the complete buffer by LBA. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 and XFS clean-restart matrices. The remaining ADR-06 acceptance targets v1.3; RocksDB and PostgreSQL are still open. Medium-write faults (ADR-05) and space reclamation (ADR-08) are not implemented.
