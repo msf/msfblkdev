@@ -1,8 +1,9 @@
 # ADR-10 Workbench tests and reports
 
 Date: 2026-09-20
+Revised: 2026-10-06 (planned testing only)
 Status: accepted interface and measurement scope; VM workload execution remains open
-Related: [ADR-06 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [benchmark plan](docs/V1.3-BENCHMARK-PLAN.md), [VM environment](docs/WORKBENCH-VM.md), [blockcheck plan](docs/BLOCKCHECK-PLAN.md)
+Related: [ADR-05 fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md), [ADR-06 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [benchmark plan](docs/V1.3-BENCHMARK-PLAN.md), [VM environment](docs/WORKBENCH-VM.md), [blockcheck plan](docs/BLOCKCHECK-PLAN.md)
 
 ## Context
 
@@ -106,6 +107,24 @@ the command for running our device plus XFS and a database inside a VM.
 
 Blockcheck has no command yet. Its plan records the one-time backing setup
 and the intended `make test-blockcheck` target.
+
+### What must the planned blockcheck suite prove?
+
+Reclamation is implemented on a separate branch and remains under operator
+evaluation. Each blockcheck run must record the candidate's commit, binary
+identity and format.
+
+The [blockcheck plan](docs/BLOCKCHECK-PLAN.md) defines how we test the checker,
+which recovered values are allowed, and what evidence and pass conditions each
+case needs. ADR-05 separately covers internal structures and backing faults.
+
+The planned parser must report candidate failures separately from expected
+results in harness tests. For example, a deliberately faulty memory target is
+expected to produce a checker violation. Rewriting data after a crash must not
+erase the verdict recorded before the rewrite.
+
+Label SIGKILL results as process-restart evidence. These requirements leave the
+current SQLite/YCSB reporter and ADR-06 gates unchanged.
 
 ### How do I read and compare results?
 

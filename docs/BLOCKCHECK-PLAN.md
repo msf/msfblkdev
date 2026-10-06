@@ -1,24 +1,27 @@
 # Blockcheck: raw-device space and crash suite
 
 Date: 2026-09-23
-Status: plan; nothing implemented. Gates and thresholds are proposals until frozen.
+Revised: 2026-10-06
+Status: planned device suite; partial checker and memory-target source exists locally but is untracked.
+Gates and thresholds remain proposals until frozen.
 Related: [ADR-10 workbench tests and reports](../ADR-10-WORKBENCH-TESTS-AND-REPORTS.md),
 [ADR-08](../ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md),
 [ADR-05 fault testing](../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
 
 ## Why this suite?
 
-Format 3 never reuses space, and no current test shows it. Every benchmark fits inside the finite
-log. None measures how fast the backing fills, how much backing a workload needs, or what
-reclamation costs.
+Format 3 never reuses space. Existing ENOSPC tests cover finite-log exhaustion. Blockcheck measures
+how long repeated overwrites can continue, how much backing space they need and what reclamation costs.
 
-Blockcheck answers three questions about an ADR-08 implementation:
+Reclamation is implemented on a separate branch and remains under operator evaluation. Record the
+exact build used for each test. This checkout still uses format 3. Blockcheck answers three questions:
 
 1. Does reclamation recover space?
 2. What does it cost in throughput, latency and write amplification?
 3. How much does extra backing space reduce that cost?
 
-It uses only the daemon CLI and the ublk device. It does not read the implementation.
+The device comparison uses only the daemon CLI and the ublk device. ADR-05 separately tests
+internal structures and backing faults. Those results cannot replace the device comparison.
 
 ## How does it stay impartial?
 
@@ -28,7 +31,8 @@ It uses only the daemon CLI and the ublk device. It does not read the implementa
 - Only stated invariants and contracts can fail a candidate. Open decisions (segment size,
   watermarks, victim count, idle policy) are measured, not gated.
 - Gates and thresholds are frozen before the first candidate run.
-- Seeds are drawn when a run starts and recorded in the manifest.
+- Random runs draw a seed at startup and record it in the manifest. Fixed regression sequences
+  remain unchanged. Record every operation: a seed alone cannot reproduce a run if random draws change.
 - Each version's adapter uses only that version's `--help` and README.
 - The candidate's own statistics are diagnostics. A mismatch with our measurements is a finding.
 
@@ -80,19 +84,86 @@ Each 4 KiB payload derives from (seed, LBA, version). Word 0 holds the version m
 from the seed and LBA. The other words come from a keyed SplitMix64 stream. A block from another
 LBA or run does not decode. This is not cryptographic.
 
-For each LBA the checker records the latest acknowledged version, the latest durable version and
-the latest discard. A successful FLUSH makes every earlier acknowledged write and discard durable.
+The checker records each LBA's operation history. It distinguishes successful writes and discards,
+successful flushes, rejections that left storage unchanged, and operations whose effect is uncertain.
 
-- Without a crash, a read returns the latest version. It returns zeros only if the LBA was never
-  written or its latest operation was a discard.
-- After a crash, a read returns a version from the durable one to the latest one. It returns
-  zeros only if nothing was durable or a discard is in that range.
-- A read never returns another LBA's block, an older version, a version never acknowledged, or
-  garbage.
+A successful FLUSH makes earlier completed writes and discards durable. A failed flush makes no
+new promise, but some pending writes may survive. An uncertain write may also reach storage before
+the caller receives a result.
 
-After a crash the harness reads every LBA, then repairs each mismatch by repeating the latest
-operation with a new version, and flushes. The model is exact again. These rules are per LBA;
-they do not check prefix order across LBAs.
+Before a crash, a read must return the latest successfully completed content, unless an operation's
+effect is uncertain. It returns zeros only for an unwritten or discarded LBA. A read must never
+return another LBA's block, garbage or data from an operation known to have been rejected without effect.
+
+After a crash, the checker uses the operation history and the agreed device contract to decide
+which values may survive. Each adapter must cite the contract's ordering and atomicity guarantees.
+It cannot weaken them.
+
+The checker must preserve the state established by the last successful flush and allow later writes
+or uncertain operations only as the contract permits.
+
+For example, the test writes three versions to one LBA:
+
+1. Write v1 and flush successfully.
+2. Reject v2 without changing storage.
+3. Write v3 successfully, then crash before the next flush.
+
+The checker must accept v1 or v3 and reject v2. Accepting every version number between v1 and v3
+would miss the bug.
+
+In this suite, `NoSpace` means the failed write left storage unchanged. A backing `ENOSPC` error
+alone does not provide that guarantee. Adapters must distinguish rejection
+before I/O from backing failures that may have written some bytes.
+
+The checker must calculate expected results independently of the generator and candidate.
+Set explicit limits on retained histories and uncertain operations. If a limit is reached, stop
+and mark the run incomplete. Do not discard information that could change the expected result.
+
+These checks treat each LBA separately. They do not verify record order across LBAs or internal
+checkpoint structures; ADR-05's engine checker covers those rules.
+
+### What happens after a crash?
+
+Verify the recovered state before issuing new writes:
+
+1. Save the stopped daemon's backing image before reopen.
+2. Reopen the device and read every LBA without issuing writes or discards.
+3. Record all observed values and checker violations.
+4. If the case continues, rewrite the latest intended contents with new versions and flush.
+
+Step 4 establishes a known state for the next test phase. It does not repair the engine or prove
+that recovery was correct. Keep the observations and verdict from before those writes.
+
+### How do we test the checker?
+
+Run these fixed tests against memory targets before random testing. The target deliberately returns
+wrong data in the four bug-detection cases:
+
+| Test sequence | Required result |
+|---|---|
+| Run a correct target without faults. | Checks pass before and after recovery. |
+| Write v1 and flush. Crash, then read. The target returns the value from before v1. | Detect loss of durable data after recovery. |
+| Write LBA A, then read LBA B without a crash. The target returns A's payload. | Detect data returned from the wrong LBA. |
+| Write, discard, flush and crash. After recovery, the target returns the pre-discard payload. | Detect discarded data returning after recovery. |
+| Flush v1, reject v2 without changing storage, write v3 and crash. After recovery, the target returns v2. | Detect a rejected write becoming visible. |
+| Store a write, make its completion uncertain and crash. After recovery, the target returns that write. | Accept the outcome when the target contract permits it. |
+| Schedule a fault after the last operation. | Report no violation and a fault count of zero. |
+
+Each deliberate-bug test must name the fault trigger, affected LBA and expected violation kind.
+It must state whether detection occurs before or after recovery, and record whether the fault
+occurred. `violation_count > 0` alone is not enough. Where the test can restore a known state,
+verify that state separately after the rewrite and flush.
+
+### Random tests and reproduction
+
+Start with short operation sequences over a small working set. Record the limits on sequence
+length, LBA count and capacity. Report which state transitions, faults and outcomes were checked.
+For each failure, save the operations, completions, flush results, crash positions and faults.
+Reduce the sequence to a smaller reproducer and keep it as a regression test.
+
+Before claiming reuse safety, test images that have already undergone repeated reuse and metadata
+pressure. ADR-05 separately covers checkpoint corruption, torn backing writes and cleaner scheduling.
+A random SIGKILL does not establish coverage of those cases.
 
 ## Cases
 
@@ -101,8 +172,8 @@ they do not check prefix order across LBAs.
 | `aged-overwrite` | Write every LBA, flush, then overwrite to a target multiple of the backing. Settings: pattern (uniform, hot/cold, moving hot region, sequential), working set (1 LBA to all), flush interval. | Cleaning cost; two heads; relocation source check; metadata reclamation |
 | `write-pressure` | Write at maximum rate near the space frontier. Then write in bursts with random idle gaps. On ENOSPC, retry with backoff. | Reserve deferral; no ENOSPC with a positive-gain victim; idle cleaning |
 | `discard-cycle` | Write a window, flush, discard it, flush, move to the next window. At least 10 cycles and 5 × backing. | Client discard; zeros after discard; discard ordering |
-| `crash-restart` | SIGKILL the daemon at random points during the other cases and during reopen. Verify every LBA. | Device contract; invariants 1–3 |
-| `harness-check` | v1.2.3 must fail `aged-overwrite` (ENOSPC) and `discard-cycle`. The memory target with each fault must fail the checker. | None; it tests the harness |
+| `crash-restart` | SIGKILL at recorded trace positions during the other cases and reopen, on fresh and aged fixtures. Preserve the image before reopen and verify every LBA without repair. This tests process loss, not power loss. | Device contract; invariants 1–3 |
+| `harness-check` | v1.2.3 must reach finite-log ENOSPC under `aged-overwrite` and reject unsupported discard cleanly. Memory targets must pass the exact positive/negative controls before random faults. | None; it tests the harness |
 
 Each case reports:
 
@@ -158,7 +229,7 @@ acceptable only for raw-device clients.
 
 | Gate | Pass condition |
 |---|---|
-| Correctness | Zero checker violations in every run. |
+| Correctness | Candidate runs have zero checker violations. Deliberate-bug tests detect their expected violations. Report v1.2.3's expected ENOSPC and unsupported-discard results separately. |
 | Endurance | `aged-overwrite` writes at least 20 × backing (128 MiB scale) or 3 × backing (4 GiB scale) without ENOSPC, on every gated size. |
 | Discard | `discard-cycle` completes without ENOSPC; discarded LBAs read zeros after FLUSH and restart. |
 | Exhaustion | Real exhaustion returns ENOSPC, not EIO or a hang; flushed data survives; writes resume after discard. |
@@ -177,20 +248,34 @@ acceptable only for raw-device clients.
 
 ```text
 evidence/blockcheck-<run-id>/
-  manifest.json          versions, SHAs, binary hashes, seed, kernel, CPU, backing, frozen gates
-  <case>/case.json       settings, results, gate outcomes
+  manifest.json          versions, SHAs, dirty state, binary hashes, format, seed, kernel, CPU, backing, bounds, frozen gates
+  <case>/case.json       settings, expected results, verdicts, faults that occurred, coverage
+  <case>/trace.jsonl     issued operations, completions, flush results, crash/fault positions
   <case>/timeline.csv    per second: ops, latency percentiles, device counters, st_blocks, memory
   <case>/daemon.log      daemon stderr
+  <case>/failure/        image before reopen, observations before rewrites, reduced sequence
   summary.json
 ```
 
+Keep verification, rewrites and image capture outside timed performance intervals.
+Reports must distinguish:
+
+- checker violations;
+- expected rejections, such as finite-log ENOSPC or unsupported discard;
+- expected errors from the selected medium fault;
+- failures of the test harness itself.
+
+If the run cannot show that an intended fault occurred, its fault coverage is incomplete.
+The same applies if the run exceeds a resource or time limit before finishing its planned cases.
+
 ## Deliveries
 
-1. Checker, payload, memory target with faults, generator and device target. Unit tests prove
-   each fault fails the checker.
-2. v1.2.3 adapter and sampler. Run `aged-overwrite` and `harness-check` on v1.2.3. Calibrate
-   against `fio` and measure XFS overhead against the raw LV.
-3. The remaining cases, the sweep and the ADR-10 parser. Freeze the gates. Run blind against
-   `v2.0-rc`.
-4. Fault testing (ADR-05): the same checker over a simulated disk, first in process, later as an
-   unprivileged ublk backing target.
+1. Define allowed recovery results and pass the fixed checker tests using the partial local code.
+   Then add the generator and device target. The untracked library is not device acceptance evidence.
+2. Add the v1.2.3 adapter and sampler. Verify its expected ENOSPC and unsupported-discard behavior
+   with `aged-overwrite` and `harness-check`. Calibrate against `fio` and measure XFS overhead against
+   the raw LV.
+3. Add the remaining cases, sequence replay and reduction, backing-size sweep and ADR-10 parser.
+   Freeze the gates before judging the reclamation candidate. Record its commit and binary identity.
+4. Connect ADR-05's simulated backing to the logical checker and its separate structural and
+   record-order checks. Run it in process first, then as an unprivileged ublk backing target.
