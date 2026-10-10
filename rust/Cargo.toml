@@ -17,6 +17,6 @@ io-uring = "=0.7.14"
 libc = "=0.2.186"
 libublk = "=0.4.7"
 serde_json = { version = "=1.0.151", optional = true, features = ["float_roundtrip"] }
-xxhash-rust = { version = "=0.8.15", features = ["xxh3"] }
+xxhash-rust = { version = "=0.8.16", features = ["xxh3"] }
 
 hashbrown = { version = "=0.17.1", default-features = false }
