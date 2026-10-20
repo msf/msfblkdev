@@ -1,9 +1,11 @@
 # Blockcheck: raw-device space and crash suite
 
 Date: 2026-09-23
-Revised: 2026-10-06
-Status: planned device suite; partial checker and memory-target source exists locally but is untracked.
-Gates and thresholds remain proposals until frozen.
+Revised: 2026-10-20
+Status: planned device suite. The checker and memory target pass the fixed checker tests
+(2026-10-20, commit `29a184d`).
+Gate values were decided on 2026-10-20. They freeze when this file is committed, before the first
+candidate run.
 Related: [ADR-10 workbench tests and reports](../ADR-10-WORKBENCH-TESTS-AND-REPORTS.md),
 [ADR-08](../ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md),
 [ADR-05 fault testing](../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
@@ -50,17 +52,24 @@ Timed runs start from a fully written backing file, so XFS allocates nothing dur
 overwrites. Space runs start from a sparse file, so `st_blocks` shows growth and hole punching.
 The raw LV `blk-128mib-0` is the control for XFS overhead.
 
-No step needs root after the one-time setup below.
+After the one-time setup below, only `make setup-blockcheck-host` needs root, once per boot.
 
-### One-time setup (done 2026-09-23)
+### One-time setup (backing done 2026-09-23, ublk done 2026-10-20)
 
 1. Create the LV: `sudo lvcreate -L 16G -n blockcheck ubuntu-vg`.
 2. Format it: `sudo mkfs.xfs -L blockcheck -m reflink=1 /dev/ubuntu-vg/blockcheck`.
 3. Add `/dev/ubuntu-vg/blockcheck /mnt/blockcheck xfs noatime,lazytime,nofail 0 0` to `/etc/fstab`.
 4. Mount it: `sudo mount /mnt/blockcheck`.
 5. Give it to the user: `sudo chown "$USER": /mnt/blockcheck`.
+6. Complete the README "Normal-user ublk setup": helper, udev rule, `plugdev` membership and the
+   `/run/ublksrvd` tmpfiles rule.
 
-Before it writes, the harness checks that the backing file is on this filesystem.
+After each boot, run `make setup-blockcheck-host`. It loads `ublk_drv` and verifies steps 1 to 6.
+It installs nothing.
+
+Before it writes, the harness checks that the backing file is on this filesystem. It also checks
+that `/dev/ublk-control` is readable and writable. If a check fails, the harness stops and prints
+`make setup-blockcheck-host`. The harness never calls sudo.
 
 ## Pieces
 
@@ -118,6 +127,12 @@ before I/O from backing failures that may have written some bytes.
 The checker must calculate expected results independently of the generator and candidate.
 Set explicit limits on retained histories and uncertain operations. If a limit is reached, stop
 and mark the run incomplete. Do not discard information that could change the expected result.
+The checker keeps up to 65,536 rejected writes per run. Before a recovery, it keeps one uncertain
+write and one uncertain discard or zero write per LBA. Recovery adds each retired uncertain write to
+the rejected writes: after recovery, that payload is never a valid result.
+
+The checker's model uses about 36 bytes per LBA: about 38 MiB at the 4 GiB scale. The harness
+runs outside the daemon's cgroup, so the memory gate does not count this model.
 
 These checks treat each LBA separately. They do not verify record order across LBAs or internal
 checkpoint structures; ADR-05's engine checker covers those rules.
@@ -148,6 +163,11 @@ wrong data in the four bug-detection cases:
 | Flush v1, reject v2 without changing storage, write v3 and crash. After recovery, the target returns v2. | Detect a rejected write becoming visible. |
 | Store a write, make its completion uncertain and crash. After recovery, the target returns that write. | Accept the outcome when the target contract permits it. |
 | Schedule a fault after the last operation. | Report no violation and a fault count of zero. |
+| Start a misdirected-write fault at the first rewrite after recovery. | Report no violation from recovery: every verdict precedes the rewrites. |
+
+`tools/blockcheck/tests/checker_faults.rs` implements each row as one test. A random suite also runs
+every fault, and a correct target with injected rejections and I/O errors. For each checker rule,
+we deliberately broke the rule and confirmed that a named test failed (2026-10-20).
 
 Each deliberate-bug test must name the fault trigger, affected LBA and expected violation kind.
 It must state whether detection occurs before or after recovery, and record whether the fault
@@ -169,7 +189,7 @@ A random SIGKILL does not establish coverage of those cases.
 
 | Case | Procedure | ADR-08 clause |
 |---|---|---|
-| `aged-overwrite` | Write every LBA, flush, then overwrite to a target multiple of the backing. Settings: pattern (uniform, hot/cold, moving hot region, sequential), working set (1 LBA to all), flush interval. | Cleaning cost; two heads; relocation source check; metadata reclamation |
+| `aged-overwrite` | Write the live fraction of the LBAs, flush, then overwrite them until the [stop rule](#endurance-stop-rule) ends the run. Settings: live fraction (1.00 gated, 0.90 measured only), pattern (uniform, hot/cold, moving hot region, sequential), working set (1 LBA to all live LBAs), flush interval. | Cleaning cost; two heads; relocation source check; metadata reclamation |
 | `write-pressure` | Write at maximum rate near the space frontier. Then write in bursts with random idle gaps. On ENOSPC, retry with backoff. | Reserve deferral; no ENOSPC with a positive-gain victim; idle cleaning |
 | `discard-cycle` | Write a window, flush, discard it, flush, move to the next window. At least 10 cycles and 5 × backing. | Client discard; zeros after discard; discard ordering |
 | `crash-restart` | SIGKILL at recorded trace positions during the other cases and reopen, on fresh and aged fixtures. Preserve the image before reopen and verify every LBA without repair. This tests process loss, not power loss. | Device contract; invariants 1–3 |
@@ -189,6 +209,25 @@ against the candidate aged gives the reclamation cost. The fill-factor sweep giv
 extra space. Steady state means two consecutive equal windows agree within 5% on throughput and
 write amplification.
 
+### Endurance stop rule
+
+An `aged-overwrite` run writes at least the minimum multiple of the backing. It then continues until
+steady state or the maximum multiple, whichever comes first:
+
+| Scale | Minimum | Maximum |
+|---|---:|---:|
+| 128 MiB | 20 × backing | 25 × backing |
+| 4 GiB | 3 × backing | 10 × backing |
+
+ENOSPC before the stop fails the run. A run that reaches the maximum without steady state is a
+finding, not a failure. At 4 GiB, 3 × backing reuses each segment about three times at 0.67 fill.
+That may end before cleaning settles, so the run continues past the minimum.
+
+The live fraction is the share of LBAs that preconditioning writes. Unwritten LBAs cost no backing
+space, so a live fraction of 0.90 lowers the effective fill to `0.90 × logical / backing`. The
+mapping index still scales with the logical size. The 0.90 runs are measured only: ADR-08 makes no
+separate promise for them.
+
 ## Backing sizes
 
 Size = 8 KiB + n × 32 MiB. ADR-08 puts two descriptors in blocks 0 and 1, then whole segments.
@@ -206,6 +245,7 @@ Below the floor, ENOSPC is allowed but must be clean.
 | Sweep | 128 MiB | 320 MiB + 8 KiB | 335,552,512 | 0.40 | 8, 16, 32 | 8, 16, 32 |
 | Fresh comparison | 128 MiB | 1 GiB + 8 KiB | 1,073,750,016 | n/a | fits v1.2.3's log | n/a |
 | Large sweep | 4 GiB | 5 GiB + 8 KiB | 5,368,717,312 | 0.80 | 8, 16, 32 | none |
+| Large gate | 4 GiB | 5472 MiB + 8 KiB | 5,737,816,064 | 0.75 | 8, 16, 32 | 8, 16, 32 |
 | Large gate | 4 GiB | 6 GiB + 8 KiB | 6,442,459,136 | 0.67 | 8, 16, 32 | 8, 16, 32 |
 
 `discard-cycle` needs a logical size of at least twice its window, for example 1 GiB logical over
@@ -225,24 +265,77 @@ write by holding the request.
 Unverified: ext4 and XFS probably treat a failed write as an I/O error. If so, brief ENOSPC is
 acceptable only for raw-device clients.
 
-## Proposed gates
+## Gates
 
 | Gate | Pass condition |
 |---|---|
 | Correctness | Candidate runs have zero checker violations. Deliberate-bug tests detect their expected violations. Report v1.2.3's expected ENOSPC and unsupported-discard results separately. |
-| Endurance | `aged-overwrite` writes at least 20 × backing (128 MiB scale) or 3 × backing (4 GiB scale) without ENOSPC, on every gated size. |
+| Endurance | `aged-overwrite` with live fraction 1.00 reaches its [stop rule](#endurance-stop-rule) without ENOSPC, on every gated size. |
 | Discard | `discard-cycle` completes without ENOSPC; discarded LBAs read zeros after FLUSH and restart. |
 | Exhaustion | Real exhaustion returns ENOSPC, not EIO or a hang; flushed data survives; writes resume after discard. |
-| Memory | No OOM under the frozen cap; peak memory has no upward trend over 10 cycles. |
-| Stalls | No request exceeds the frozen deadline under `write-pressure`, excluding ENOSPC retries. |
+| Memory | No OOM under the [memory cap](#how-is-the-memory-cap-set); peak memory has no upward trend. |
+| Stalls | No request takes longer than 1 s under `write-pressure`, excluding ENOSPC retries. ENOSPC retries follow [ENOSPC under pressure](#enospc-under-pressure): backoff at most 1 s, 30 s total. |
 
-## Open decisions (freeze before the first candidate run)
+Performance has no gate. ADR-08 states that fresh-volume throughput cannot gate this design, and
+the candidate enables overwrite-heavy workloads that format 3 cannot sustain. That capability is
+expected to cost some throughput.
 
-- Regression threshold for the fresh comparison. The template says throughput ≥90% and P99 ≤110%;
-  the implementation prompt says >10% throughput loss or >20% P99 increase.
-- Memory cap per scale.
-- Stall deadline (proposal: 1 s) and ENOSPC retry limits (proposal: 1 s backoff, 30 s total).
-- Endurance write multiples (proposal: 20× and 3×).
+### How is the memory cap set?
+
+```text
+memory.max = round_up(2 × P_base + 16 MiB, 16 MiB)
+```
+
+`P_base` is v1.2.3's `memory.peak` on the same case, scale, write buffer and cache settings, on
+this host. The factor of 2 covers state that format 4 adds: two heads, segment state and the older
+index that a cleaner view can retain (ADR-08, "Which metadata stays resident?"). The fixed 16 MiB
+covers compaction work in flight. It does not scale with the volume, because read windows and
+relocation batches do not.
+
+The 16 MiB is an estimate, not a measurement. ADR-08 requires a streaming cleaner: bounded read
+windows, batches sent to the writer by reference, and no retained whole victims. One relocation
+`Data` record holds at most 338 × 4 KiB, about 1.3 MiB. The allowance covers a read window plus
+about 12 batches in flight.
+
+There is no upward trend when the highest peak in cycles 6 to 10 is at most 1.05 × the highest
+peak in cycles 1 to 5.
+
+We measure memory from outside the process: cgroup `memory.peak`, sampled `smaps_rollup` and the
+thread count. v1.2.3's idle RSS is the reference for memory outside the heap. The candidate's own
+heap reports are diagnostics.
+
+The cgroup also charges page cache. The backing uses O_DIRECT, so we assume this adds little. The
+noise baseline must confirm that assumption.
+
+## What do we report without a gate?
+
+| Measurement | Report |
+|---|---|
+| Fresh comparison | A reproducible throughput loss above 10% or a P99 increase above 20% is a finding. A throughput loss above 50% or a P99 increase above 2× is a severe finding. Neither fails the candidate. |
+| Compaction memory | Candidate peak minus `P_base`, compared with the 16 MiB allowance. If the candidate's `--help` exposes heap or eviction budgets, we set them explicitly and report peak memory against them. |
+| Memory spike | Candidate peak minus `P_base` of at least one segment size is a finding. It suggests that the cleaner retains a whole victim, which ADR-08 forbids. Other causes are possible, so the finding needs diagnosis. |
+| Steady state | Whether each `aged-overwrite` run reached steady state before its maximum multiple. |
+| Live fraction 0.90 | Endurance, write amplification and latency, beside the gated 1.00 runs. |
+
+### Which baseline do these numbers need?
+
+Earlier performance results come from other hardware. Before the first candidate run, we run the
+fresh comparison for v1.2.3 against itself on this host. If that noise exceeds the 10% or 20%
+trigger, we revisit the trigger before the candidate run. The same runs measure `P_base`.
+
+### Why these values?
+
+- **Regression trigger:** the implementation prompt's 10% and 20% replace the template's 90% and
+  110%. We expect P99 on ublk to vary more than throughput. This is not measured; the noise
+  baseline checks it.
+- **Stall limits:** 1 s is far above normal device latency, and a cleaner wait of seconds is a real
+  defect. 30 s matches the request timeout we expect from ublk. Read
+  `/sys/block/ublkbN/queue/io_timeout` to confirm it.
+- **Endurance:** a fixed multiple can end before cleaning settles. A stop rule that continues to
+  steady state, with a maximum, bounds the runtime and still measures settled behavior.
+- **0.75 large gate:** it is the highest fill at 4 GiB that reaches 1.25 × the ADR-08 floor for
+  8, 16 and 32 MiB segments. At 128 MiB, 0.75 fill is below that margin, so that scale keeps its
+  existing gated rows.
 
 ## Evidence
 
@@ -270,8 +363,8 @@ The same applies if the run exceeds a resource or time limit before finishing it
 
 ## Deliveries
 
-1. Define allowed recovery results and pass the fixed checker tests using the partial local code.
-   Then add the generator and device target. The untracked library is not device acceptance evidence.
+1. Define allowed recovery results and pass the fixed checker tests. Done on 2026-10-20. Then add
+   the generator and device target. The untracked library is not device acceptance evidence.
 2. Add the v1.2.3 adapter and sampler. Verify its expected ENOSPC and unsupported-discard behavior
    with `aged-overwrite` and `harness-check`. Calibrate against `fio` and measure XFS overhead against
    the raw LV.
