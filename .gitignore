@@ -7,3 +7,4 @@
 /rust/target/
 /evidence/*.log
 /evidence/sqlite-*/
+/tools/blockcheck/target/
