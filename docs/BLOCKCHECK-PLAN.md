@@ -220,15 +220,25 @@ steady state or the maximum multiple, whichever comes first:
 | 4 GiB | 3 × backing | 10 × backing |
 
 ENOSPC before the stop fails the run. A run that reaches the maximum without steady state is a
-finding, not a failure. At 4 GiB, 3 × backing reuses each segment about three times at 0.67 fill.
+finding, not a failure. At 4 GiB, 3 × backing reuses each segment about three times at fill factor 0.67.
 That may end before cleaning settles, so the run continues past the minimum.
 
 The live fraction is the share of LBAs that preconditioning writes. Unwritten LBAs cost no backing
-space, so a live fraction of 0.90 lowers the effective fill to `0.90 × logical / backing`. The
+space, so a live fraction of 0.90 lowers the fill factor to `0.90 × logical / backing`. The
 mapping index still scales with the logical size. The 0.90 runs are measured only: ADR-08 makes no
 separate promise for them.
 
 ## Backing sizes
+
+Two ratios describe how full a device is:
+
+| Term | Ratio | Meaning |
+|---|---|---|
+| Live fraction | live data ÷ logical size | How much of the volume the client uses. |
+| Fill factor | live data ÷ backing size | How much room the cleaner has. ADR-08 uses this term. |
+
+The `Fill` column below is the fill factor. With live fraction 1.00, live data equals the logical
+size. Discarded and unwritten LBAs are not live data.
 
 Size = 8 KiB + n × 32 MiB. ADR-08 puts two descriptors in blocks 0 and 1, then whole segments.
 8, 16 and 32 MiB segments all divide the rest. The floor is ADR-08's proposed
@@ -245,7 +255,6 @@ Below the floor, ENOSPC is allowed but must be clean.
 | Sweep | 128 MiB | 320 MiB + 8 KiB | 335,552,512 | 0.40 | 8, 16, 32 | 8, 16, 32 |
 | Fresh comparison | 128 MiB | 1 GiB + 8 KiB | 1,073,750,016 | n/a | fits v1.2.3's log | n/a |
 | Large sweep | 4 GiB | 5 GiB + 8 KiB | 5,368,717,312 | 0.80 | 8, 16, 32 | none |
-| Large gate | 4 GiB | 5472 MiB + 8 KiB | 5,737,816,064 | 0.75 | 8, 16, 32 | 8, 16, 32 |
 | Large gate | 4 GiB | 6 GiB + 8 KiB | 6,442,459,136 | 0.67 | 8, 16, 32 | 8, 16, 32 |
 
 `discard-cycle` needs a logical size of at least twice its window, for example 1 GiB logical over
@@ -333,9 +342,6 @@ trigger, we revisit the trigger before the candidate run. The same runs measure 
   `/sys/block/ublkbN/queue/io_timeout` to confirm it.
 - **Endurance:** a fixed multiple can end before cleaning settles. A stop rule that continues to
   steady state, with a maximum, bounds the runtime and still measures settled behavior.
-- **0.75 large gate:** it is the highest fill at 4 GiB that reaches 1.25 × the ADR-08 floor for
-  8, 16 and 32 MiB segments. At 128 MiB, 0.75 fill is below that margin, so that scale keeps its
-  existing gated rows.
 
 ## Evidence
 
