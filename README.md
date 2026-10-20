@@ -371,10 +371,11 @@ sudo modprobe ublk_drv
 
 The preferred setup gives the existing `plugdev` group access to the global control node. Each created device uses `UBLK_F_UNPRIVILEGED_DEV`. The upstream owner helper then assigns `/dev/ublkcN` and `/dev/ublkbN` to the kernel-recorded owner.
 
-Build the vendored helper as the normal user. Install the helper, library, and restrictive udev rule as an administrator:
+Build the vendored helper as the normal user. It needs the `liburing-dev` headers. If the tree holds a build from another architecture, run `make -C ublksrv distclean` and `(cd ublksrv && ./configure)` first. Install the helper, library, and restrictive udev rule as an administrator:
 
 ```sh
-make -C ublksrv lib/libublksrv.la ublk_user_id
+make -C ublksrv/lib libublksrv.la
+make -C ublksrv ublk_user_id
 sudo ublksrv/libtool --mode=install install -m 0755 ublksrv/lib/libublksrv.la /usr/local/lib
 sudo ublksrv/libtool --mode=install install -m 0755 ublksrv/ublk_user_id /usr/local/sbin
 sudo install -m 0755 ublksrv/utils/ublk_chown.sh /usr/local/sbin/ublk_chown.sh
@@ -388,7 +389,19 @@ sudo sed -i \
 sudo udevadm verify /etc/udev/rules.d/90-ublk.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger --settle --action=add --name-match=ublk-control
+sudo usermod -aG plugdev "$USER"
 ```
+
+The group change takes effect at the next login. Until then, run commands through `sg plugdev -c '...'`.
+
+libublk writes device metadata to `/run/ublksrvd` and fails with `other IO failure` if it can't create it. The ext4 helper installer creates this directory. Without that installer, add the same tmpfiles rule. Use numeric IDs: the installer refuses a rule with different text.
+
+```sh
+printf 'd /run/ublksrvd 0700 %s %s -\n' "$(id -u)" "$(id -g)" | sudo tee /etc/tmpfiles.d/block-storage-ublk.conf
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/block-storage-ublk.conf
+```
+
+After each boot, `make setup-blockcheck-host` loads `ublk_drv` through sudo and verifies these steps. It installs nothing.
 
 The project does not install or reload these host files automatically. Do not install the vendored rule unchanged because it grants mode `0666` on `/dev/ublk-control`. Do not run Make or Cargo as root because they create root-owned build artifacts.
 
