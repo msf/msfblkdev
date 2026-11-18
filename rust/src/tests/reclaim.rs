@@ -738,11 +738,9 @@ fn cleaner_follows_backing_growth_at_runtime_and_after_replay() -> io::Result<()
     reopened.close()
 }
 
-/// A victim whose scan leaves only a resident, current snapshot behind is not lost: the next
-/// publication re-emits the snapshot and the emptied segment is released without another scan.
-#[test]
-fn victim_left_with_only_current_metadata_is_released_after_the_next_publication() -> io::Result<()>
-{
+/// Return a live volume with no selectable victim and a sealed segment pinned only by a
+/// snapshot that the last scan marked dirty. The caller owns the backing for the whole test.
+fn metadata_only_stuck_victim() -> io::Result<(TemporaryBacking, Volume)> {
     let backing = fixture(1024, SEGMENTS)?;
     let mut volume = open_with_options(&backing.0, options(1))?;
     // Two pages: LBA 0 (page 0) and LBA 400 (page 1) share segment 0 with their snapshots.
@@ -777,6 +775,41 @@ fn victim_left_with_only_current_metadata_is_released_after_the_next_publication
     );
     assert!(volume.log.segments.is_stuck(0));
     assert_eq!(volume.log.segments.live_blocks(0), 0);
+    Ok((backing, volume))
+}
+
+#[test]
+fn pressure_publishes_a_metadata_only_victim_without_reopen() -> io::Result<()> {
+    let (backing, mut volume) = metadata_only_stuck_victim()?;
+    let g = volume.log.geometry;
+    let available = crate::format_v4::heads::user_available_blocks(
+        g,
+        volume.log.head(HeadId::User).room(g),
+        volume.log.segments.allocatable_count(),
+        volume.reserve,
+    );
+    volume.reclaim_for_space(available + 1)?;
+    assert_eq!(volume.log.segments.state(0), SegmentState::Free);
+    assert!(volume.reclaim_stats().segments_freed > 0);
+    volume.write_block(2, &value(42))?;
+    volume.flush()?;
+    volume.close()?;
+    let mut reopened = open_with_options(&backing.0, options(1))?;
+    let mut bytes = [0; BLOCK_SIZE];
+    for (lba, expected) in [(0, 14), (1, 24), (2, 42), (400, 2)] {
+        reopened.read_block(lba, &mut bytes)?;
+        assert_eq!(bytes, value(expected));
+    }
+    reopened.close()
+}
+
+/// A victim whose scan leaves only a resident, current snapshot behind is not lost: the next
+/// publication re-emits the snapshot and the emptied segment is released without another scan.
+#[test]
+fn victim_left_with_only_current_metadata_is_released_after_the_next_publication() -> io::Result<()>
+{
+    let (backing, volume) = metadata_only_stuck_victim()?;
+    let mut bytes = [0; BLOCK_SIZE];
     // Close publishes: the re-emission empties segment 0. The published root still says Sealed,
     // so open releases it without a scan and the barrier frees it.
     volume.close()?;

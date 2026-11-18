@@ -834,7 +834,14 @@ impl Volume {
                 return Err(io::Error::from_raw_os_error(libc::ENOSPC));
             }
             self.reclaim.stats.pressure_steps += 1;
-            match self.maintain(SelectionMode::Pressure)? {
+            let mut step = self.maintain(SelectionMode::Pressure)?;
+            if step == MaintenanceStep::Idle && self.write_buffer.len() == 0 {
+                let published = self.release_pinned_metadata();
+                if self.latch(published)? {
+                    step = MaintenanceStep::Published { freed: 1 };
+                }
+            }
+            match step {
                 MaintenanceStep::Idle if !released && self.write_buffer.len() > 0 => {
                     released = true;
                     self.release_records(crate::ReleaseTrigger::Pressure)?;
@@ -868,6 +875,47 @@ impl Volume {
                 _ => continue,
             }
         }
+    }
+
+    /// A scan may have copied the last live payload and dirtied the victim's last current
+    /// snapshot, index or table page. Another scan cannot help. Publish the dirty metadata,
+    /// then record PendingFree and Free. No foreground I/O interleaves with these checkpoints.
+    fn release_pinned_metadata(&mut self) -> io::Result<bool> {
+        use crate::format_v4::segment_table::SegmentState;
+        if self.reclaim.scan != ScanState::None || !self.reclaim.queue.is_empty() {
+            return Ok(false);
+        }
+        let g = self.log.geometry;
+        let seg = &self.log.segments;
+        let Some(victim) = (0..g.segment_count).find(|&s| {
+            seg.state(s) == SegmentState::Sealed
+                && seg.is_stuck(s)
+                && seg.live_blocks(s) == 0
+                && seg.metadata_blocks(s) != 0
+        }) else {
+            return Ok(false);
+        };
+        let writable = u64::from(g.blocks_per_segment - 1);
+        // Dirty snapshots and indexes need writing once. The table group must fit one
+        // segment in each of the three publications, wasting at most table_pages-1 blocks
+        // per publication. Keep the two link slots charged by publication_fits, too.
+        let required = self.mapping.cache.dirty_pages().count() as u64
+            + u64::from(g.direct_pages + g.indirect_pages)
+            + 3 * u64::from(2 * g.table_pages - 1)
+            + 2;
+        let room = u64::from(self.log.head(HeadId::User).room(g));
+        if required.saturating_sub(room).div_ceil(writable) > u64::from(seg.allocatable_count()) {
+            return Ok(false);
+        }
+        for _ in 0..3 {
+            self.barrier_publication()?;
+            match self.log.segments.state(victim) {
+                SegmentState::Free => return Ok(true),
+                SegmentState::PendingFree => (),
+                _ => return Ok(false), // A missed/corrupt reference must not be freed.
+            }
+        }
+        Ok(false)
     }
 
     /// Whether the live payloads, their footers when packed, the current metadata and the
