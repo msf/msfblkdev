@@ -1,6 +1,10 @@
 # GOAL-ADR08: implement ADR-08 (format 4, raw reclamation, cleaner thread)
 
-This file is the implementation record and the durable handoff across restarts.
+ADR-08 shipped in **v2.0** (`031d778`). The release tree matches `fed4151`, which passed format-4 qualification. For the fixes, final gate results and limits, see the [v2.0 qualification](docs/V2.0-QUALIFICATION.md).
+
+## Historical release candidate (`v2.0-rc`)
+
+The branch, paths and checklist below record the original candidate, not the released tree.
 
 - Branch: `implement/adr08` in the private clone `/home/miguel/play/_worktrees/msfblkdev-adr08`,
   started from `57d56cc`.
@@ -8,9 +12,9 @@ This file is the implementation record and the durable handoff across restarts.
 - Evidence: `evidence/adr08-implementation/`.
 - Result: complete. The tag `v2.0-rc` marks the final candidate `8c7f650`.
 
-## Status
+### Candidate status
 
-The work is complete. Every implementation commit carries its `make lint test` log under
+Every candidate implementation commit carries its `make lint test` log under
 `evidence/adr08-implementation/`.
 
 | Gate | Result | Evidence |
@@ -31,7 +35,7 @@ Two tests outside this work are flaky under the parallel test run. Both pass alo
 - `ublk_fio::tests::cleanup_refuses_changed_identity_and_preserves_backing` collides on an
   evidence file name when two tests start in the same nanosecond.
 
-## Checklist
+## Candidate checklist
 
 ### Phase 1: green baseline and contracts
 
@@ -91,8 +95,7 @@ Two tests outside this work are flaky under the parallel test run. Both pass alo
 - [x] ublk-fio lab on format 4 (`8af23f1`): PASS, 8 scenarios × 3 repetitions in 44 s. Sustained
       overwrite appended 2544 blocks into a 320-block log and freed 74 segments. Thin-volume
       exhaustion came at 182 to 190 written blocks (`ublk-fio-8af23f1.log`).
-- [ ] `make test-ext4`, `make test-xfs` and the SQLite matrices: UNAVAILABLE in this clone. See
-      Status. Reported as unverified.
+- [ ] `make test-ext4`, `make test-xfs` and the SQLite matrices: UNAVAILABLE in this clone. The candidate did not verify them. The v2.0 release tree passed them.
 - [x] Acceptance: PASS on `2303843` (326 tests), `8e7e0e2` (328) and `8c7f650` (328 tests, 86 s,
       `acceptance-8c7f650.log`).
 - [x] ublk-fio on the final candidate `8c7f650`: PASS, 8 scenarios × 3 in 44 s. Wraparound

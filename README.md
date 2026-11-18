@@ -4,7 +4,7 @@ A Linux-only log-structured block device experiment. Rust is authoritative and i
 
 ## Current status
 
-The latest stable release is **v1.2.3**. It uses format 3, which never reclaims overwritten blocks. The development engine uses format 4; it cannot open a format-3 image.
+The latest stable release is [**v2.0**](https://github.com/msf/msfblkdev/releases/tag/v2.0) (`031d778`). It uses on-disk format 4 and reclaims overwritten blocks. It cannot open format-3 images from v1.2.3, and there is no in-place migration.
 
 | ADR | Subject | State |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ The latest stable release is **v1.2.3**. It uses format 3, which never reclaims 
 | 05 | Fault model, failure handling and fault testing | Under review; not implemented |
 | 06 | Filesystem and database correctness | ext4, XFS and SQLite accepted; RocksDB and PostgreSQL open |
 | 07 | Paged mapping and bounded cache (format 3) | Implemented in v1.2–v1.2.3 |
-| 08 | Segmented log and space reclamation (format 4) | Implemented; under evaluation |
+| 08 | Segmented log and space reclamation (format 4) | Released in v2.0 |
 | 09 | Compression at relocation | Deferred draft; not implemented |
 | 10 | Workbench tests and reports | Reporting implemented; VM workload execution open |
 
@@ -23,7 +23,7 @@ ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem
 
 SQLite passed 87 fresh runs on each of ext4 and XFS across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. Each matrix passed 348 filesystem checks and 174 logical validations. [SQLite/ext4](docs/SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and selected baselines. RocksDB and PostgreSQL remain unimplemented.
 
-ADR-08 is implemented as release candidate **v2.0-rc**. It introduces on-disk format 4:
+ADR-08 shipped in **v2.0** with:
 
 - a segmented log with two fixed append heads,
 - raw space reclamation by a cleaner thread,
@@ -31,13 +31,7 @@ ADR-08 is implemented as release candidate **v2.0-rc**. It introduces on-disk fo
 - durable backing growth,
 - a proportional heap budget.
 
-The engine and crash matrices passed. The live ublk/fio gate passed, including a sustained overwrite
-that wraps the log. The four performance comparisons passed. The ext4, XFS and SQLite gates were not
-run for `v2.0-rc`: their preflight requires a mount helper byte-identical to the build, and the
-implementation clone could not install one. [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md)
-records the decisions, the review dispositions and the evidence.
-[ADR-08-PERF-RESULTS.md](ADR-08-PERF-RESULTS.md) records the measurements. Format-3 images are
-rejected without modification. There is no migration.
+The [v2.0 qualification](docs/V2.0-QUALIFICATION.md) covers engine and process-crash tests, live ublk/fio, ext4 and XFS, and 87 SQLite clean-restart cases on each filesystem. It does not cover aged SQLite workloads A/F or power loss. The [v2.0-rc performance report](ADR-08-PERF-RESULTS.md) records earlier measurements, not release results.
 
 ADR-07 was complete at **v1.2.3**, with 336-entry mapping pages,
 sorted snapshot publication, and adjacent-page prefetch after sequential demand.
@@ -73,10 +67,9 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 
 ## Next work
 
-- Derive an ADR-08 evaluation suite from the specification, independent of any implementation. Run it against v1.0 onwards to show how fast format 3 fills its backing and which workloads it cannot hold in a given space.
-- Fault-test v1.x before format 4. Cover white-box tests with instrumented `io_uring` and other external interfaces, and black-box tests. Revisit ADR-05 where it does not cover this.
-- Complete the workbench so the test suites audit real device performance.
-- Qualify ADR-08 on fresh and aged volumes before releasing v2.0.
+- Test format-4 recovery under backing faults, starting with failed writes and flushes during checkpoint publication (ADR-05).
+- Complete RocksDB and PostgreSQL correctness on ext4 and XFS (ADR-06).
+- Complete the workbench and the remaining [blockcheck workloads](docs/BLOCKCHECK-PLAN.md), including aged SQLite A/F (ADR-10).
 - Later: extend the replicated log into a distributed replicated log.
 
 ## Design and delivery specifications
@@ -104,10 +97,10 @@ formatted disposable images.
 The formatter requires the advertised logical size and the raw backing size. For example:
 
 ```sh
-block-storage-ublk format disk.img --size-mib 4096 --prealloc-mib 6144
+block-storage-ublk format disk.img --size-mib 128 --prealloc-mib 185
 ```
 
-`--min-logical-fill-factor` sets the minimum percent of the **logical** volume that must fit as live payload while leaving room for cleaning. It defaults to `100`: for a 4 GiB volume, all 4 GiB must fit. The formatter tries 32, 16, then 8 MiB segments and picks the largest size that meets the requested fill. If none fits, it rejects the request before creating the image. The reported maximum logical fill is a sizing estimate, not a measured endurance guarantee. The raw size sets the sparse file's length; it does not reserve that much free space on the host filesystem.
+`--min-logical-fill-factor` sets the minimum percent of the **logical** volume that must fit as live payload while leaving room for cleaning. It defaults to `100`: for the 128 MiB volume above, all 128 MiB must fit. The formatter tries 32, 16, then 8 MiB segments and picks the largest size that meets the requested fill. If none fits, it rejects the request before creating the image. The reported maximum logical fill is a sizing estimate, not a measured endurance guarantee. The raw size sets the sparse file's length; it does not reserve that much free space on the host filesystem.
 
 The backing holds two checkpoint descriptors, then whole segments. New writes append on the user head. Relocated copies append on the relocation head. Both heads share one global LSN sequence.
 
@@ -229,7 +222,7 @@ Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT
 
 ## Testing
 
-V0.8 gates remain the regression baseline. V0.9 and V1.0 add the accepted ext4 and XFS lifecycles.
+Run `make test-compaction-small` for the opt-in compaction regression: 128 MiB logical on 185 MiB of raw backing, at the formatter's default 100% logical-fill target. The larger fio workloads in the [release report](docs/V2.0-QUALIFICATION.md) are historical qualification runs, not part of this target.
 
 ### Running every test
 
@@ -487,4 +480,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The format-4 engine has one serialized writer and 4 KiB payloads. It reclaims obsolete blocks but can still run out of usable backing space. Do not treat the filesystem and SQLite clean-restart results from earlier releases as format-4 or power-loss guarantees. ADR-05 medium faults and the remaining ADR-06 application gates are separate work.
+The format-4 engine has one serialized writer and 4 KiB payloads. It reclaims obsolete blocks but can still run out of usable backing space. The format-4 filesystem and SQLite clean-restart results do not establish power-loss durability. ADR-05 medium faults and the remaining ADR-06 application gates are separate work.

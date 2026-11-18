@@ -3,7 +3,7 @@
 Date: 2026-09-19. Approach decided 2026-09-20. Editorial revision, fixed-two-head decision and
 compression split 2026-09-20. Implemented 2026-09-21.
 Author: Miguel Filipe
-Status: implemented. Release candidate `v2.0-rc`, on-disk format 4.
+Status: accepted and released in `v2.0` (`031d778`), on-disk format 4. See [release qualification](docs/V2.0-QUALIFICATION.md).
 Updates: ADR-07 (reusable log and mapping index), ADR-04 (segment reclamation replaces
 replacement-image compaction), ADR-03 (discard advertisement)
 Related: [ADR-09 compression follow-up](ADR-09-RELOCATION-COMPRESSION.md),
@@ -878,7 +878,7 @@ can increase checkpoint frequency.
 
 | Open decision | Disposition |
 |---|---|
-| Segment size and watermark band | Settled: 8/16/32 MiB by backing size; the band is the reserve (decision 11) plus the idle quarter-dead floor (decision 19). Measured on regular files only. |
+| Segment size and watermark band | The formatter tries 32, 16, then 8 MiB and selects the largest size that meets the requested logical fill on the supplied backing. The band is the reserve (decision 11) plus the idle quarter-dead floor (decision 19). Measured on regular files only. |
 | Victim count and output sort key | Settled: one victim at a time, one window in flight, LBA order within a window. Age-bucket sorting was not measured. |
 | Idle wake-up and apply budget | Settled: 2 ms idle wait, 100 ms maximum interval, one idle wait per tick (decision 17), verified against libublk 0.4.7 in the live ublk-fio lab. |
 | Source validation across reuse | Settled: `(victim, seal_lsn)` plus per-LBA mapping and buffer checks (decision 4). |
@@ -894,7 +894,7 @@ Its measurements and format review do not gate raw reclamation.
 
 ## Implementation decisions
 
-The implementation lives in `rust/src/format_v4/` and shipped as `v2.0-rc`. This section records
+The implementation lives in `rust/src/format_v4/`. The release candidate was tagged `v2.0-rc`. For the changes to relocation, reserve and metadata publication that shipped in `v2.0`, see the [release qualification](docs/V2.0-QUALIFICATION.md). This section records
 what the implementation settled beyond the design text, and why. It also records the disposition of
 each review finding and the evidence that was gathered. Numbers match the
 [implementation record](GOAL-ADR08.md).
@@ -1069,9 +1069,9 @@ The findings are numbered as in the [technical review](docs/REVIEW-ADR-08.md).
 | T16 cold-by-update | Kept as a heuristic. Unchanged. | — |
 | Final review (this implementation) | Three blockers, all fixed: the cleaner's frozen geometry after growth, metadata-only victims stuck forever, and an undrained wake-up that spun the queue loop (decisions 15, 20, 22, 23). | `cleaner_follows_backing_growth_at_runtime_and_after_replay`, `victim_left_with_only_current_metadata_is_released_after_the_next_publication`, ublk-fio maintenance counters |
 
-### Evidence
+### Release-candidate evidence
 
-The gates and their results on the tagged commit:
+These results apply to `v2.0-rc` (`8c7f650`), not the `v2.0` release:
 
 - `make lint test` ran before each commit. It runs 328 tests at the tag.
 - `make test-acceptance` ran at each milestone. It runs SIGKILL matrices at the publication,

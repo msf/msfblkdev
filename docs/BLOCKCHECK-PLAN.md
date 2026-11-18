@@ -2,8 +2,7 @@
 
 Date: 2026-09-23
 Revised: 2026-10-20
-Status: planned device suite. The checker and memory target pass the fixed checker tests
-(2026-10-20, commit `29a184d`).
+Status: evaluation plan; partial coverage in the [v2.0 release qualification](V2.0-QUALIFICATION.md). The routine opt-in compaction target, `make test-compaction-small`, uses 128 MiB logical and 185 MiB raw. The larger geometries below describe qualification workloads, not routine functional tests. Aged SQLite A/F remain open.
 Gate values were decided on 2026-10-20. They freeze when this file is committed, before the first
 candidate run.
 Related: [ADR-10 workbench tests and reports](../ADR-10-WORKBENCH-TESTS-AND-REPORTS.md),
@@ -15,8 +14,7 @@ Related: [ADR-10 workbench tests and reports](../ADR-10-WORKBENCH-TESTS-AND-REPO
 Format 3 never reuses space. Existing ENOSPC tests cover finite-log exhaustion. Blockcheck measures
 how long repeated overwrites can continue, how much backing space they need and what reclamation costs.
 
-Reclamation is implemented on a separate branch and remains under operator evaluation. Record the
-exact build used for each test. This checkout still uses format 3. Blockcheck answers three questions:
+Format 4 shipped reclamation in v2.0. Format 3 remains the comparison without reclamation. Record the exact build used for each test. Blockcheck answers three questions:
 
 1. Does reclamation recover space?
 2. What does it cost in throughput, latency and write amplification?
