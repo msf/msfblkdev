@@ -202,7 +202,7 @@ class BaselineTest(unittest.TestCase):
                 {"write_reserved_bytes": 512 * 1024 * 1024 + 1}),
         )):
             run = make_run(self.root / f"invalid-{index}")
-            path = list(run.glob("*/result.jsonl"))[1]
+            path = run / "speedtest-main--delete-extra--repetition-2" / "result.jsonl"
             value = json.loads(path.read_text())
             mutate(value)
             path.write_text(json.dumps(value) + "\n")

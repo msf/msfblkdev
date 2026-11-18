@@ -1,38 +1,11 @@
-ZIG_VERSION := 0.16.0
-ZIG_DIR := tools/build/zig-x86_64-linux-$(ZIG_VERSION)
-ZIG := $(ZIG_DIR)/zig
-ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
-ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
-
-.PHONY: setup setup-blockcheck-host setup-sqlite build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs check-sqlite check-sqlite-ext4 test-sqlite test-sqlite-ext4 test-sqlite-ext4-one test-zig test-rust run
+.PHONY: setup-blockcheck-host setup-sqlite build build-rust build-ext4 lint lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs check-sqlite check-sqlite-ext4 test-sqlite test-sqlite-ext4 test-sqlite-ext4-one test-rust
 
 build: build-rust
 
-build-zig: setup
-	@$(ZIG) build
-
 build-rust: build-ext4
 
-setup:
-	@set -eu; \
-	if [ "$$(uname -s)-$$(uname -m)" != Linux-x86_64 ]; then \
-		echo "setup supports Linux x86_64 only"; exit 1; \
-	fi; \
-	if [ -x "$(ZIG)" ] && [ "$$($(ZIG) version 2>/dev/null)" = "$(ZIG_VERSION)" ]; then exit 0; fi; \
-	mkdir -p tools/build; \
-	tmp="$$(mktemp -d tools/build/zig-setup.XXXXXX)"; \
-	trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
-	echo "Downloading Zig $(ZIG_VERSION)"; \
-	curl --fail --silent --show-error --location "$(ZIG_URL)" -o "$$tmp/zig.tar.xz"; \
-	printf '%s  %s\n' "$(ZIG_SHA256)" "$$tmp/zig.tar.xz" | sha256sum --check --status; \
-	tar -xJf "$$tmp/zig.tar.xz" -C "$$tmp"; \
-	rm -rf "$(ZIG_DIR)"; \
-	mv "$$tmp/zig-x86_64-linux-$(ZIG_VERSION)" "$(ZIG_DIR)"
 
 lint: lint-rust
-
-lint-zig: setup
-	@$(ZIG) fmt --check build.zig src
 
 lint-rust:
 	@cd rust && cargo fmt --check && cargo clippy --all-targets --features lab -- -D warnings
@@ -129,11 +102,5 @@ check-xfs: build-ext4
 test-xfs: build-ext4
 	@rust/target/debug/block-storage-lab xfs
 
-test-zig: setup
-	@$(ZIG) build test
-
 test-rust:
 	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- test
-
-run: setup
-	@$(ZIG) test src/root.zig --test-filter "V0.4 black-box acceptance"

@@ -172,14 +172,14 @@ impl CheckpointDescriptor {
 }
 
 fn encode_u32s(bytes: &mut [u8], values: &[u32]) {
-    for (value, encoded) in values.iter().zip(bytes.chunks_exact_mut(4)) {
+    for (value, encoded) in values.iter().zip(bytes.as_chunks_mut::<4>().0) {
         encoded.copy_from_slice(&value.to_le_bytes());
     }
 }
 
 fn decode_u32s(bytes: &[u8], values: &mut [u32]) {
-    for (value, encoded) in values.iter_mut().zip(bytes.chunks_exact(4)) {
-        *value = u32::from_le_bytes(encoded.try_into().expect("four-byte chunk"));
+    for (value, encoded) in values.iter_mut().zip(bytes.as_chunks::<4>().0) {
+        *value = u32::from_le_bytes(*encoded);
     }
 }
 

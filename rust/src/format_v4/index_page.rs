@@ -105,7 +105,7 @@ impl MappingIndexPage {
         for (child, encoded) in self
             .child_blocks
             .iter()
-            .zip(bytes[CHILDREN_OFFSET..BODY_END].chunks_exact_mut(4))
+            .zip(bytes[CHILDREN_OFFSET..BODY_END].as_chunks_mut::<4>().0)
         {
             encoded.copy_from_slice(&child.to_le_bytes());
         }
@@ -128,9 +128,9 @@ impl MappingIndexPage {
         for (child, encoded) in page
             .child_blocks
             .iter_mut()
-            .zip(bytes[CHILDREN_OFFSET..BODY_END].chunks_exact(4))
+            .zip(bytes[CHILDREN_OFFSET..BODY_END].as_chunks::<4>().0)
         {
-            *child = u32::from_le_bytes(encoded.try_into().expect("four-byte chunk"));
+            *child = u32::from_le_bytes(*encoded);
         }
         page.validate(expected.geometry)?;
         Ok(page)

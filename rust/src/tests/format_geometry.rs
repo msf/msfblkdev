@@ -256,7 +256,7 @@ fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
     )?;
     assert_eq!(free_segment, [0xa5; BLOCK_SIZE]);
 
-    for descriptor in descriptors.chunks_exact_mut(BLOCK_SIZE) {
+    for descriptor in descriptors.as_chunks_mut::<BLOCK_SIZE>().0 {
         descriptor[6] = 1;
         descriptor[DESCRIPTOR_CHECKSUM_OFFSET..].fill(0);
         let checksum = xxh3_64(descriptor);

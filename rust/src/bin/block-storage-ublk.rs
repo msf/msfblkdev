@@ -2582,7 +2582,9 @@ mod tests {
         let read = descriptor(UBLK_IO_OP_READ, 16, 24);
         let mut buffer = [0_u8; 3 * LOGICAL_BLOCK_BYTES as usize];
         for (index, chunk) in buffer
-            .chunks_exact_mut(LOGICAL_BLOCK_BYTES as usize)
+            .as_chunks_mut::<{ LOGICAL_BLOCK_BYTES as usize }>()
+            .0
+            .iter_mut()
             .enumerate()
         {
             chunk.fill(0xb0 + index as u8);

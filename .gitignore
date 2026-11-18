@@ -1,9 +1,6 @@
 /tools/build/
 /tools/sqlite/__pycache__/
 /ublksrv/
-/.zig-cache/
-/zig-cache/
-/zig-out/
 /rust/target/
 /evidence/*.log
 /evidence/sqlite-*/

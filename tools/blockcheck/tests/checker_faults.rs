@@ -1,10 +1,6 @@
 //! The checker tests of `docs/BLOCKCHECK-PLAN.md`, "How do we test the checker?", run against
 //! the simulated disk. Each deliberate-bug test names its trigger, LBA, violation kind and whether
 //! detection happens before or after recovery, and checks that the fault occurred.
-#![expect(
-    clippy::unwrap_used,
-    reason = "test helpers outside #[test] functions; a failed unwrap is a failed test"
-)]
 
 use std::num::{NonZeroU32, NonZeroU64};
 

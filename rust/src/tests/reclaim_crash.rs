@@ -17,7 +17,7 @@ fn options() -> VolumeOpenOptions {
 
 fn value(index: u32) -> [u8; BLOCK_SIZE] {
     let mut block = [0; BLOCK_SIZE];
-    for chunk in block.chunks_exact_mut(4) {
+    for chunk in block.as_chunks_mut::<4>().0 {
         chunk.copy_from_slice(&index.to_le_bytes());
     }
     block

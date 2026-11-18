@@ -121,8 +121,8 @@ impl Scanner {
         assert!(blocks > 0, "cursor inside the segment");
         buffer.reset(cursor.victim, cursor.seal_lsn, window_start);
         self.read_window(backing, window_start, &mut buffer.arena[..blocks])?;
-        for slot in 0..PAGE_CACHE_SLOTS {
-            self.page_cache[slot].0 = None;
+        for entry in self.page_cache.iter_mut() {
+            entry.0 = None;
         }
         let mut report = ScanReport {
             blocks_read: blocks as u64,

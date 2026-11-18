@@ -15,7 +15,7 @@ fn payload(lba: u32, version: u32) -> [u8; BLOCK] {
     let mut bytes = [0; BLOCK];
     if version != 0 {
         let tag = (u64::from(lba) << 32) | u64::from(version);
-        for (i, word) in bytes.chunks_exact_mut(8).enumerate() {
+        for (i, word) in bytes.as_chunks_mut::<8>().0.iter_mut().enumerate() {
             word.copy_from_slice(&(tag ^ (i as u64).wrapping_mul(0x9e37_79b9)).to_le_bytes());
         }
     }

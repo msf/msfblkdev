@@ -353,8 +353,11 @@ impl Segments {
             entries: [SegmentEntry::FREE; TABLE_ENTRIES],
         };
         let first = table * TABLE_ENTRIES as u32;
-        for slot in 0..self.geometry.table_children(table) {
-            image.entries[slot] = self.publication_entry(first + slot as u32);
+        for (slot, entry) in image.entries[..self.geometry.table_children(table)]
+            .iter_mut()
+            .enumerate()
+        {
+            *entry = self.publication_entry(first + slot as u32);
         }
         Ok(image)
     }

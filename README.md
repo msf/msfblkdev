@@ -63,8 +63,6 @@ V0.4 closure
 → V0.8 fio validation and restart recovery
 ```
 
-Rust is authoritative. The Zig implementation is a completed initial experiment and may diverge.
-
 ## Next work
 
 - Test format-4 recovery under backing faults, starting with failed writes and flushes during checkpoint publication (ADR-05).
@@ -222,6 +220,8 @@ Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT
 
 ## Testing
 
+On native Debian 13 arm64, run `make build` to build the Rust engine, ublk daemon and test harness. Cargo uses the guest's native target (`aarch64-unknown-linux-gnu`); no cross-compiler is needed. For the live tests, use a VM with its own kernel and follow the [normal-user ublk setup](#normal-user-ublk-setup).
+
 Run `make test-compaction-small` for the opt-in compaction regression: 128 MiB logical on 185 MiB of raw backing, at the formatter's default 100% logical-fill target. The larger fio workloads in the [release report](docs/V2.0-QUALIFICATION.md) are historical qualification runs, not part of this target.
 
 ### Running every test
@@ -233,7 +233,6 @@ access than the one before it.
 ```sh
 # 1. Unprivileged. No device, no mount, no sudo.
 make lint test test-acceptance
-make lint-zig test-zig          # historical Zig mirror
 
 # 2. Live ublk device. Needs loaded ublk support, access to /dev/ublk-control, and fio.
 make test-ublk-fio
@@ -253,10 +252,11 @@ make test-sqlite-xfs            # the same 87-run matrix on XFS
 | --- | --- | --- |
 | `lint`, `test` | nothing | nothing |
 | `test-acceptance` | nothing | regular-file backing in a temporary directory |
-| `lint-zig`, `test-zig` | downloads pinned Zig on first use | nothing |
 | `test-ublk-fio` | ublk, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume); eight scenarios including exhaustion beyond the log and a sustained overwrite that wraps it |
 | `test-ext4`, `test-xfs` | mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
 | `test-sqlite`, `test-sqlite-ext4`, `test-sqlite-xfs` | the above plus `make setup-sqlite` | ublk device, selected filesystem, mount, databases |
+
+On stock Debian 13, run `sudo modprobe xfs` before the XFS preflight if `xfs` is missing from `/proc/filesystems`.
 
 Check prerequisites without creating anything:
 
@@ -461,18 +461,6 @@ After each boot, `make setup-blockcheck-host` loads `ublk_drv` through sudo and 
 The project does not install or reload these host files automatically. Do not install the vendored rule unchanged because it grants mode `0666` on `/dev/ublk-control`. Do not run Make or Cargo as root because they create root-owned build artifacts.
 
 Override test limits with `TEST_PER_TEST_SECONDS` and `TEST_SUITE_SECONDS`.
-
-## Historical Zig experiment
-
-The Zig source remains in `src/root.zig`. Its explicit targets remain available:
-
-```sh
-make build-zig
-make lint-zig
-make test-zig
-```
-
-Future milestones do not require Zig changes or Zig/Rust image compatibility.
 
 ## Safety
 

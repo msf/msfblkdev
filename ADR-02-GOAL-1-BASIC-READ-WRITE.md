@@ -118,6 +118,6 @@ Closure evidence from 2026-08-29:
 
 ## Consequences
 
-The Zig source remains in the repository as historical evidence. Future milestones do not update it, and combined Zig/Rust image compatibility is not tested.
+The Zig prototype and its build targets are now available only in Git history. Rust is the sole implementation.
 
 Goal 1 fails closed on an unreplayed tail. A process crash after a durable write can therefore prevent reopen. [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) fixes this before we call the system a credible block device.
