@@ -199,17 +199,19 @@ impl Reserve {
     }
 }
 
-/// Blocks foreground writes may still claim: the User head's room plus the free segments above
-/// the reserve, each minus its link slot.
+/// Protect the cleaner's reserve across head switches. A publication can spend a free
+/// segment to open a fresh User head. Its room is not spare user capacity until cleaning
+/// returns the borrowed segment. Tiny fixtures can protect at most their non-head segments.
 pub(crate) fn user_available_blocks(
     geometry: Geometry,
     user_room: u32,
     allocatable_segments: u32,
     reserve: Reserve,
 ) -> u64 {
-    u64::from(user_room)
-        + u64::from(allocatable_segments.saturating_sub(reserve.segments))
-            * u64::from(geometry.blocks_per_segment - 1)
+    let writable = u64::from(geometry.blocks_per_segment - 1);
+    let protected = reserve.segments.min(geometry.segment_count - 2);
+    let available = u64::from(user_room) + u64::from(allocatable_segments) * writable;
+    available.saturating_sub(u64::from(protected) * writable)
 }
 
 #[cfg(test)]
@@ -316,6 +318,25 @@ mod tests {
         assert_eq!(plan.records, 4 + 2);
         assert_eq!(plan.links, 1);
         assert_eq!(plan.blocks, 1500 + 6 + 1);
+    }
+
+    #[test]
+    fn opening_a_new_user_head_does_not_create_capacity_while_the_reserve_is_in_debt() {
+        let g = geometry();
+        let reserve = Reserve::compute(g, 4);
+        let room = g.blocks_per_segment - 1;
+        assert!(reserve.segments < g.segment_count - 2);
+        // A checkpoint at the end of User opens a reserve segment. Even a completely empty
+        // new head has not added capacity. Once the cleaner returns one segment, it has.
+        assert_eq!(user_available_blocks(g, 0, reserve.segments, reserve), 0);
+        assert_eq!(
+            user_available_blocks(g, room, reserve.segments - 1, reserve),
+            0
+        );
+        assert_eq!(
+            user_available_blocks(g, room, reserve.segments, reserve),
+            u64::from(room)
+        );
     }
 
     #[test]
