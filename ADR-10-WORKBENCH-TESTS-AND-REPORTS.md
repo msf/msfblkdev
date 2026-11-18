@@ -1,8 +1,9 @@
 # ADR-10 Workbench tests and reports
 
 Date: 2026-09-20
+Revised: 2026-10-06 (planned testing only)
 Status: accepted interface and measurement scope; VM workload execution remains open
-Related: [ADR-06 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [benchmark plan](docs/V1.3-BENCHMARK-PLAN.md), [VM environment](docs/WORKBENCH-VM.md)
+Related: [ADR-05 fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md), [ADR-06 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [benchmark plan](docs/V1.3-BENCHMARK-PLAN.md), [VM environment](docs/WORKBENCH-VM.md), [blockcheck plan](docs/BLOCKCHECK-PLAN.md)
 
 ## Context
 
@@ -25,6 +26,7 @@ the raw evidence and derive a small, structured report from it.
 | go-ycsb host-ext4 calibration | Estimate load/workload duration and check request counts, synchronous writes and final record counts. Reads can be cached; this does not establish storage performance. |
 | KVM boot probe | Verify that a small guest boots with ublk, ext4, XFS and no swap. It runs no database and attaches no test disk. |
 | Planned VM comparison | Compare the complete database/filesystem/storage stack under a common RAM and CPU budget. Execution is not implemented yet. |
+| Planned raw-device space and crash suite (blockcheck) | Measure endurance, write amplification, ENOSPC and write pacing, discard and crash consistency on the device, with no filesystem. Compare v1.2.3 with an ADR-08 candidate on host backing files. It needs no VM. See the [blockcheck plan](docs/BLOCKCHECK-PLAN.md). |
 
 The performance portfolio retains A (50% reads, 50% updates), F (50% reads,
 50% read-modify-write requests) and E75 (75% scans, 25% inserts) on SQLite and
@@ -103,6 +105,27 @@ The probe prints its evidence directory under `evidence/vm-320m-<run-id>/`.
 It contains `command.txt`, `build-manifest.txt` and `console.log`. This is not
 the command for running our device plus XFS and a database inside a VM.
 
+Blockcheck has no command yet. Its plan records the one-time backing setup
+and the intended `make test-blockcheck` target.
+
+### What must the planned blockcheck suite prove?
+
+Reclamation is implemented on a separate branch and remains under operator
+evaluation. Each blockcheck run must record the candidate's commit, binary
+identity and format.
+
+The [blockcheck plan](docs/BLOCKCHECK-PLAN.md) defines how we test the checker,
+which recovered values are allowed, and what evidence and pass conditions each
+case needs. ADR-05 separately covers internal structures and backing faults.
+
+The planned parser must report candidate failures separately from expected
+results in harness tests. For example, a deliberately faulty memory target is
+expected to produce a checker violation. Rewriting data after a crash must not
+erase the verdict recorded before the rewrite.
+
+Label SIGKILL results as process-restart evidence. These requirements leave the
+current SQLite/YCSB reporter and ADR-06 gates unchanged.
+
 ### How do I read and compare results?
 
 Pass one or more evidence directories to the reporter. For example, compare
@@ -155,7 +178,9 @@ cleanup status, even though its SQLite cases have measurements.
 | Backing read/write MiB, data-I/O requests and flushes | Sum SQLite's three non-overlapping workload/drain/residual segments. Exclude initialization and verification. These are daemon backing counters, not host physical-device traffic. YCSB calibration has no such device counters. |
 | Peak process RSS | Available from YCSB calibration. It is not total guest memory or filesystem cache usage. |
 | API-call p99 and p99.99 in microseconds | Available from YCSB's final summaries, with per-operation sample counts. F's TOTAL covers its extra API calls. Sparse p99.99 tails remain labelled as weak evidence. |
-| Occupied physical MiB | Not collected yet. Cumulative bytes written are not occupied space; reserved LV capacity and consumed storage must also remain distinct. |
+| Occupied physical MiB | Not collected by the current suites. Cumulative bytes written are not occupied space; reserved LV capacity and consumed storage must also remain distinct. Planned for blockcheck from the backing file's `st_blocks`. |
+| Endurance, write amplification, ENOSPC count, longest stall | Planned for blockcheck. Endurance is client bytes before the first ENOSPC divided by backing bytes. Write amplification uses the backing LV's `/sys/block` counters, not the daemon's backing counters. |
+| Checker violations | Planned for blockcheck. Any read that returns content the checker does not allow fails the case, including after a crash. |
 
 Unavailable measurements are `N/A` in Markdown, blank in CSV and `null` in JSON.
 Zero remains a measured zero. Markdown shows medians for repeated SQLite cases;

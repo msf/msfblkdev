@@ -4,7 +4,7 @@ ZIG := $(ZIG_DIR)/zig
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_SHA256 := 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
 
-.PHONY: setup setup-sqlite build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs check-sqlite check-sqlite-ext4 test-sqlite test-sqlite-ext4 test-sqlite-ext4-one test-zig test-rust run
+.PHONY: setup setup-blockcheck-host setup-sqlite build build-zig build-rust build-ext4 lint lint-zig lint-rust test test-acceptance test-ublk-fio test-ext4 check-ext4 test-xfs check-xfs check-sqlite check-sqlite-ext4 test-sqlite test-sqlite-ext4 test-sqlite-ext4-one test-zig test-rust run
 
 build: build-rust
 
@@ -60,6 +60,10 @@ check-ext4: build-ext4
 # Explicit operator opt-in; the lab itself stays unprivileged.
 test-ext4: build-ext4
 	@rust/target/debug/block-storage-lab ext4
+
+# Explicit operator opt-in after each boot: loads ublk_drv and verifies the one-time setup.
+setup-blockcheck-host:
+	@sudo bash scripts/setup-blockcheck-host.sh
 
 # Optional SQLite tooling is deliberately outside the normal setup/test path.
 setup-sqlite:

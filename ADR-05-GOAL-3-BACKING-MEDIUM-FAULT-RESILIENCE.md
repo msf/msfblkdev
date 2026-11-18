@@ -1,12 +1,12 @@
 # ADR-05 Fault model, failure handling and fault testing
 
 Date: 2026-08-30
-Revised: 2026-09-12
+Revised: 2026-10-06
 Author: Miguel Filipe
 Status: proposed; design under review
 Goal status: implementation not started
-On-disk format: current baseline is 1; checksum-chain encoding is undecided
-Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-06](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md)
+On-disk format: released baseline is ADR-07 format 3; ADR-08 format 4 is under separate evaluation
+Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-06](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md), [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md), [ADR-10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md)
 Consolidates: the 2026-09-12 fault-policy discussion and `DETERMINISTIC_FAULT_TESTING_AND_SIMULATION.md`
 Would update: ADR-01's V0 fault model and recovery rules, and affected ADR-03 acceptance criteria, when accepted and implemented
 
@@ -16,7 +16,12 @@ ADR-03 has accepted process-crash and live ublk evidence. It does not establish 
 
 This ADR owns the proposed fault model, failure policy, test mechanisms and simulation direction. ADR-01 and ADR-03 remain the accepted baseline. Their historical tests and evidence do not prove this proposal. Format ADRs define encodings and refer here for proposed fault behavior.
 
-The September discussion refines this future work. It does not reopen ADR-03 or authorize an implementation loop. The [open decisions](#open-decisions-before-implementation) must be resolved before this ADR becomes an executable delivery contract.
+v1.2.3 already tests format-3 corruption, checkpoint fallback, repeated recovery and process crashes.
+We will extend those tests. Compaction and space reclamation are implemented on a separate branch
+and remain under operator evaluation. This revision changes the testing plan, not that implementation.
+
+Existing acceptance gates remain required. The [open decisions](#open-decisions-before-implementation)
+must be resolved before implementation of this ADR starts.
 
 ## Proposed decision
 
@@ -76,7 +81,10 @@ This ADR remains the single proposed policy. A substantial later revision should
 
 ## Proposal: checksum chaining instead of recovery-time zeroing
 
-The current format-1 recovery code zeroes and fsyncs up to 339 blocks at the recovered append position. That number comes from its maximum record size and footer-search window. Existing tests verify the clearing operation and crashes during it. They do not establish a general tail-reuse protocol for format 2.
+The historical format-1 recovery code zeroes and fsyncs up to 339 blocks at the recovered append position. That number comes from its maximum record size and footer-search window. Format 3 retains stale-tail clearing and its crash tests. Those tests do not establish a general protocol for segment reuse.
+
+This checksum-chain proposal predates ADR-08. Each format ADR defines its own recovery and reuse
+rules. We will test those rules first; this proposal does not replace ADR-08's protocol.
 
 The proposed direction is to remove recovery-time zeroing and link records through checksums of preceding record metadata. The record checksum would bind the previous checksum as well as the current metadata, including stored payload checksums. Recovery would validate record linkage without rereading payloads solely to compute the chain.
 
@@ -94,17 +102,135 @@ The storage vocabulary includes `Error`, `Delay`, `ShortOperation`, `Tear`, `Cor
 
 `Tear { durable_blocks }` can describe only a surviving prefix. Exact tear plans must identify surviving block positions and bytes. For an 8 KiB format-1 payload/footer pair, the four cases are neither block, payload only, footer only and both blocks. Footer-only survival with valid metadata is not automatically a startup error: the payload check belongs to the read path.
 
-The model keeps caller completion, pending bytes and durable bytes separate. It records issued writes, flush acknowledgments and the fault plan's surviving bytes. The checker compares mappings, read results, recovery errors, sequence numbers, checkpoint state and geometry bounds against the policy in this ADR.
+The reference model records what the caller observed and which bytes reached storage. It must
+distinguish four outcomes:
 
-The checker must be independent from the operation generator. A liveness phase without repair cannot restore bytes that the fault permanently destroyed. A test may expect an explicit read or startup error rather than identical readable data after every fault.
+- A write or discard completed successfully.
+- A flush completed successfully and made earlier completed operations durable.
+- The target rejected an operation without changing storage.
+- An operation may have changed storage, but its completion is uncertain.
+
+A failed flush makes no new durability promise. Some pending writes may still survive.
+Likewise, a write may reach storage before the caller receives its completion. The model must
+retain unresolved operations until it can decide which recovered values are allowed.
+
+Version numbers alone aren't enough. Consider three writes to one LBA:
+
+1. Write v1 and flush successfully.
+2. Reject v2 before issuing any I/O.
+3. Write v3 successfully, then crash before the next flush.
+
+Recovery may return v1 or v3, but never v2. A backing `ENOSPC` error does not by itself prove that
+storage stayed unchanged. Treat the operation as uncertain unless the target contract guarantees no effect.
+
+ADR-10's blockcheck compares the recovered value of each LBA with the values allowed by its history.
+It does not check ordering across LBAs. A separate engine checker verifies record order, checkpoint
+selection and replay. It must detect recovery that skips a required record but applies a later one.
+
+The checker must use the selected format's atomicity rules: a write-buffer group that spans segments
+need not survive as one unit.
+
+### Independent logical and structural checks
+
+We need two independent checks:
+
+- The logical checker compares reads and errors with the reference model. It must not reuse the
+  generator's expectations or the engine's mapping and recovery code.
+- The structural checker reads the backing image and follows references from every checkpoint that
+  recovery could select. It must not call engine recovery or trust the cleaner's counters.
+
+For format 3, the structural checker follows descriptors, indexes, mapping pages and payloads.
+For format 4, it also follows segment-table pages, direct and indirect index pages, mapping snapshots
+and replay links from both append heads. Every segment needed by either checkpoint must remain
+unavailable for allocation.
+
+Run the checks after checkpoint publication and segment reuse, and before and after recovery.
+Include images prepared by earlier writes, checkpoints and reuse. Save the image before open,
+because recovery may write. If startup must reject an image without changing it, compare the
+before and after images byte-for-byte.
+
+Report damaged payloads separately from invalid metadata. This test-only scan does not add a payload
+scan to production recovery. When a fault destroys data, the expected result may be a read or startup
+error. Turning faults off cannot restore the lost bytes.
+
+### How do we test the checker?
+
+First run short, fixed operation sequences against correct targets and targets with deliberate bugs.
+Each bug test must name the trigger, affected LBA and expected violation. It must also state whether
+the checker should detect the bug before or after recovery.
+
+The tests must detect lost durable data, data returned from the wrong LBA, discarded data returning
+and a rejected write becoming visible. Engine tests must also detect skipped sync barriers and segment
+reuse before it is safe.
+
+Record how many times each injected fault occurred. A fault scheduled after the last operation must
+have a count of zero and cause no violation. If a test permits repair, save the failure evidence first
+and check the repaired state separately.
+
+### Which crash states do we explore?
+
+Start with short sequences of writes, overwrites, discards, flushes and reopens. Test a crash at each
+backing write or sync boundary. Use both fresh images and images prepared by earlier writes,
+checkpoints and reuse.
+
+Each run must state its limits: sequence length, LBA count, backing geometry, surviving byte ranges
+and thread schedules. A completed sweep covers only the states within those limits.
+
+For power-loss tests, preserve every write covered by a successful sync. Vary which unsynced bytes
+survive and their write order. State the assumed atomic write size; a 4 KiB logical block does not
+imply an atomic physical write. Test later corruption and false sync acknowledgements separately,
+with their own expected errors.
+
+The ADR-08 evaluation also needs these fixed cases:
+
+| Sequence | Required check |
+|---|---|
+| Relocate data, publish checkpoint A, then crash before checkpoint B | The older checkpoint still protects the source payload and metadata. |
+| Publish both checkpoints, reuse the victim, then damage the newest descriptor | Any older checkpoint that recovery accepts must not need overwritten bytes. |
+| Prepare a relocation proposal, overwrite or discard its LBA, then apply that stale proposal | Preserve the later client write or discard. A buffered write from before the discard must not restore data. |
+| Reclaim a segment containing only metadata; switch segments during checkpoint publication | Preserve parent pointers, segment tables and replay links needed by either checkpoint. |
+| Reuse a physical location with byte-identical replacement content | Recovery must not attach abandoned records merely because their checksums match. |
+| Delay backing discard while allocation requests that segment | Keep the segment unavailable until discard completes. |
+| Crash during backing growth and repeatedly during reopen | References into the new range require a durable growth record. Repeated recovery must remain correct. |
+
+### Does the cleaner make progress?
+
+Test progress separately from data safety. Turn faults off and provide a victim whose reclamation
+would free space. Cover idle cleaning, a full proposal queue, reserve pressure and shutdown.
+Control the order of cleaner/writer handoffs and bound the schedules tested. A storage seed alone
+does not reproduce thread scheduling.
+
+Record the scheduling assumptions and deadline for progress. Do not require progress when all space
+is live or a required backing operation never completes.
+
+### Generated sequences and regression tests
+
+After the fixed cases pass, generate operation sequences. Reduce a failure by removing commands
+and simplifying LBAs, values, geometry and fault positions. Save the smallest reproducer found as
+a normal regression test, including its operations and faults.
+
+Compare final logical contents across cache budgets, batch sizes and checkpoint frequency.
+Account for extra flushes: they can change which writes must survive a crash.
+
+### Persistent decoders
+
+Extend the existing decoder tests with arbitrary bytes and modified valid encodings. Change semantic
+fields and recompute checksums so tests reach validation beyond the checksum check. Cover record
+kinds, reserved bits, pointer ranges, geometry and arithmetic limits.
+
+Raw-only format 4 must reject reserved kind 6 and high mapping-address bits. Decoders must return
+typed errors and finish within the test limits. This plan selects no fuzzing or formal-proof dependency.
 
 ## Test mechanisms
 
 ### Injectable backing I/O
 
-Verified in the V0.8 source review: engine operations in `rust/src/lib.rs` and `rust/src/checkpoint.rs` use `submit_exact`. There were 11 call sites in the August review. The engine has synchronous, aligned I/O, no network and no engine threads. The volume ID is its other nondeterministic input.
+The August V0.8 review found 11 `submit_exact` call sites in the format-1 engine. The released
+v1.2.3 uses `rust/src/accounted_io.rs` and includes packed records and batched checkpoint writes.
+Build the injectable I/O interface around the version being tested. Preserve its completion checks
+and I/O accounting.
 
-The proposed format-1 interface is:
+The historical format-1 sketch is:
 
 ```rust
 #[repr(C, align(4096))]
@@ -122,7 +248,10 @@ pub trait BlockDevice {
 
 Existing `open`, `open_with_options` and `format` would keep their path-based entry points. Injectable `open_on` and `format_on` would accept a device; `format_on` would also accept an explicit volume ID. No random-source trait is needed for one integer.
 
-The interface is provisional, not a general device framework. The current WRITEV uses two contiguous halves of one 8 KiB buffer, so it can be represented by one contiguous write. Later batching may need a segment list, and `PROVISION_BACKING` needs a changing block count. Resolve those needs against the format that is actually selected before extraction.
+This interface is a draft. The format-1 WRITEV used two contiguous halves of one 8 KiB buffer.
+The final interface must preserve format-3 batching and the evaluated format-4 discard and growth
+operations. Test native submission and completion errors separately. Simulated block I/O cannot
+verify ring cleanup or buffer lifetime.
 
 ### Four test tiers
 
@@ -156,7 +285,10 @@ Extract `Block`, `BlockDevice` and `UringDevice` without changing failure semant
 
 ### Delivery 2: exact fault plans and failure handling
 
-Add `MemoryDevice` and the independent reference model. Implement the accepted response policy and tail protocol in separately reviewable changes. Use the following cases to establish behavior, not only helper-level error classification.
+Add `MemoryDevice`, the reference model and the read-only structural checker. Pass the fixed
+checker tests before generating operation sequences. Keep any failure-policy or tail-protocol change
+separate from the test harness. The following cases must exercise engine behavior, not just error
+classification helpers.
 
 | Test group | Required evidence |
 |---|---|
@@ -169,6 +301,9 @@ Add `MemoryDevice` and the independent reference model. Implement the accepted r
 | Bounds and progress | Reject out-of-geometry I/O. Bound waits and child lifetimes. Complete fetched ublk requests with a result rather than hanging. |
 
 - [ ] Match model outcomes for every exact plan, including expected read and startup errors. Preserve flush-covered history when the plan honors the durability assumption.
+- [ ] Run the bounded operation sequences for each selected format and its supported operations.
+  For the ADR-08 candidate, also run the fixed reclamation cases. Record which state transitions,
+  faults and outcomes were checked, and which faults occurred.
 - [ ] Prove the accepted tail protocol before removing recovery-time zeroing. Update only the acceptance criteria explicitly superseded by that change.
 - [ ] Prove the online continuation protocol before removing the current volume failure latch for backing errors.
 - [ ] Pass `make lint test` within its bounded developer budget and rerun affected acceptance gates.
@@ -188,8 +323,19 @@ Use Tier 3 under ADR-03's operator-safety rules. Do not run privileged tests fro
 
 - [ ] Validate owned device identities before destructive operations and clean the disposable loop/device-mapper stack after success.
 - [ ] Test dropped writes and corruption of payloads, record metadata, checkpoint descriptors and bodies. Distinguish durability-assumption violations from recovery bugs.
-- [ ] Replay captured flush-ordered writes into a fresh image and compare outcomes under the recorded assumptions. Do not label capture/replay as a real power-loss test.
-- [ ] Extend selected faults through the accepted ADR-06 filesystem and database workflows. Specify safe device re-exposure, offline checks and stale-mount handling before those runs.
+- [ ] Capture backing writes and flush/FUA boundaries with `dm-log-writes`. Replay selected outcomes
+  into owned fresh images and check recovery and exact contents with the independent checker.
+- [ ] Run selected faults through the accepted ADR-06 filesystem and database workflows.
+  Define safe device re-exposure, offline checks and stale-mount handling before those runs.
+
+Capture I/O at the engine's backing layer. Client ublk writes don't show the order of internal
+checkpoint writes. Report backing-file filesystem effects separately from disposable raw or loop
+backing. Replay tests selected crash states; it is not a real power-loss test.
+
+For filesystem and database runs, save the image before recovery. Keep expected transaction results
+outside the tested device. Verify exact durable contents as well as filesystem and database structure.
+The database settings determine which commits may be lost. SQLite WAL/NORMAL and WAL/FULL have
+different power-loss guarantees. File-replacement cases must sync both the file and the required directories.
 
 ## Evidence and consequences
 
@@ -198,6 +344,16 @@ The September policy and chain proposals have no implementation acceptance evide
 Changing the failpoint mechanism requires fresh evidence for affected ADR-03 gates. Preserve existing PASS logs with their original source identity. The recorded engine-crash run includes a 608.100-second all-boundary stale-tail case. That measures the old test, not a reason to retain its recovery mechanism indefinitely.
 
 The simulator can cover faults that the real-kernel tools cannot reproduce exactly. Those results prove the model and engine interaction, not the behavior of every storage device. Where tiers overlap, compare the same scenario and expected outcome. Keep claimed coverage narrower than the fault vocabulary until tests exist.
+
+Each result must record:
+
+- the commit, uncommitted changes, binary identity, format, kernel and backing layers;
+- the model limits and exact operation sequence;
+- the faults that occurred and the expected outcomes;
+- the original failure image, observations before repair and reduced reproducer, if the run failed.
+
+Repair or later convergence cannot turn a failed run into a pass. Keep small fixed regressions in
+`make test`. Run larger sweeps with explicit acceptance limits.
 
 The injected interface adds dispatch and maintenance cost. Its performance impact remains unmeasured. Its justification is the concrete need for a controllable backing device, not the future cluster simulator.
 
@@ -217,10 +373,11 @@ Seed replay and trace reduction are separate. A seed reproduces a run only while
 
 ### Design references
 
-These are retained research references, not selected dependencies or newly verified compatibility claims.
+These are research references, not selected dependencies. The GEFS source was read for this revision; the other references are retained from earlier research. None establishes compatibility with this engine.
 
 | System | Useful direction and sources |
 |---|---|
+| GEFS | [fuzz.c](https://github.com/9front/9front/blob/f6162bbc98668e12d131233b0169018bf623d923/sys/src/cmd/gefs/fuzz.c) compares lookups and scans with a shadow AVL tree and writes a seed/trace on failure. [check.c](https://github.com/9front/9front/blob/f6162bbc98668e12d131233b0169018bf623d923/sys/src/cmd/gefs/check.c) separately checks tree, free-list and dead-list relationships. Borrow the separation of logical and structural checks; these sources do not prove our crash or reuse protocol. Read on 2026-10-06. |
 | TigerBeetle VOPR | Explicit simulation loop, subsystem seeds, continuous checks and a separate liveness phase. [Documentation](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/internals/vopr.md), [VOPR](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/vopr.zig), [packets](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/packet_simulator.zig), [storage](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/storage.zig), [cluster](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/cluster.zig). |
 | FoundationDB | Deterministic priorities, virtual time, process hierarchy and valid fault combinations. [Overview](https://apple.github.io/foundationdb/testing.html), [simulator](https://github.com/apple/foundationdb/blob/main/fdbrpc/sim2.cpp), [task queue](https://github.com/apple/foundationdb/blob/main/flow/include/flow/TaskQueue.h), [non-durable file](https://github.com/apple/foundationdb/blob/main/fdbrpc/include/fdbrpc/AsyncFileNonDurable.h). |
 | etcd, TiKV and CockroachDB | Directed links, composable message filters, explicit histories and an independent checker. [etcd network](https://github.com/etcd-io/raft/blob/main/rafttest/network.go), [TiKV transport](https://github.com/tikv/tikv/blob/master/components/test_raftstore/src/transport_simulate.rs), [kvnemesis](https://github.com/cockroachdb/cockroach/tree/master/pkg/kv/kvnemesis). |
@@ -284,7 +441,9 @@ The inspected tools did not provide exact short operations, arbitrary surviving 
 
 ## Open decisions before implementation
 
-- Define the checksum-chain encoding, checkpoint anchor and tail-reuse rules. Determine whether generations are needed, how chain mismatch is classified, and when recovery may advance durability without zeroing.
+- Select the tested format and its existing recovery and reuse rules. Define the atomic-write size
+  and limits for crash exploration. Revisit the older checksum-chain proposal only if a protocol
+  change is needed; it must not block ADR-08 evaluation.
 - Define safe online continuation after a partial write, checkpoint error, failed fsync, timeout or device disappearance. Keep the desired operation-level response distinct from an unproved retry mechanism.
 - Reconcile ADR-06's proposed delivery order, the selected persistent format and the injectable interface. Approve a new implementation prompt only after that scope is settled.
 - Choose shared versus tier-specific fault plans. Verify `blklogwrites` compatibility and explain the unconditional `blkdebug` behavior before relying on either. Seeded and multi-node exploration remain later work.
