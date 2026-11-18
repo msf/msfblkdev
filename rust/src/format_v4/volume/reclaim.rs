@@ -294,7 +294,7 @@ impl Volume {
     /// leaves the foreground reserve alone, so it can never push a write into `ENOSPC`.
     fn can_start_victim(&self, victim: u32, mode: SelectionMode) -> bool {
         let live = u64::from(self.log.segments.live_blocks(victim));
-        let copies = live + live.div_ceil(MAXIMUM_PAYLOAD_BLOCKS as u64) + 1;
+        let copies = live + live.div_ceil(self.reserve.relocation_batch) + 1;
         let keep = match mode {
             SelectionMode::Pressure => 0,
             SelectionMode::Idle => self.reserve.segments,
@@ -579,8 +579,8 @@ impl Volume {
                     .advance_head(&mut self.backing_io, &self.backing, HeadId::Relocation)?;
                 continue;
             }
-            let end = (start + room.min(MAXIMUM_PAYLOAD_BLOCKS)).min(accepted);
-            self.preflight_relocation(buffer, start..end)?;
+            let limit = (start + room).min(accepted);
+            let end = self.preflight_relocation(buffer, start..limit)?;
             self.write_relocation_record(buffer, start..end)?;
             start = end;
         }
@@ -605,41 +605,40 @@ impl Volume {
         buffer.entries[buffer.payload_order[order] as usize]
     }
 
-    /// Publishes first when the record's mapping pages and the dirty set would not fit.
+    /// Select the longest prefix whose mapping pages can all be dirtied atomically. Publish
+    /// *before* appending the record if its pages plus the current dirty set cannot fit.
     fn preflight_relocation(
         &mut self,
         buffer: &ProposalBuffer,
         range: std::ops::Range<usize>,
-    ) -> io::Result<()> {
+    ) -> io::Result<usize> {
+        let cache = &self.mapping.cache;
+        let snapshot = cache.snapshot();
+        let capacity = snapshot.sizing.capacity;
+        let mut needed_slots = snapshot.dirty_slots;
         let mut pages = 0;
         let mut last_page = None;
+        let mut end = range.start;
         for index in range.clone() {
             let Entry::Payload { lba, .. } = self.accepted_payload(buffer, index) else {
                 unreachable!("accepted entries are payloads");
             };
             let page = lba / ENTRIES_PER_PAGE as u32;
             if last_page != Some(page) {
+                if pages == capacity {
+                    break;
+                }
                 pages += 1;
                 last_page = Some(page);
+                // Clean residents are evictable. Dirty pages outside this *exact* set,
+                // including gaps between two accepted LBAs, must keep their slots.
+                needed_slots += usize::from(cache.residency(page) != Some(true));
             }
+            end = index + 1;
         }
-        let first = match self.accepted_payload(buffer, range.start) {
-            Entry::Payload { lba, .. } => lba / ENTRIES_PER_PAGE as u32,
-            _ => unreachable!(),
-        };
-        let last = match self.accepted_payload(buffer, range.end - 1) {
-            Entry::Payload { lba, .. } => lba / ENTRIES_PER_PAGE as u32,
-            _ => unreachable!(),
-        };
-        let unrelated_dirty = self
-            .mapping
-            .cache
-            .dirty_pages()
-            .filter(|(page_id, _)| !(first..=last).contains(page_id))
-            .count();
-        let capacity = self.mapping.cache.snapshot().sizing.capacity;
-        let record_bytes = (range.len() + 1) as u64 * BLOCK_SIZE as u64;
-        if unrelated_dirty + pages > capacity
+        assert!(end > range.start, "nonempty prefix fits a nonempty cache");
+        let record_bytes = (end - range.start + 1) as u64 * BLOCK_SIZE as u64;
+        if needed_slots > capacity
             || self.log.blocks_since_checkpoint * BLOCK_SIZE as u64 + record_bytes
                 > self.checkpoint_after_bytes
         {
@@ -647,7 +646,7 @@ impl Volume {
                 .publish(&mut self.backing_io, &self.backing, &mut self.log)?;
             self.mapping.pressure_checkpoints += 1;
         }
-        Ok(())
+        Ok(end)
     }
 
     fn write_relocation_record(

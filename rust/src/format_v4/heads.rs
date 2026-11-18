@@ -165,6 +165,8 @@ pub(crate) fn plan_append(
 /// complete checkpoint publications, each starting on a head whose segment is full.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Reserve {
+    /// Worst-case payload count per packed relocation record for this cache (distinct pages).
+    pub(crate) relocation_batch: u64,
     pub(crate) relocation_segments: u32,
     pub(crate) publication_segments: u32,
     pub(crate) segments: u32,
@@ -173,13 +175,23 @@ pub(crate) struct Reserve {
 impl Reserve {
     pub(crate) fn compute(geometry: Geometry, cache_capacity: u64) -> Self {
         let victim_payloads = u64::from(geometry.blocks_per_segment - 2);
-        let relocation_segments = plan_append(geometry, 0, victim_payloads, 0).new_segments;
+        // A cache that covers the whole address space never splits a record by mapping page.
+        let relocation_batch = if cache_capacity < u64::from(geometry.page_count) {
+            cache_capacity.min(MAXIMUM_PAYLOAD_BLOCKS as u64)
+        } else {
+            MAXIMUM_PAYLOAD_BLOCKS as u64
+        };
+        // A single victim fits in at most two fresh segments even at one footer per payload.
+        let copy_blocks = victim_payloads + victim_payloads.div_ceil(relocation_batch);
+        let relocation_segments =
+            1 + u32::from(copy_blocks > u64::from(geometry.blocks_per_segment - 1));
         let publication_blocks = cache_capacity
             + u64::from(geometry.direct_pages)
             + u64::from(geometry.indirect_pages)
             + u64::from(geometry.table_pages);
         let publication_segments = plan_append(geometry, 0, 0, publication_blocks).new_segments;
         Self {
+            relocation_batch,
             relocation_segments,
             publication_segments,
             segments: relocation_segments + 2 * publication_segments,
@@ -317,6 +329,11 @@ mod tests {
         assert_eq!(user_available_blocks(geometry, 5, 4, reserve), 5 + 7);
         assert_eq!(user_available_blocks(geometry, 5, 3, reserve), 5);
         assert_eq!(user_available_blocks(geometry, 0, 0, reserve), 0);
+        // Three mapping pages do not fit a one-slot cache. Six scattered payloads can need
+        // six footers; the original one-segment reserve would undercount those split records.
+        let narrow = Reserve::compute(geometry, 1);
+        assert_eq!(narrow.relocation_batch, 1);
+        assert_eq!(narrow.relocation_segments, 2);
         let big = Geometry::new(1 << 20, 2 + 64 * 2048, 2048).unwrap();
         let reserve = Reserve::compute(big, 4096);
         // 2046 payloads and seven footers need 2053 blocks, so two fresh segments of 2047.

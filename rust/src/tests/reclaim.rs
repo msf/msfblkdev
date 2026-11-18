@@ -250,6 +250,53 @@ fn backing_discard_can_be_disabled() -> io::Result<()> {
     volume.close()
 }
 
+fn relocate_sparse_pages(slots: usize) -> io::Result<()> {
+    let page = crate::mapping_cache::ENTRIES_PER_PAGE as u32;
+    let backing = fixture(3 * page, SEGMENTS)?;
+    let options = VolumeOpenOptions {
+        cache_budget_bytes: Some(
+            crate::CacheSizing::for_capacity(slots)
+                .unwrap()
+                .allocated_bytes as u64,
+        ),
+        ..options(1)
+    };
+    let mut volume = open_with_options(&backing.0, options)?;
+    // Seal segment zero with exactly two live payloads on mapping pages 0 and 2.
+    for (index, lba) in [0, 2 * page, 1, 1].into_iter().enumerate() {
+        volume.write_block(lba, &value(index as u32 + 10))?;
+    }
+    volume.flush()?;
+    scan_one_window(&mut volume)?;
+    assert_eq!(volume.reclaim_stats().payloads_proposed, 2);
+    // Dirty page 1 while the proposal is waiting. Only pages 0 and 2 need relocation.
+    volume.write_block(page, &value(14))?;
+    assert_eq!(
+        volume.maintain(SelectionMode::Pressure)?,
+        MaintenanceStep::Applied
+    );
+    assert_eq!(volume.reclaim_stats().payloads_copied, 2);
+    volume.flush()?;
+    drop(volume);
+    let mut reopened = open_with_options(&backing.0, options)?;
+    let mut bytes = [0; BLOCK_SIZE];
+    for (lba, expected) in [(0, 10), (2 * page, 11), (1, 13), (page, 14)] {
+        reopened.read_block(lba, &mut bytes)?;
+        assert_eq!(bytes, value(expected), "LBA {lba}");
+    }
+    reopened.close()
+}
+
+#[test]
+fn relocation_accounts_for_dirty_pages_between_nonadjacent_source_pages() -> io::Result<()> {
+    relocate_sparse_pages(2)
+}
+
+#[test]
+fn relocation_splits_records_that_need_more_pages_than_the_cache() -> io::Result<()> {
+    relocate_sparse_pages(1)
+}
+
 #[test]
 fn user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy() -> io::Result<()> {
     for discard in [false, true] {
