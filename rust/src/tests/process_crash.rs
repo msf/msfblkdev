@@ -17,9 +17,7 @@ fn recover_one_flushed_write_after_sigkill_without_close() -> io::Result<()> {
 
     repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
         let backing = TemporaryBacking::new()?;
-        let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-        backing.create_sized(u64::from(layout.log_start + 4) * BLOCK_SIZE as u64)?;
-        format(&backing.0, BLOCK_SIZE as u64)?;
+        format_segments(&backing, 1, 6, TINY_SEGMENT_BLOCKS)?;
 
         sigkill_child_at_handshake(
             "tests::process_crash::recover_one_flushed_write_after_sigkill_without_close",
@@ -63,10 +61,7 @@ fn recover_multiple_flushed_writes_and_overwrites_after_sigkill() -> io::Result<
 
     repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
         let backing = TemporaryBacking::new()?;
-        let volume_blocks = 3_u32;
-        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        format_segments(&backing, 3, 12, TINY_SEGMENT_BLOCKS)?;
 
         sigkill_child_at_handshake(
             "tests::process_crash::recover_multiple_flushed_writes_and_overwrites_after_sigkill",
@@ -100,10 +95,7 @@ fn recover_after_uncaught_unwinding_panic_without_close() -> io::Result<()> {
 
     repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
         let backing = TemporaryBacking::new()?;
-        let volume_blocks = 3_u32;
-        let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-        format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+        format_segments(&backing, 3, 12, TINY_SEGMENT_BLOCKS)?;
 
         run_unwinding_panic_child(
             "tests::process_crash::recover_after_uncaught_unwinding_panic_without_close",
@@ -153,9 +145,7 @@ fn buffered_write_is_volatile_until_flush_across_sigkill() -> io::Result<()> {
     repeat_process_crash_scenario(&configured_crash_test_plan(1)?, || {
         // Flushed: the write is durable and survives SIGKILL.
         let backing = TemporaryBacking::new()?;
-        let (_, layout) = layout_for(4 * BLOCK_SIZE as u64)?;
-        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-        format(&backing.0, 4 * BLOCK_SIZE as u64)?;
+        format_segments(&backing, 4, 8, 64)?;
         run_buffer_crash_child(test_name, &backing.0, FLUSHED_HANDSHAKE, Some("flush"))?;
         let mut volume = open_with_options(&backing.0, options)?;
         let mut actual = [0; BLOCK_SIZE];
@@ -165,8 +155,7 @@ fn buffered_write_is_volatile_until_flush_across_sigkill() -> io::Result<()> {
 
         // Unflushed: the buffered write is volatile and is lost.
         let backing = TemporaryBacking::new()?;
-        backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-        format(&backing.0, 4 * BLOCK_SIZE as u64)?;
+        format_segments(&backing, 4, 8, 64)?;
         run_buffer_crash_child(test_name, &backing.0, UNFLUSHED_HANDSHAKE, None)?;
         let mut volume = open_with_options(&backing.0, options)?;
         let mut actual = [0xff; BLOCK_SIZE];
@@ -262,9 +251,7 @@ fn recover_after_write_crash(
     }
 
     let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    backing.create_sized(u64::from(layout.log_start + 8) * BLOCK_SIZE as u64)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
+    format_segments(&backing, 1, 12, TINY_SEGMENT_BLOCKS)?;
     let mut volume = open(&backing.0)?;
     volume.write_block(0, &old)?;
     volume.close()?;
@@ -322,6 +309,7 @@ fn recover_after_checkpoint_crash(
     test_name: &str,
     failpoint: &str,
     expected_checkpoint_lsn: u64,
+    expected_last_lsn: u64,
 ) -> io::Result<()> {
     let writes = [(0, 0x5a), (1, 0xc3), (2, 0x3c), (1, 0xe7)];
     if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
@@ -335,12 +323,11 @@ fn recover_after_checkpoint_crash(
     }
 
     let backing = TemporaryBacking::new()?;
-    let volume_blocks = 336_u32 * 1024 + 1;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
-    assert!(layout.index_blocks > 1);
-    backing.create_sized(u64::from(layout.log_start + 64) * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    // Two direct index pages: the second stays untouched and unwritten.
+    let volume_blocks = 336_u32 * 1008 + 1;
+    format_segments(&backing, volume_blocks, 8, 64)?;
     let mut volume = open(&backing.0)?;
+    assert_eq!(volume.log.geometry.direct_pages, 2);
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.close()?;
 
@@ -348,11 +335,8 @@ fn recover_after_checkpoint_crash(
 
     let expected = [[0x5a; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
     let mut volume = open(&backing.0)?;
-    assert_eq!(
-        volume.mapping.checkpoint.descriptor.checkpoint_lsn,
-        expected_checkpoint_lsn
-    );
-    assert_eq!(volume.mapping.tail.lsn, 7);
+    assert_eq!(volume.log.checkpoint_lsn(), expected_checkpoint_lsn);
+    assert_eq!(last_lsn(&volume), expected_last_lsn);
     for (lba, expected) in expected.iter().enumerate() {
         let mut actual = [0; BLOCK_SIZE];
         volume.read_block(lba as u32, &mut actual)?;
@@ -390,31 +374,33 @@ fn crash_test_modes_select_smoke_and_exhaustive_work() -> io::Result<()> {
     Ok(())
 }
 
+// The first close publishes table 1, data 2, snapshot 3 and direct page 4. The child then
+// appends records 5..=8 and publishes snapshot 9 and direct page 10. Recovery traverses the
+// unpublished snapshot and index page as framing, so the last LSN is 10 at every boundary.
+const FIRST_CLOSE_LSN: u64 = 4;
+const SECOND_CLOSE_LSN: u64 = 10;
+
 #[test]
-fn recover_after_each_checkpoint_body_block_boundary() -> io::Result<()> {
-    let (_, layout) = layout_for((336 * 1024 + 1) * BLOCK_SIZE as u64)?;
-    let body_blocks = layout.index_blocks;
-    let plan = configured_crash_test_plan(u64::from(body_blocks))?;
-    for block_index in plan.boundary_indices {
-        let failpoint = format!("{CHECKPOINT_BODY_BLOCK_COMPLETE_FAILPOINT}-{block_index}");
-        for _ in 0..plan.repetitions {
-            recover_after_checkpoint_crash(
-                "tests::process_crash::recover_after_each_checkpoint_body_block_boundary",
-                &failpoint,
-                2,
-            )?;
-        }
+fn recover_after_index_page_write_boundary() -> io::Result<()> {
+    for _ in 0..configured_crash_test_plan(1)?.repetitions {
+        recover_after_checkpoint_crash(
+            "tests::process_crash::recover_after_index_page_write_boundary",
+            "direct-page-write-complete-0",
+            FIRST_CLOSE_LSN,
+            SECOND_CLOSE_LSN,
+        )?;
     }
     Ok(())
 }
 
 #[test]
-fn recover_after_checkpoint_body_fsync_boundary() -> io::Result<()> {
+fn recover_after_checkpoint_records_fsync_boundary() -> io::Result<()> {
     for _ in 0..configured_crash_test_plan(1)?.repetitions {
         recover_after_checkpoint_crash(
-            "tests::process_crash::recover_after_checkpoint_body_fsync_boundary",
-            CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT,
-            2,
+            "tests::process_crash::recover_after_checkpoint_records_fsync_boundary",
+            "checkpoint-records-fsync-complete",
+            FIRST_CLOSE_LSN,
+            SECOND_CLOSE_LSN,
         )?;
     }
     Ok(())
@@ -426,7 +412,8 @@ fn recover_after_descriptor_write_boundary() -> io::Result<()> {
         recover_after_checkpoint_crash(
             "tests::process_crash::recover_after_descriptor_write_boundary",
             DESCRIPTOR_WRITE_COMPLETE_FAILPOINT,
-            7,
+            SECOND_CLOSE_LSN,
+            SECOND_CLOSE_LSN,
         )?;
     }
     Ok(())
@@ -438,7 +425,8 @@ fn recover_after_descriptor_fsync_boundary() -> io::Result<()> {
         recover_after_checkpoint_crash(
             "tests::process_crash::recover_after_descriptor_fsync_boundary",
             DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT,
-            7,
+            SECOND_CLOSE_LSN,
+            SECOND_CLOSE_LSN,
         )?;
     }
     Ok(())

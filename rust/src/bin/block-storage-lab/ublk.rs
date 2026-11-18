@@ -9,8 +9,14 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const BLOCK_BYTES: u64 = 4096;
-pub const VOLUME_BLOCKS: u64 = 64;
-pub const RECORD_CAPACITY: u64 = 32;
+/// A thin volume: far more logical blocks than the log can hold, so writing distinct blocks
+/// must end in `ENOSPC` whatever the cleaner compacts.
+pub const VOLUME_BLOCKS: u64 = 1024;
+/// Format-4 fixture: ten segments of 32 blocks behind the two descriptor blocks.
+pub const SEGMENT_BLOCKS: u64 = 32;
+pub const SEGMENT_COUNT: u64 = 10;
+/// The region the wraparound scenario overwrites; each pass rewrites every block of it.
+pub const WRAP_REGION_BLOCKS: u64 = 64;
 const OWNED_PREFIX: &str = "my-block-storage-ublk.";
 const OWNED_MARKER: &str = ".owned-by-block-storage-lab";
 static DIRECTORY_NONCE: AtomicU64 = AtomicU64::new(0);
@@ -82,23 +88,20 @@ impl FromStr for DevicePath {
 pub struct Geometry {
     pub block_bytes: u64,
     pub volume_blocks: u64,
-    pub record_capacity: u64,
-    pub log_start_blocks: u64,
+    pub segment_blocks: u64,
+    pub segment_count: u64,
     pub backing_blocks: u64,
 }
 
 impl Geometry {
     pub fn expected() -> Self {
-        // ADR-07: 336 mappings per page and 1024 page pointers per index block.
-        let index_blocks = VOLUME_BLOCKS.div_ceil(336).div_ceil(1024);
-        let log_start_blocks = 2 + 2 * index_blocks;
         Self {
             block_bytes: BLOCK_BYTES,
             volume_blocks: VOLUME_BLOCKS,
-            record_capacity: RECORD_CAPACITY,
-            log_start_blocks,
-            // Admission reserves the existing and pending snapshots separately.
-            backing_blocks: log_start_blocks + 2 * RECORD_CAPACITY + 2,
+            segment_blocks: SEGMENT_BLOCKS,
+            segment_count: SEGMENT_COUNT,
+            // ADR-08: two descriptor blocks, then whole segments.
+            backing_blocks: 2 + SEGMENT_COUNT * SEGMENT_BLOCKS,
         }
     }
 
@@ -108,6 +111,15 @@ impl Geometry {
 
     pub fn backing_bytes(self) -> u64 {
         self.block_bytes * self.backing_blocks
+    }
+
+    pub fn segment_bytes(self) -> u64 {
+        self.block_bytes * self.segment_blocks
+    }
+
+    /// Total segment capacity in blocks, the quantity the wraparound scenario must exceed.
+    pub fn log_capacity_blocks(self) -> u64 {
+        self.segment_blocks * self.segment_count
     }
 
     pub fn sectors(self) -> u64 {
@@ -515,11 +527,15 @@ mod tests {
     #[test]
     fn expected_geometry_matches_the_ublk_acceptance_shape() {
         let geometry = Geometry::expected();
-        assert_eq!(geometry.log_start_blocks, 4);
-        assert_eq!(geometry.backing_blocks, 70);
-        assert_eq!(geometry.volume_bytes(), 262_144);
-        assert_eq!(geometry.backing_bytes(), 286_720);
-        assert_eq!(geometry.sectors(), 512);
+        assert_eq!(geometry.backing_blocks, 322);
+        assert_eq!(geometry.volume_bytes(), 4_194_304);
+        assert_eq!(geometry.backing_bytes(), 1_318_912);
+        assert_eq!(geometry.segment_bytes(), 131_072);
+        assert_eq!(geometry.log_capacity_blocks(), 320);
+        assert_eq!(geometry.sectors(), 8192);
+        // The volume is thin: distinct-block writes must run out of log before they run out of
+        // logical blocks.
+        assert!(geometry.volume_blocks > geometry.log_capacity_blocks());
     }
 
     #[test]
@@ -529,7 +545,7 @@ mod tests {
         fs::create_dir_all(device.join("queue")).unwrap();
         fs::create_dir_all(root.join("class/ublk-char/ublkc7")).unwrap();
         fs::write(device.join("queue/logical_block_size"), "4096\n").unwrap();
-        fs::write(device.join("size"), "512\n").unwrap();
+        fs::write(device.join("size"), "8192\n").unwrap();
         fs::write(device.join("dev"), "259:7\n").unwrap();
         let id = "7".parse().unwrap();
         let identity = validate_sysfs_device_identity(&root, id).unwrap();

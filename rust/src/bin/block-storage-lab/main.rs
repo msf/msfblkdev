@@ -65,6 +65,7 @@ fn execute_mode(config: config::Config, repo: &Path) -> io::Result<ExitCode> {
             ext4::workload::worker(Xfs, mode_populates(&config.mode))?;
         }
         Mode::UblkFio => ublk_fio::run(repo, config.per_test)?,
+        Mode::UblkFioFormatFixture => ublk_fio::format_fixture(Path::new("backing.img"))?,
         Mode::SqliteProbe => ext4::sqlite::run(repo, config.per_test, config.suite)?,
         Mode::SqliteExt4(selector) => {
             ext4::sqlite::run_matrix(repo, Ext4, config.per_test, config.suite, *selector)?;

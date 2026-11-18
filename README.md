@@ -4,7 +4,7 @@ A Linux-only log-structured block device experiment. Rust is authoritative and i
 
 ## Current status
 
-The latest release is **v1.2.3**. It uses on-disk format 3 from ADR-07. The log is finite: overwrites consume backing space and are never reclaimed.
+The latest stable release is **v1.2.3**. It uses format 3, which never reclaims overwritten blocks. The development engine uses format 4; it cannot open a format-3 image.
 
 | ADR | Subject | State |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ The latest release is **v1.2.3**. It uses on-disk format 3 from ADR-07. The log 
 | 05 | Fault model, failure handling and fault testing | Under review; not implemented |
 | 06 | Filesystem and database correctness | ext4, XFS and SQLite accepted; RocksDB and PostgreSQL open |
 | 07 | Paged mapping and bounded cache (format 3) | Implemented in v1.2–v1.2.3 |
-| 08 | Segmented log and space reclamation (format 4) | Draft; not implemented |
+| 08 | Segmented log and space reclamation (format 4) | Implemented; under evaluation |
 | 09 | Compression at relocation | Deferred draft; not implemented |
 | 10 | Workbench tests and reports | Reporting implemented; VM workload execution open |
 
@@ -23,7 +23,23 @@ ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem
 
 SQLite passed 87 fresh runs on each of ext4 and XFS across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. Each matrix passed 348 filesystem checks and 174 logical validations. [SQLite/ext4](docs/SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and selected baselines. RocksDB and PostgreSQL remain unimplemented.
 
-ADR-07 is complete. The latest release is **v1.2.3**, with 336-entry mapping pages,
+ADR-08 is implemented as release candidate **v2.0-rc**. It introduces on-disk format 4:
+
+- a segmented log with two fixed append heads,
+- raw space reclamation by a cleaner thread,
+- client discard and write-zeroes,
+- durable backing growth,
+- a proportional heap budget.
+
+The engine and crash matrices passed. The live ublk/fio gate passed, including a sustained overwrite
+that wraps the log. The four performance comparisons passed. The ext4, XFS and SQLite gates were not
+run for `v2.0-rc`: their preflight requires a mount helper byte-identical to the build, and the
+implementation clone could not install one. [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md)
+records the decisions, the review dispositions and the evidence.
+[ADR-08-PERF-RESULTS.md](ADR-08-PERF-RESULTS.md) records the measurements. Format-3 images are
+rejected without modification. There is no migration.
+
+ADR-07 was complete at **v1.2.3**, with 336-entry mapping pages,
 sorted snapshot publication, and adjacent-page prefetch after sequential demand.
 v1.2.1 introduced packed data writes; v1.2.2 added batched checkpoint writes.
 The original **v1.2** tag retains the earlier one-record-per-mapping-page implementation.
@@ -37,7 +53,7 @@ by 45–51% versus v1.2.2 at equal cache budgets. Random throughput stays within
 ordinary sequential payload results are mixed.
 The same report retains historical results and separates throughput, tails, memory, and close cost.
 
-[ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) specifies format 4: a segmented log with two fixed append heads, a background cleaner, two-checkpoint segment reuse, client and backing discard, and backing growth. Its approach is decided; encodings, sizing and thresholds still need review and measurement. [ADR-09](ADR-09-RELOCATION-COMPRESSION.md) defers compression until raw reclamation passes. [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) remains proposed; ADR-08 replaces its replacement-image compaction with segment reclamation.
+[ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) specifies format 4: a segmented log with two fixed append heads, a background cleaner, two-checkpoint segment reuse, client and backing discard, and backing growth. The [independent evaluation plan](docs/BLOCKCHECK-PLAN.md) specifies device-level checks for correctness, endurance and cleaning costs. [ADR-09](ADR-09-RELOCATION-COMPRESSION.md) defers compression until raw reclamation passes. [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) remains proposed; ADR-08 replaces its replacement-image compaction with segment reclamation.
 
 [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
 
@@ -60,7 +76,7 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - Derive an ADR-08 evaluation suite from the specification, independent of any implementation. Run it against v1.0 onwards to show how fast format 3 fills its backing and which workloads it cannot hold in a given space.
 - Fault-test v1.x before format 4. Cover white-box tests with instrumented `io_uring` and other external interfaces, and black-box tests. Revisit ADR-05 where it does not cover this.
 - Complete the workbench so the test suites audit real device performance.
-- Implement ADR-08 and review it adversarially before releasing it as v2.0.
+- Qualify ADR-08 on fresh and aged volumes before releasing v2.0.
 - Later: extend the replicated log into a distributed replicated log.
 
 ## Design and delivery specifications
@@ -71,23 +87,52 @@ Rust is authoritative. The Zig implementation is a completed initial experiment 
 - [ADR-04: growable thin-provisioned format](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) proposes logical and physical growth. It is not implemented.
 - [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
 - [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 and SQLite on both filesystems are complete. RocksDB and PostgreSQL remain open.
-- [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the implemented version-3 format, mapping cache, checkpoint publication, and bounded recovery.
-- [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) specifies format 4 and the cleaner. [The technical review](docs/REVIEW-ADR-08.md) records its open findings. It is not implemented.
+- [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the version-3 format, mapping cache, checkpoint publication, and bounded recovery; format 4 keeps the cache and recovery contract.
+- [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) defines the implemented version-4 format: segments, two fixed heads, the mapping index tree, raw relocation, the two-publication freeing barrier, discard, backing growth and the heap budget.
 - [ADR-09: compression at relocation](ADR-09-RELOCATION-COMPRESSION.md) is a deferred extension of ADR-08.
 - [ADR-10: workbench tests and reports](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines test goals, commands and KPIs. [TMD-WORKBENCH](TMD-WORKBENCH.md), the [VM environment](docs/WORKBENCH-VM.md) and the [v1.3 benchmark plan](docs/V1.3-BENCHMARK-PLAN.md) support it.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API
 
+### Segmented log and space reclamation (format 4)
+
+The Rust engine formats and opens ADR-08 version 4 only. It rejects version-1, version-2, version-3
+and unknown-format images before recovery writes anything. There is no migration path. Use freshly
+formatted disposable images.
+
+The formatter requires the advertised logical size and the raw backing size. For example:
+
+```sh
+block-storage-ublk format disk.img --size-mib 4096 --prealloc-mib 6144
+```
+
+`--min-logical-fill-factor` sets the minimum percent of the **logical** volume that must fit as live payload while leaving room for cleaning. It defaults to `100`: for a 4 GiB volume, all 4 GiB must fit. The formatter tries 32, 16, then 8 MiB segments and picks the largest size that meets the requested fill. If none fits, it rejects the request before creating the image. The reported maximum logical fill is a sizing estimate, not a measured endurance guarantee. The raw size sets the sparse file's length; it does not reserve that much free space on the host filesystem.
+
+The backing holds two checkpoint descriptors, then whole segments. New writes append on the user head. Relocated copies append on the relocation head. Both heads share one global LSN sequence.
+
+Space reclamation works in this way:
+
+- A cleaner thread reads sealed segments through fixed 339-block windows.
+- The cleaner returns proposals through bounded channels.
+- The writer validates each proposal against the current mapping and the victim's seal LSN.
+- The writer copies the live payloads and dirties the current metadata.
+- The writer frees a victim only after two checkpoint publications.
+- Free segments are hole-punched on regular files.
+
+Idle maintenance runs 2 ms after the last request, or at least every 100 ms. Space pressure reclaims
+inline, inside the write. `Volume::maintain`, `maintain_for` and `wait_for_cleaner` drive
+maintenance from a request loop. `reclaim_stats`, `log_writes`, `heap_budget` and `space_usage`
+report it.
+
+The heap budget is `max(1% of the logical volume, 16 MiB)`. It is divided between the write buffer,
+the cleaner, the mapping cache and the supporting state. A 1 GiB volume runs under a 12 MiB total.
+After open, ordinary writes, reads, checkpoints and cleaning allocate nothing.
+
 ### Paged mapping and CLOCK cache
 
-The Rust engine now formats and opens ADR-07 version 3. Version-1, version-2,
-and unknown-format images are rejected before recovery writes. There is no migration
-path. During prototype refinement, format 3 now uses 336 entries per page; earlier
-320-entry images are not supported or migrated. Use freshly formatted disposable images.
 The public engine uses a resident page-pointer index and a bounded mapping cache;
-it no longer allocates dense per-LBA address and checksum arrays. ADR-07 acceptance
-passed on 2026-09-19.
+it does not allocate dense per-LBA address and checksum arrays. Mapping pages hold 336 entries.
 
 The cache preallocates slots, a `hashbrown` 0.17.1 hash map, and CLOCK reference bits.
 It fills unused slots sequentially and reuses clean victims. Dirty mapping pages remain
@@ -137,8 +182,10 @@ these records with daemon stderr.
 A flush persists the packed data records; it does not require a checkpoint or clear
 dirty mapping flags. Recovery replays
 those records, using bounded cache windows when the dirty working set exceeds capacity.
-Admission reserves data records and mapping snapshots before accepting a new buffered LBA.
-The log remains finite, with no reclaim or wraparound.
+Before it accepts a new buffered LBA, admission reserves space for the data records, the footers,
+the segment crossings and the mapping snapshots. Foreground writes never consume the cleaner's
+reserve. The log wraps: overwrites beyond the backing's capacity are served as long as the live data
+plus the reserve fit.
 
 Run cache-only tests with `cd rust && cargo test --lib mapping_cache`; these need no
 backing file or `io_uring`. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md) records the exact
@@ -153,13 +200,28 @@ separate process RSS snapshots, and exact hit rates for four deterministic read 
 The crate exposes:
 
 ```text
-format
-open
+format, format_with_options
+open, open_with_options
 Volume::write_block
 Volume::read_block
+Volume::discard_blocks, Volume::write_zeroes
 Volume::flush
 Volume::close
+Volume::maintain, Volume::maintain_for, Volume::wait_for_cleaner
+Volume::grow_backing
+Volume::space_usage, reclaim_stats, log_writes, heap_budget, mapping_stats
+Scheduler
 ```
+
+The ublk daemon adds these `serve` flags:
+
+- heap: `--heap-ppm`, `--heap-bytes`, `--cleaner-bytes`;
+- growth capacity: `--growth-capacity-bytes`;
+- backing discard: `--backing-discard off|punch`;
+- scheduling: `--idle-wait-us`, `--max-maintenance-interval-ms`.
+
+The daemon advertises discard and write-zeroes. On `SIGUSR1` it claims an operator-grown backing
+file.
 
 `format_with_accounting` and `open_with_accounting` add opt-in cumulative I/O budgets through a private shared ledger. The ordinary APIs remain unmetered. See the unsafe file-lifetime contract in `rust/src/io_accounting.rs` before using this API.
 
@@ -199,7 +261,7 @@ make test-sqlite-xfs            # the same 87-run matrix on XFS
 | `lint`, `test` | nothing | nothing |
 | `test-acceptance` | nothing | regular-file backing in a temporary directory |
 | `lint-zig`, `test-zig` | downloads pinned Zig on first use | nothing |
-| `test-ublk-fio` | ublk, `fio` | ublk device, regular-file backing |
+| `test-ublk-fio` | ublk, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume); eight scenarios including exhaustion beyond the log and a sustained overwrite that wraps it |
 | `test-ext4`, `test-xfs` | mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
 | `test-sqlite`, `test-sqlite-ext4`, `test-sqlite-xfs` | the above plus `make setup-sqlite` | ublk device, selected filesystem, mount, databases |
 
@@ -425,4 +487,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The engine has one serialized writer, 4 KiB payloads, a finite log, and no compaction or wraparound. Version 3 packs up to 338 buffered payloads per data record after sorting the complete buffer by LBA. V0.6 recovers complete flushed records after process loss. V0.8 has passed live ublk and `fio` acceptance. V0.9 and V1.0 add ext4 and XFS correctness across clean restarts. SQLite also passes its ext4 and XFS clean-restart matrices. The remaining ADR-06 acceptance targets v1.3; RocksDB and PostgreSQL are still open. Medium-write faults (ADR-05) and space reclamation (ADR-08) are not implemented.
+The format-4 engine has one serialized writer and 4 KiB payloads. It reclaims obsolete blocks but can still run out of usable backing space. Do not treat the filesystem and SQLite clean-restart results from earlier releases as format-4 or power-loss guarantees. ADR-05 medium faults and the remaining ADR-06 application gates are separate work.

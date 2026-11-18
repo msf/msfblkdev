@@ -5,7 +5,7 @@ use std::io;
 pub(super) struct BackingIo {
     pub(super) ring: Option<IoUring>,
     accounting: Option<Writer>,
-    pub(super) mapping_io: crate::format_v3::metrics::MappingIo,
+    pub(super) mapping_io: crate::format_v4::metrics::MappingIo,
     #[cfg(test)]
     pub(super) metadata_short_write: Option<(u32, usize)>,
     #[cfg(test)]
@@ -17,7 +17,7 @@ impl BackingIo {
         Ok(Self {
             ring: Some(IoUring::new(2)?),
             accounting,
-            mapping_io: crate::format_v3::metrics::MappingIo::default(),
+            mapping_io: crate::format_v4::metrics::MappingIo::default(),
             #[cfg(test)]
             metadata_short_write: None,
             #[cfg(test)]
@@ -49,6 +49,16 @@ pub(super) fn submit_exact(
         Err(error) => Err(error),
         Ok(()) => accounting_result,
     }
+}
+
+/// Submits an operation the ledger does not classify, such as a hole punch.
+pub(super) fn submit_exact_unaccounted(
+    backing_io: &mut BackingIo,
+    entry: squeue::Entry,
+    user_data: u64,
+    expected_result: i32,
+) -> io::Result<()> {
+    super::submit_exact_raw(&mut backing_io.ring, entry, user_data, expected_result)
 }
 
 fn classify_operation(entry: &squeue::Entry, expected_result: i32) -> io::Result<Operation> {

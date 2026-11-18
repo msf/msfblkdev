@@ -45,8 +45,7 @@ impl Lab<'_> {
         let mut command = format_command(
             &self.daemon_executable,
             &self.backing_path(),
-            self.filesystem.backing_bytes(),
-            self.filesystem.volume_bytes(),
+            self.filesystem,
             ledger.as_deref(),
         );
         self.run_command("format", &mut command)?;
@@ -367,18 +366,23 @@ impl Lab<'_> {
 fn format_command(
     executable: &Path,
     backing: &Path,
-    backing_bytes: u64,
-    volume_bytes: u64,
+    filesystem: Filesystem,
     ledger: Option<&Path>,
 ) -> Command {
+    const MIB: u64 = 1 << 20;
+    let (backing_bytes, volume_bytes) = (filesystem.backing_bytes(), filesystem.volume_bytes());
+    assert!(
+        backing_bytes.is_multiple_of(MIB) && volume_bytes.is_multiple_of(MIB),
+        "fixed filesystem fixtures must use whole MiB"
+    );
     let mut command = Command::new(executable);
     command
         .arg("format")
         .arg(backing)
-        .arg("--prealloc-bytes")
-        .arg(backing_bytes.to_string())
-        .arg("--size-bytes")
-        .arg(volume_bytes.to_string());
+        .arg("--prealloc-mib")
+        .arg((backing_bytes / MIB).to_string())
+        .arg("--size-mib")
+        .arg((volume_bytes / MIB).to_string());
     sqlite::configure_ledger_env(&mut command, ledger);
     command
 }
@@ -403,9 +407,20 @@ mod tests {
         let command = format_command(
             Path::new("/lab/ublk"),
             Path::new("/fixture/backing"),
-            1024,
-            2048,
+            Filesystem::Ext4,
             Some(Path::new("/fixture/io-ledger")),
+        );
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [
+                "format",
+                "/fixture/backing",
+                "--prealloc-mib",
+                "1024",
+                "--size-mib",
+                "128"
+            ]
+            .map(std::ffi::OsStr::new)
         );
         assert!(command.get_envs().any(|(name, value)| {
             name == "BLOCK_STORAGE_IO_LEDGER"

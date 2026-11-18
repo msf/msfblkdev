@@ -9,13 +9,10 @@ fn options(slots: usize) -> VolumeOpenOptions {
     }
 }
 
+/// Eight 512-block segments: 65 write-through records and their snapshots stay in segment 0.
 fn fixture(pages: u32) -> io::Result<TemporaryBacking> {
     let backing = TemporaryBacking::new()?;
-    backing.create_sized(2048 * BLOCK_SIZE as u64)?;
-    format(
-        &backing.0,
-        u64::from(pages) * ENTRIES_PER_PAGE as u64 * BLOCK_SIZE as u64,
-    )?;
+    format_segments(&backing, pages * ENTRIES_PER_PAGE as u32, 8, 512)?;
     let mut volume = open_with_options(&backing.0, options(pages as usize))?;
     // Reverse insertion makes cache-slot order differ from snapshot order.
     for page in (0..pages).rev() {
@@ -46,7 +43,7 @@ fn sorted_snapshots_prefetch_in_one_read_in_cold_and_full_caches() -> io::Result
     let writer = unsafe { crate::io_accounting::Writer::open(&ledger.0)? };
     let mut volume = open_with_accounting(&backing.0, options(4), writer)?;
     let before = reader.snapshot()?;
-    let pointers = &volume.mapping.checkpoint.mapping_page_block;
+    let pointers = volume.log.index.snapshot_blocks();
     for pair in pointers.windows(2) {
         assert_eq!(pair[1], pair[0] + 1);
     }
@@ -109,7 +106,7 @@ fn prefetch_preserves_dirty_and_resident_pages_and_stops_at_nonadjacent_pointers
 fn speculative_corruption_is_not_installed_and_demand_corruption_still_fails() -> io::Result<()> {
     let backing = fixture(8)?;
     let mut volume = open_with_options(&backing.0, options(5))?;
-    let pointer = volume.mapping.checkpoint.mapping_page_block[2];
+    let pointer = volume.log.index.snapshot_block(2);
     let file = OpenOptions::new().write(true).open(&backing.0)?;
     read(&mut volume, 0)?;
     file.write_all_at(&[0xff], u64::from(pointer) * BLOCK_SIZE as u64 + 100)?;

@@ -40,18 +40,14 @@ fn current_exe_child(name: &str, env_name: &str) -> Command {
 fn command_construction_is_exact_and_bounded() {
     let daemon = Path::new("/x/block-storage-ublk");
     let backing = Path::new("/tmp/owned/backing.img");
-    let format = format_command(daemon, backing);
+    let lab = Path::new("/x/block-storage-lab");
+    let owned_dir = Path::new("/tmp/owned");
+    let format = format_command(lab, owned_dir);
+    assert_eq!(format.get_program(), lab);
+    assert_eq!(format.get_current_dir(), Some(owned_dir));
     assert_eq!(
         format.get_args().collect::<Vec<_>>(),
-        [
-            "format",
-            "/tmp/owned/backing.img",
-            "--prealloc-bytes",
-            "286720",
-            "--size-bytes",
-            "262144",
-        ]
-        .map(OsStr::new)
+        [OsStr::new("ublk-fio-format-fixture")]
     );
     assert_eq!(
         serve_command(daemon, backing)
@@ -72,6 +68,26 @@ fn command_construction_is_exact_and_bounded() {
     assert!(args.contains(&"--fsync=16".into()));
     assert!(args.contains(&"--do_verify=1".into()));
     assert!(args.contains(&"--verify_state_save=0".into()));
+}
+
+#[test]
+fn fixed_format_worker_preserves_exact_sub_mib_geometry_and_refuses_replacement() -> io::Result<()>
+{
+    let root = root("fixed-format");
+    let path = root.join("backing.img");
+    format_fixture(&path)?;
+    assert_eq!(fs::metadata(&path)?.len(), 1_318_912);
+    assert_eq!(
+        format_fixture(&path).unwrap_err().kind(),
+        io::ErrorKind::AlreadyExists
+    );
+    let volume = block_storage::open(&path)?;
+    let usage = volume.space_usage()?;
+    assert_eq!(usage.volume_bytes, 4_194_304);
+    assert_eq!(usage.segment_bytes, 131_072);
+    assert_eq!(usage.segment_count, 10);
+    volume.close()?;
+    fs::remove_dir_all(root)
 }
 
 #[test]

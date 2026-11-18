@@ -1,0 +1,7 @@
+commit: 8e7e0e2b1f00571b5739c0941327beab33096b93
+cmd: make test-ublk-fio
+evidence: /home/miguel/play/_worktrees/msfblkdev-adr08/evidence/ublk-fio-1789965784911848891-8e7e0e2b1f00571b5739c0941327beab33096b93.log
+block-storage-lab: exhaustion result was errno=28 io_bytes=417792, expected errno=28 and whole blocks in [524288, 1310720)
+make: *** [Makefile:49: test-ublk-fio] Error 1
+make test-ublk-fio  20,38s user 2,05s system 76% cpu 29,163 total
+exit: 2

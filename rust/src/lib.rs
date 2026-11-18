@@ -9,21 +9,30 @@ use std::path::Path;
 use xxhash_rust::xxh3::Xxh3;
 
 mod accounted_io;
-mod format_v3;
+mod format_v4;
 mod mapping_cache;
+mod wakeup;
 
 pub mod io_accounting;
 pub mod logging;
 
 use accounted_io::{BackingIo, submit_exact};
-pub use format_v3::metrics::{MappingIo, MappingStats};
-pub use format_v3::volume::Volume;
+pub use format_v4::budget::{
+    DEFAULT_HEAP_PROPORTION_PPM, HeapBudget, HeapBudgetOptions, MINIMUM_HEAP_BYTES,
+};
+pub use format_v4::format_plan::{DEFAULT_FORMAT_WRITE_BUFFER_BYTES, FormatPlan, plan_format};
+pub use format_v4::log::LogWrites;
+pub use format_v4::metrics::{MappingIo, MappingStats, SpaceUsage};
+pub use format_v4::reclaim::ReclaimStats;
+pub use format_v4::reclaim::scheduler::{DEFAULT_IDLE_WAIT, DEFAULT_MAXIMUM_INTERVAL, Scheduler};
+pub use format_v4::reclaim::select::SelectionMode;
+pub use format_v4::storage::FormatOptions;
+pub use format_v4::volume::Volume;
+pub use format_v4::volume::reclaim::{BackingDiscard, MaintenanceStep};
 pub use mapping_cache::sizing::Sizing as CacheSizing;
 pub use mapping_cache::{Counters as CacheCounters, Lookups, Snapshot as CacheSnapshot};
 
 const DEFAULT_CHECKPOINT_AFTER_BYTES: u64 = 64 * 1024 * 1024;
-#[cfg(any(test, feature = "test-failpoints"))]
-const CHECKPOINT_BODY_FSYNC_COMPLETE_FAILPOINT: &str = "checkpoint-body-fsync-complete";
 #[cfg(any(test, feature = "test-failpoints"))]
 const DESCRIPTOR_WRITE_COMPLETE_FAILPOINT: &str = "descriptor-write-complete";
 #[cfg(any(test, feature = "test-failpoints"))]
@@ -40,9 +49,6 @@ const MINIMUM_WRITE_BUFFER_BYTES: u64 = BLOCK_SIZE as u64;
 // A release writes the whole buffer and then fsyncs it; a larger buffer turns one FLUSH into an
 // unacceptably long pause. The plan caps the write-back buffer at 16 MiB.
 const MAXIMUM_WRITE_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
-// Limit buffer allocation to a quarter of the log. Admission separately reserves
-// data records and mapping snapshots, including intermediate pressure checkpoints.
-const WRITE_BUFFER_DEVICE_DIVISOR: u64 = 4;
 
 #[cfg(any(test, feature = "test-failpoints"))]
 const TEST_FAILPOINT_ENV: &str = "BLOCK_STORAGE_TEST_FAILPOINT";
@@ -58,12 +64,48 @@ const STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT: &str = "stale-tail-clear-block-
 const STALE_TAIL_FSYNC_COMPLETE_FAILPOINT: &str = "stale-tail-fsync-complete";
 
 #[cfg(any(test, feature = "test-failpoints"))]
+static CONFIGURED_FAILPOINT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// The failpoint selected through the environment, read once so that checks allocate nothing.
+#[cfg(any(test, feature = "test-failpoints"))]
+fn configured_failpoint() -> Option<&'static str> {
+    CONFIGURED_FAILPOINT
+        .get_or_init(|| std::env::var(TEST_FAILPOINT_ENV).ok())
+        .as_deref()
+}
+
+#[cfg(any(test, feature = "test-failpoints"))]
 fn pause_at_test_failpoint(name: &str) -> io::Result<()> {
-    if std::env::var(TEST_FAILPOINT_ENV).as_deref() != Ok(name) {
+    if configured_failpoint() != Some(name) {
         return Ok(());
     }
+    pause_at_failpoint(name, None)
+}
 
-    println!("{name}");
+/// Pauses at `prefix-index` without building the name on the heap.
+#[cfg(any(test, feature = "test-failpoints"))]
+fn pause_at_indexed_failpoint(prefix: &str, index: u64) -> io::Result<()> {
+    let Some(configured) = configured_failpoint() else {
+        return Ok(());
+    };
+    let Some(suffix) = configured.strip_prefix(prefix) else {
+        return Ok(());
+    };
+    let Some(digits) = suffix.strip_prefix('-') else {
+        return Ok(());
+    };
+    if digits.parse::<u64>() != Ok(index) {
+        return Ok(());
+    }
+    pause_at_failpoint(prefix, Some(index))
+}
+
+#[cfg(any(test, feature = "test-failpoints"))]
+fn pause_at_failpoint(name: &str, index: Option<u64>) -> io::Result<()> {
+    match index {
+        Some(index) => println!("{name}-{index}"),
+        None => println!("{name}"),
+    }
     let mut stdout = io::stdout();
     std::io::Write::flush(&mut stdout)?;
     loop {
@@ -90,6 +132,8 @@ enum ReleaseTrigger {
     Full,
     /// An explicit flush, FUA, close, or checkpoint drained the buffer.
     Flush,
+    /// Space pressure: buffered overwrites keep victims' old payloads alive until released.
+    Pressure,
 }
 
 /// Opt-in, in-memory batching counters. The payloads-per-record distribution and the
@@ -108,6 +152,8 @@ pub struct ReleaseStats {
     pub full_releases: u64,
     /// Releases triggered by flush, FUA, close, or checkpoint.
     pub flush_releases: u64,
+    /// Releases triggered by space pressure while victims waited on buffered overwrites.
+    pub pressure_releases: u64,
     /// Payloads-per-record histogram: [1], [2], [3-8], [9-32], [33-128], [129-337], [338].
     pub payload_histogram: [u64; 7],
 }
@@ -139,7 +185,7 @@ impl ReleaseStats {
             (self.footer_bytes + self.payload_bytes) as f64 / self.payload_bytes as f64
         };
         format!(
-            "records={} payloads={} payloads_per_record={:.3} backing_over_payload={:.3} footer_bytes={} payload_bytes={} full_releases={} flush_releases={} histogram={:?}",
+            "records={} payloads={} payloads_per_record={:.3} backing_over_payload={:.3} footer_bytes={} payload_bytes={} full_releases={} flush_releases={} pressure_releases={} histogram={:?}",
             self.records,
             self.payloads,
             if self.records == 0 {
@@ -152,89 +198,31 @@ impl ReleaseStats {
             self.payload_bytes,
             self.full_releases,
             self.flush_releases,
+            self.pressure_releases,
             self.payload_histogram,
         )
     }
 }
 
-/// Physical and logical space accounting for one volume.
-///
-/// The backing file is sparse, so its declared length is a ceiling rather than
-/// a cost. `allocated_bytes` is what the host filesystem has really given the
-/// file, and it grows as the log is appended.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SpaceUsage {
-    /// Addressable logical capacity presented to the filesystem.
-    pub volume_bytes: u64,
-    /// Logical bytes that hold data, meaning blocks with a mapping.
-    pub live_bytes: u64,
-    /// Declared backing length. Sparse, so mostly unallocated.
-    pub backing_bytes: u64,
-    /// Backing bytes the host filesystem has actually allocated.
-    pub allocated_bytes: u64,
-    /// Both descriptors and index bodies. Appended mapping snapshots count as log use.
-    pub metadata_bytes: u64,
-    /// Log region length, which bounds writes before `ENOSPC`.
-    pub log_capacity_bytes: u64,
-    /// Log region consumed by records so far.
-    pub log_used_bytes: u64,
-}
-
-impl SpaceUsage {
-    /// Log bytes still available before `ENOSPC`.
-    #[must_use]
-    pub const fn log_free_bytes(&self) -> u64 {
-        self.log_capacity_bytes.saturating_sub(self.log_used_bytes)
-    }
-
-    /// Allocated backing bytes per live logical byte. Zero when nothing is live.
-    #[must_use]
-    pub fn amplification(&self) -> f64 {
-        if self.live_bytes == 0 {
-            return 0.0;
-        }
-        self.allocated_bytes as f64 / self.live_bytes as f64
-    }
-
-    /// A single-line summary suitable for emission outside timed work.
-    #[must_use]
-    pub fn summary(&self) -> String {
-        format!(
-            "volume_mib={:.1} live_mib={:.1} backing_declared_mib={:.1} backing_allocated_mib={:.1} metadata_mib={:.1} log_used_mib={:.1} log_free_mib={:.1} log_capacity_mib={:.1} log_used_percent={:.1} allocated_per_live={:.3}",
-            mib(self.volume_bytes),
-            mib(self.live_bytes),
-            mib(self.backing_bytes),
-            mib(self.allocated_bytes),
-            mib(self.metadata_bytes),
-            mib(self.log_used_bytes),
-            mib(self.log_free_bytes()),
-            mib(self.log_capacity_bytes),
-            if self.log_capacity_bytes == 0 {
-                0.0
-            } else {
-                100.0 * self.log_used_bytes as f64 / self.log_capacity_bytes as f64
-            },
-            self.amplification(),
-        )
-    }
-}
-
-fn mib(bytes: u64) -> f64 {
-    bytes as f64 / (1024.0 * 1024.0)
-}
-
 /// Configuration for opening a volume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VolumeOpenOptions {
-    /// Maximum physical log bytes retained after the selected checkpoint.
+    /// Maximum physical log bytes appended on both heads after the selected checkpoint.
     pub checkpoint_after_bytes: u64,
     /// Write-back buffer capacity in bytes, clamped to the device at open. A one-block value keeps
     /// write-through semantics; larger values coalesce writes and release them on flush or FUA.
     pub write_buffer_bytes: u64,
-    /// Mapping-cache allocation budget; None uses the larger of logical bytes / 10,000
-    /// and the minimum needed by the effective write buffer.
-    /// Must hold min(effective buffer slots, volume mapping pages) pages.
+    /// Explicit mapping-cache share of the heap budget; None gives the cache whatever remains
+    /// after the write buffer, the cleaner share and supporting state, capped at the volume's
+    /// mapping pages. Must hold min(effective buffer slots, volume mapping pages) pages.
     pub cache_budget_bytes: Option<u64>,
+    /// The proportional heap budget and its division (ADR-08).
+    pub heap: HeapBudgetOptions,
+    /// Backing bytes the preallocated segment state can grow to; None allows twice the
+    /// provisioned backing.
+    pub growth_capacity_bytes: Option<u64>,
+    /// How freed segments are returned to the backing.
+    pub backing_discard: BackingDiscard,
 }
 
 impl Default for VolumeOpenOptions {
@@ -243,6 +231,9 @@ impl Default for VolumeOpenOptions {
             checkpoint_after_bytes: DEFAULT_CHECKPOINT_AFTER_BYTES,
             write_buffer_bytes: MINIMUM_WRITE_BUFFER_BYTES,
             cache_budget_bytes: None,
+            heap: HeapBudgetOptions::default(),
+            growth_capacity_bytes: None,
+            backing_discard: BackingDiscard::default(),
         }
     }
 }
@@ -262,6 +253,14 @@ impl VolumeOpenOptions {
         {
             return Err(invalid_input("invalid write_buffer_bytes"));
         }
+        if self.heap.proportion_ppm == 0 || self.heap.proportion_ppm > 1_000_000 {
+            return Err(invalid_input(
+                "heap proportion must be within 1..=1_000_000 ppm",
+            ));
+        }
+        if self.heap.total_bytes == Some(0) || self.heap.cleaner_bytes == Some(0) {
+            return Err(invalid_input("heap shares must be nonzero"));
+        }
         Ok(())
     }
 }
@@ -270,7 +269,9 @@ impl VolumeOpenOptions {
 struct WriteBackBuffer {
     arena: Vec<AlignedBlock>,
     lbas: Vec<u32>,
-    slot_of_lba: std::collections::HashMap<u32, usize>,
+    slot_of_lba: hashbrown::HashMap<u32, usize, std::hash::RandomState>,
+    /// Preallocated scratch for counting distinct mapping pages without allocating.
+    page_scratch: Vec<u32>,
 }
 
 impl WriteBackBuffer {
@@ -284,13 +285,71 @@ impl WriteBackBuffer {
         arena.resize_with(capacity_blocks, || AlignedBlock([0; BLOCK_SIZE]));
         let mut lbas = Vec::new();
         lbas.reserve_exact(capacity_blocks);
-        let mut slot_of_lba = std::collections::HashMap::with_capacity(capacity_blocks);
-        slot_of_lba.reserve(capacity_blocks);
+        // Twice the live entries lets the pinned hashbrown rehash tombstones in place.
+        let slot_of_lba = Self::new_lookup(capacity_blocks);
+        let mut page_scratch = Vec::new();
+        page_scratch.reserve_exact(capacity_blocks);
         Self {
             arena,
             lbas,
             slot_of_lba,
+            page_scratch,
         }
+    }
+
+    fn new_lookup(
+        capacity_blocks: usize,
+    ) -> hashbrown::HashMap<u32, usize, std::hash::RandomState> {
+        let mut lookup = hashbrown::HashMap::with_hasher(std::hash::RandomState::new());
+        lookup.reserve(capacity_blocks * 2);
+        lookup
+    }
+
+    /// Bytes the lookup table allocated, for the heap budget.
+    fn lookup_bytes(&self) -> usize {
+        self.slot_of_lba.allocation_size()
+    }
+
+    /// Drops every buffered payload inside `lba..lba + count`. Returns whether any was dropped.
+    /// Arena slots stay stable for the remaining payloads: the vacated slot is refilled from the
+    /// end of the LBA list, so lookups keep pointing at moved payloads.
+    fn remove_range(&mut self, lba: u32, count: u32) -> bool {
+        let mut removed = false;
+        let mut index = 0;
+        // Bounded by the buffer: each iteration removes an entry or advances.
+        while index < self.lbas.len() {
+            let candidate = self.lbas[index];
+            if candidate < lba || candidate - lba >= count {
+                index += 1;
+                continue;
+            }
+            let last = self.lbas.len() - 1;
+            if index != last {
+                let moved = self.lbas[last];
+                let (from, to) = (last, index);
+                let payload = self.arena[from].0;
+                self.arena[to].0.copy_from_slice(&payload);
+                self.lbas[to] = moved;
+                self.slot_of_lba.insert(moved, to);
+            }
+            self.lbas.pop();
+            self.slot_of_lba.remove(&candidate);
+            removed = true;
+        }
+        removed
+    }
+
+    /// Distinct mapping pages touched by the buffered payloads.
+    fn distinct_pages(&mut self) -> usize {
+        self.page_scratch.clear();
+        self.page_scratch.extend(
+            self.lbas
+                .iter()
+                .map(|lba| lba / mapping_cache::ENTRIES_PER_PAGE as u32),
+        );
+        self.page_scratch.sort_unstable();
+        self.page_scratch.dedup();
+        self.page_scratch.len()
     }
 
     fn capacity(&self) -> usize {
@@ -306,7 +365,8 @@ impl WriteBackBuffer {
     }
 
     /// Overwrites the buffered payload for `lba` in place, or appends a new slot. Returns true when
-    /// the payload occupies a new slot, i.e. when it reserves fresh log space.
+    /// the payload occupies a new slot, i.e. when it reserves fresh log space. Payloads stay in the
+    /// arena slot they were stored in; sorting `lbas` never moves them.
     fn store(&mut self, lba: u32, data: &[u8; BLOCK_SIZE]) -> bool {
         if let Some(slot) = self.slot_of_lba.get(&lba) {
             self.arena[*slot].0.copy_from_slice(data);
@@ -380,41 +440,6 @@ fn read_block_exact(
         u64::from(physical_block),
         BLOCK_SIZE as i32,
     )
-}
-
-fn clear_stale_tail(
-    backing_io: &mut BackingIo,
-    backing: &File,
-    append_block: u64,
-    backing_blocks: u64,
-) -> io::Result<()> {
-    let clear_blocks = MAXIMUM_RECORD_BLOCKS.min(backing_blocks.saturating_sub(append_block));
-    let zero = AlignedBlock([0; BLOCK_SIZE]);
-    for block_index in 0..clear_blocks {
-        let write = opcode::Write::new(
-            types::Fd(backing.as_raw_fd()),
-            zero.0.as_ptr(),
-            BLOCK_SIZE as u32,
-        )
-        .offset((append_block + block_index) * BLOCK_SIZE as u64)
-        .build();
-        submit_exact(
-            backing_io,
-            write,
-            append_block + block_index,
-            BLOCK_SIZE as i32,
-        )?;
-        #[cfg(any(test, feature = "test-failpoints"))]
-        pause_at_test_failpoint(&format!(
-            "{STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT}-{block_index}"
-        ))?;
-    }
-
-    let fsync = opcode::Fsync::new(types::Fd(backing.as_raw_fd())).build();
-    submit_exact(backing_io, fsync, append_block, 0)?;
-    #[cfg(any(test, feature = "test-failpoints"))]
-    pause_at_test_failpoint(STALE_TAIL_FSYNC_COMPLETE_FAILPOINT)?;
-    Ok(())
 }
 
 fn submit_exact_raw(
@@ -496,22 +521,17 @@ fn wait_exact_with(
     }
 }
 
-/// Opens a version-3 volume with the default replay bound and mapping-cache budget.
+/// Opens a format-4 volume with the default replay bound, heap budget and cache share.
 pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
     open_with_options(backing_path, VolumeOpenOptions::default())
 }
 
-/// Opens a version-3 volume with the supplied replay, buffer, and cache configuration.
+/// Opens a format-4 volume with the supplied replay, buffer, cache and heap configuration.
 pub fn open_with_options(
     backing_path: impl AsRef<Path>,
     options: VolumeOpenOptions,
 ) -> io::Result<Volume> {
-    format_v3::volume::open(
-        backing_path.as_ref(),
-        options,
-        options.cache_budget_bytes,
-        None,
-    )
+    format_v4::volume::open(backing_path.as_ref(), options, None)
 }
 
 /// Opens a formatted volume and accounts its engine-submitted backing I/O.
@@ -523,30 +543,26 @@ pub fn open_with_accounting(
     options: VolumeOpenOptions,
     accounting: io_accounting::Writer,
 ) -> io::Result<Volume> {
-    format_v3::volume::open(
+    format_v4::volume::open(backing_path.as_ref(), options, Some(accounting))
+}
+
+/// Formats an existing backing using its actual length, targeting 100% logical fill.
+pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<()> {
+    format_v4::storage::format(
         backing_path.as_ref(),
-        options,
-        options.cache_budget_bytes,
-        Some(accounting),
+        volume_bytes,
+        FormatOptions::default(),
+        None,
     )
 }
 
-/// Clamps buffer allocation relative to the log. Admission reserves append space separately.
-fn clamp_write_buffer_blocks(
-    write_buffer_bytes: u64,
-    backing_blocks: u64,
-    log_start: u32,
-) -> usize {
-    let configured = (write_buffer_bytes / BLOCK_SIZE as u64).max(1);
-    let log_capacity = backing_blocks.saturating_sub(u64::from(log_start));
-    let device_limit = (log_capacity / WRITE_BUFFER_DEVICE_DIVISOR).max(1);
-    let blocks = configured.min(device_limit).max(1);
-    usize::try_from(blocks).unwrap_or(1)
-}
-
-/// Writes version-3 descriptors and empty index bodies to a pre-sized backing file.
-pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<()> {
-    format_v3::storage::format(backing_path.as_ref(), volume_bytes, None)
+/// Formats a format-4 volume with explicit format-time options.
+pub fn format_with_options(
+    backing_path: impl AsRef<Path>,
+    volume_bytes: u64,
+    options: FormatOptions,
+) -> io::Result<()> {
+    format_v4::storage::format(backing_path.as_ref(), volume_bytes, options, None)
 }
 
 /// Formats a volume and accounts its engine-submitted backing I/O.
@@ -557,7 +573,27 @@ pub fn format_with_accounting(
     volume_bytes: u64,
     accounting: io_accounting::Writer,
 ) -> io::Result<()> {
-    format_v3::storage::format(backing_path.as_ref(), volume_bytes, Some(accounting))
+    format_with_options_and_accounting(
+        backing_path,
+        volume_bytes,
+        FormatOptions::default(),
+        accounting,
+    )
+}
+
+/// Formats a volume with explicit format-time options and accounted backing I/O.
+pub fn format_with_options_and_accounting(
+    backing_path: impl AsRef<Path>,
+    volume_bytes: u64,
+    options: FormatOptions,
+    accounting: io_accounting::Writer,
+) -> io::Result<()> {
+    format_v4::storage::format(
+        backing_path.as_ref(),
+        volume_bytes,
+        options,
+        Some(accounting),
+    )
 }
 
 #[cfg(test)]

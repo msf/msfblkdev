@@ -1,20 +1,19 @@
 use super::*;
 
 #[test]
-fn recovery_accepts_every_format_three_payload_count() -> io::Result<()> {
+fn recovery_accepts_every_format_four_payload_count() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     let volume_blocks = MAXIMUM_PAYLOAD_BLOCKS as u32;
-    let (_, layout) = layout_for(u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
     let record_blocks = (1..=MAXIMUM_PAYLOAD_BLOCKS as u64)
         .map(|payload_blocks| payload_blocks + 1)
         .sum::<u64>();
-    let backing_blocks = u64::from(layout.log_start) + record_blocks + MAXIMUM_RECORD_BLOCKS;
-    backing.create_sized(backing_blocks * BLOCK_SIZE as u64)?;
-    format(&backing.0, u64::from(volume_blocks) * BLOCK_SIZE as u64)?;
+    // One segment holds every payload count in sequence plus its table page and link slot.
+    let blocks_per_segment = u32::try_from(record_blocks + 4).expect("fits u32");
+    format_segments(&backing, volume_blocks, 3, blocks_per_segment)?;
     let volume_id = formatted_volume_id(&backing)?;
 
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
-    let mut previous_footer_block = layout.log_start - 1;
+    let mut previous_footer_block = FIRST_DATA_BLOCK - 1;
     for payload_count in 1..=MAXIMUM_PAYLOAD_BLOCKS {
         let payloads = (0..payload_count)
             .map(|index| (index as u32, ((payload_count + index) % 251 + 1) as u8))
@@ -22,7 +21,7 @@ fn recovery_accepts_every_format_three_payload_count() -> io::Result<()> {
         write_raw_record_payloads(
             &file,
             volume_id,
-            payload_count as u64,
+            FORMAT_LSN + payload_count as u64,
             previous_footer_block,
             &payloads,
         )?;
@@ -38,8 +37,11 @@ fn recovery_accepts_every_format_three_payload_count() -> io::Result<()> {
             ..VolumeOpenOptions::default()
         },
     )?;
-    assert_eq!(volume.mapping.tail.lsn, MAXIMUM_PAYLOAD_BLOCKS as u64);
-    assert_eq!(volume.mapping.tail.boundary, previous_footer_block);
+    assert_eq!(
+        last_lsn(&volume),
+        FORMAT_LSN + MAXIMUM_PAYLOAD_BLOCKS as u64
+    );
+    assert_eq!(user_position(&volume).boundary, previous_footer_block);
     assert_eq!(
         log_bytes_since_checkpoint(&volume),
         record_blocks * BLOCK_SIZE as u64
@@ -53,29 +55,29 @@ fn recovery_accepts_every_format_three_payload_count() -> io::Result<()> {
     Ok(())
 }
 
+fn rejection_geometry() -> io::Result<(u32, u32)> {
+    let layout = Layout::new(
+        4,
+        2 + 6 * u64::from(PROBE_SEGMENT_BLOCKS),
+        PROBE_SEGMENT_BLOCKS,
+    )?;
+    Ok((REJECTION_CLEAR_START, layout.segment_end(0)? as u32))
+}
+
 #[test]
 fn rejects_invalid_footer_with_zero_payloads() -> io::Result<()> {
-    let (_, layout) = layout_for(4 * BLOCK_SIZE as u64)?;
-    let clear_start = layout.log_start + 2;
-    let backing_blocks = u64::from(clear_start) + MAXIMUM_RECORD_BLOCKS + 1;
-    let (backing, layout, volume_id) = prepare_footer_rejection_image(backing_blocks)?;
+    let (clear_start, segment_end) = rejection_geometry()?;
+    let (backing, layout, volume_id) = prepare_footer_rejection_image()?;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     file.write_all_at(
         &vec![0x7e; MAXIMUM_RECORD_BLOCKS as usize * BLOCK_SIZE],
         u64::from(clear_start) * BLOCK_SIZE as u64,
     )?;
-    let footer = raw_footer(volume_id, 2, layout.log_start + 1, clear_start);
+    let footer = raw_footer(volume_id, FORMAT_LSN + 2, clear_start - 1, clear_start);
     assert_raw_footer_checksum_valid(&footer);
-    assert!(
-        crate::format_v3::data_record::DataRecord::decode(
-            &footer,
-            Layout::new(4, backing_blocks)?,
-            volume_id
-        )
-        .is_err()
-    );
+    assert!(crate::format_v4::data_record::DataRecord::decode(&footer, layout, volume_id).is_err());
     file.write_all_at(&footer, u64::from(clear_start) * BLOCK_SIZE as u64)?;
-    let preserved_block = clear_start + MAXIMUM_RECORD_BLOCKS as u32;
+    let preserved_block = layout.segment_start(2)?;
     file.write_all_at(
         &[0x9d; BLOCK_SIZE],
         u64::from(preserved_block) * BLOCK_SIZE as u64,
@@ -85,7 +87,7 @@ fn rejects_invalid_footer_with_zero_payloads() -> io::Result<()> {
 
     verify_recovery_stops_before_invalid_footer(&backing, clear_start)?;
     let file = OpenOptions::new().read(true).open(&backing.0)?;
-    assert_zero_blocks(&file, clear_start, MAXIMUM_RECORD_BLOCKS as u32)?;
+    assert_zero_blocks(&file, clear_start, segment_end - clear_start)?;
     let mut preserved = [0; BLOCK_SIZE];
     file.read_exact_at(
         &mut preserved,
@@ -97,58 +99,53 @@ fn rejects_invalid_footer_with_zero_payloads() -> io::Result<()> {
 
 #[test]
 fn rejects_invalid_footer_above_maximum_payloads() -> io::Result<()> {
-    let (_, layout) = layout_for(4 * BLOCK_SIZE as u64)?;
-    let clear_start = layout.log_start + 2;
+    let (clear_start, segment_end) = rejection_geometry()?;
     let invalid_footer_block = clear_start + MAXIMUM_RECORD_BLOCKS as u32;
-    let backing_blocks = u64::from(invalid_footer_block) + 1;
-    let (backing, layout, volume_id) = prepare_footer_rejection_image(backing_blocks)?;
+    let (backing, layout, volume_id) = prepare_footer_rejection_image()?;
+    assert!(invalid_footer_block < segment_end - 1);
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     file.write_all_at(
         &vec![0x7e; MAXIMUM_RECORD_BLOCKS as usize * BLOCK_SIZE],
         u64::from(clear_start) * BLOCK_SIZE as u64,
     )?;
-    let footer = raw_footer(volume_id, 2, layout.log_start + 1, invalid_footer_block);
-    assert_raw_footer_checksum_valid(&footer);
-    assert!(
-        crate::format_v3::data_record::DataRecord::decode(
-            &footer,
-            Layout::new(4, backing_blocks)?,
-            volume_id
-        )
-        .is_err()
+    let footer = raw_footer(
+        volume_id,
+        FORMAT_LSN + 2,
+        clear_start - 1,
+        invalid_footer_block,
     );
+    assert_raw_footer_checksum_valid(&footer);
+    assert!(crate::format_v4::data_record::DataRecord::decode(&footer, layout, volume_id).is_err());
     file.write_all_at(&footer, u64::from(invalid_footer_block) * BLOCK_SIZE as u64)?;
     file.sync_all()?;
     drop(file);
 
     verify_recovery_stops_before_invalid_footer(&backing, clear_start)?;
     let file = OpenOptions::new().read(true).open(&backing.0)?;
-    assert_zero_blocks(&file, clear_start, MAXIMUM_RECORD_BLOCKS as u32)?;
-    let mut preserved_footer = [0; BLOCK_SIZE];
-    file.read_exact_at(
-        &mut preserved_footer,
-        u64::from(invalid_footer_block) * BLOCK_SIZE as u64,
-    )?;
-    assert_eq!(preserved_footer, footer);
-    Ok(())
+    // The rest of the segment, including the oversized footer, is zeroed.
+    assert_zero_blocks(&file, clear_start, segment_end - clear_start)
 }
 
 #[test]
-fn rejects_invalid_footer_declaring_position_beyond_backing() -> io::Result<()> {
-    const BACKING_REMAINDER_BLOCKS: u32 = 5;
+fn rejects_invalid_footer_declaring_position_beyond_its_segment() -> io::Result<()> {
+    const PAYLOADS: u32 = 4;
 
-    let (_, layout) = layout_for(4 * BLOCK_SIZE as u64)?;
-    let clear_start = layout.log_start + 2;
-    let backing_blocks = u64::from(clear_start + BACKING_REMAINDER_BLOCKS);
-    let (backing, layout, volume_id) = prepare_footer_rejection_image(backing_blocks)?;
-    let actual_footer_block = backing_blocks as u32 - 1;
+    let (clear_start, segment_end) = rejection_geometry()?;
+    let (backing, layout, volume_id) = prepare_footer_rejection_image()?;
+    let actual_footer_block = clear_start + PAYLOADS;
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     file.write_all_at(
-        &vec![0x7e; BACKING_REMAINDER_BLOCKS as usize * BLOCK_SIZE],
+        &vec![0x7e; (PAYLOADS + 1) as usize * BLOCK_SIZE],
         u64::from(clear_start) * BLOCK_SIZE as u64,
     )?;
-    let mut footer = raw_footer(volume_id, 2, layout.log_start + 1, backing_blocks as u32);
-    for index in 0..(BACKING_REMAINDER_BLOCKS - 1) as usize {
+    // The footer claims to sit past the segment area; its checksum is valid.
+    let mut footer = raw_footer(
+        volume_id,
+        FORMAT_LSN + 2,
+        clear_start - 1,
+        layout.segment_area_end() as u32,
+    );
+    for index in 0..PAYLOADS as usize {
         let lba_offset = FOOTER_LBA_OFFSET + index * size_of::<u32>();
         let checksum_offset = FOOTER_PAYLOAD_CHECKSUM_OFFSET + index * size_of::<u64>();
         footer[lba_offset..lba_offset + size_of::<u32>()]
@@ -167,8 +164,7 @@ fn rejects_invalid_footer_declaring_position_beyond_backing() -> io::Result<()> 
 
     verify_recovery_stops_before_invalid_footer(&backing, clear_start)?;
     let file = OpenOptions::new().read(true).open(&backing.0)?;
-    assert_eq!(file.metadata()?.len(), backing_blocks * BLOCK_SIZE as u64);
-    assert_zero_blocks(&file, clear_start, BACKING_REMAINDER_BLOCKS)
+    assert_zero_blocks(&file, clear_start, segment_end - clear_start)
 }
 
 #[test]
@@ -227,14 +223,20 @@ fn recover_after_stale_tail_crash(test_name: &str, failpoint: &str) -> io::Resul
     verify_invalid_gap_recovery(&fixture)
 }
 
+/// Sanitation batches of the User head's segment remainder (397 blocks) and the whole
+/// Relocation segment (400 blocks): the failpoint index names a batch on either head.
+fn sanitation_batches() -> u64 {
+    u64::from(PROBE_SEGMENT_BLOCKS).div_ceil(crate::format_v4::storage::BATCH_BLOCKS as u64)
+}
+
 #[test]
-fn recover_after_each_stale_tail_clear_block_boundary() -> io::Result<()> {
-    let plan = configured_crash_test_plan(MAXIMUM_RECORD_BLOCKS)?;
-    for block_index in plan.boundary_indices {
-        let failpoint = format!("{STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT}-{block_index}");
+fn recover_after_each_stale_tail_clear_batch_boundary() -> io::Result<()> {
+    let plan = configured_crash_test_plan(sanitation_batches())?;
+    for batch_index in plan.boundary_indices {
+        let failpoint = format!("{STALE_TAIL_CLEAR_BLOCK_COMPLETE_FAILPOINT}-{batch_index}");
         for _ in 0..plan.repetitions {
             recover_after_stale_tail_crash(
-                "tests::stale_tail::recover_after_each_stale_tail_clear_block_boundary",
+                "tests::stale_tail::recover_after_each_stale_tail_clear_batch_boundary",
                 &failpoint,
             )?;
         }
@@ -254,49 +256,58 @@ fn recover_after_stale_tail_fsync_boundary() -> io::Result<()> {
 }
 
 #[test]
-fn invalid_gap_stops_replay_and_clears_only_bounded_window() -> io::Result<()> {
+fn invalid_gap_stops_replay_and_clears_the_rest_of_both_open_segments() -> io::Result<()> {
     let fixture = prepare_invalid_gap_fixture()?;
     verify_invalid_gap_recovery(&fixture)
 }
 
 #[test]
-fn stale_tail_clear_stops_at_backing_eof() -> io::Result<()> {
-    const EOF_REMAINDER_BLOCKS: u32 = 17;
+fn stale_tail_clear_leaves_the_partial_trailing_segment_alone() -> io::Result<()> {
+    const TRAILING_BLOCKS: u64 = 5;
 
     let backing = TemporaryBacking::new()?;
-    let (_, layout) = layout_for(BLOCK_SIZE as u64)?;
-    let clear_start = layout.log_start + 2;
-    let backing_bytes = u64::from(clear_start + EOF_REMAINDER_BLOCKS) * BLOCK_SIZE as u64;
-    backing.create_sized(backing_bytes)?;
-    format(&backing.0, BLOCK_SIZE as u64)?;
+    let segments = 3_u64;
+    let area_end = 2 + segments * u64::from(TINY_SEGMENT_BLOCKS);
+    backing.create_sized((area_end + TRAILING_BLOCKS) * BLOCK_SIZE as u64)?;
+    format_with_options(
+        &backing.0,
+        BLOCK_SIZE as u64,
+        FormatOptions {
+            blocks_per_segment: TINY_SEGMENT_BLOCKS,
+        },
+    )?;
     let volume_id = formatted_volume_id(&backing)?;
 
     let file = OpenOptions::new().read(true).write(true).open(&backing.0)?;
     write_raw_record(
         &file,
         volume_id,
-        1,
-        layout.log_start - 1,
-        layout.log_start,
+        FORMAT_LSN + 1,
+        FIRST_DATA_BLOCK - 1,
+        FIRST_DATA_BLOCK,
         0,
         0xa5,
     )?;
-    file.write_all_at(
-        &vec![0x7e; EOF_REMAINDER_BLOCKS as usize * BLOCK_SIZE],
-        u64::from(clear_start) * BLOCK_SIZE as u64,
-    )?;
+    let stale = vec![
+        0x7e;
+        (area_end + TRAILING_BLOCKS - u64::from(FIRST_DATA_BLOCK + 2)) as usize
+            * BLOCK_SIZE
+    ];
+    file.write_all_at(&stale, u64::from(FIRST_DATA_BLOCK + 2) * BLOCK_SIZE as u64)?;
     file.sync_all()?;
     drop(file);
 
     let volume = open(&backing.0)?;
-    assert_eq!(volume.mapping.tail.lsn, 1);
+    assert_eq!(last_lsn(&volume), FORMAT_LSN + 1);
     drop(volume);
     let file = OpenOptions::new().read(true).open(&backing.0)?;
-    assert_eq!(file.metadata()?.len(), backing_bytes);
-    for block in clear_start..clear_start + EOF_REMAINDER_BLOCKS {
-        let mut bytes = [0xa5; BLOCK_SIZE];
-        file.read_exact_at(&mut bytes, u64::from(block) * BLOCK_SIZE as u64)?;
-        assert_eq!(bytes, [0; BLOCK_SIZE]);
+    // Both open segments are zeroed after their positions; the free segment and the partial
+    // trailing blocks keep their stale bytes.
+    assert_zero_blocks(&file, FIRST_DATA_BLOCK + 2, 2 * TINY_SEGMENT_BLOCKS - 3)?;
+    for block in 2 + 2 * u64::from(TINY_SEGMENT_BLOCKS)..area_end + TRAILING_BLOCKS {
+        let mut bytes = [0; BLOCK_SIZE];
+        file.read_exact_at(&mut bytes, block * BLOCK_SIZE as u64)?;
+        assert_eq!(bytes, [0x7e; BLOCK_SIZE], "block {block}");
     }
     Ok(())
 }

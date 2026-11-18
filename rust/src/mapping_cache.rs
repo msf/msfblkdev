@@ -248,6 +248,13 @@ impl MappingCache {
         }
     }
 
+    /// Whether `page_id` is resident, and if so whether it is dirty.
+    pub(super) fn residency(&self, page_id: u32) -> Option<bool> {
+        self.lookup
+            .get(&page_id)
+            .map(|slot| self.slots[*slot as usize].dirty)
+    }
+
     pub(super) fn dirty_pages(&self) -> impl Iterator<Item = (u32, &MappingEntries)> {
         self.slots
             .iter()
@@ -308,6 +315,23 @@ impl MappingCache {
         Ok(true)
     }
 
+    /// Forgets every resident page without reallocating. Recovery windows use this between
+    /// passes after their snapshots are appended; dirty pages are discarded deliberately.
+    pub(super) fn reset(&mut self) {
+        self.lookup.clear();
+        self.clock = Clock::new(self.sizing.capacity).expect("validated capacity");
+        self.resident = 0;
+        for slot in self.slots.iter_mut() {
+            slot.dirty = false;
+            slot.prefetched = false;
+        }
+        assert_eq!(
+            self.lookup.allocation_size(),
+            self.sizing.lookup_bytes,
+            "clearing keeps the lookup allocation"
+        );
+    }
+
     /// The caller must invoke this only after successful checkpoint publication.
     pub(super) fn checkpoint_published(&mut self) {
         for slot in self.slots.iter_mut().take(self.resident) {
@@ -328,6 +352,11 @@ impl MappingCache {
 impl CachedPage<'_> {
     pub(super) fn entries(&self) -> &MappingEntries {
         &self.slot.entries
+    }
+
+    /// Forces the next publication to rewrite this page's snapshot without changing entries.
+    pub(super) fn mark_dirty(&mut self) {
+        self.slot.dirty = true;
     }
 
     pub(super) fn update(

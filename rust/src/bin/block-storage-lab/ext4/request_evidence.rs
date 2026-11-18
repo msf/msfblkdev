@@ -1,4 +1,7 @@
-use libublk::sys::{UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE};
+use libublk::sys::{
+    UBLK_IO_OP_DISCARD, UBLK_IO_OP_FLUSH, UBLK_IO_OP_READ, UBLK_IO_OP_WRITE,
+    UBLK_IO_OP_WRITE_ZEROES,
+};
 use std::collections::BTreeSet;
 use std::io;
 
@@ -14,17 +17,27 @@ pub(super) struct CompletedRequests {
 impl CompletedRequests {
     fn record(&mut self, flags: u32, count: u64, sectors: u64) -> io::Result<()> {
         if count == 0 {
-            return Ok(());
+            // The daemon excludes drain cancellations from its sector counts.
+            return (sectors == 0).then_some(()).ok_or_else(invalid);
         }
         // Linux ublk stores the opcode in the low byte of op_flags. Requests are
         // counted for evidence, and sectors are what the kernel sample can be
         // compared against, because one request carries many logical blocks.
         let (requests, transferred) = match flags & 0xff {
             UBLK_IO_OP_READ => (&mut self.reads, Some(&mut self.read_sectors)),
-            UBLK_IO_OP_WRITE => (&mut self.writes, Some(&mut self.write_sectors)),
+            // Range operations complete with zero payload bytes. The evidence records the
+            // affected range, not the completion length. Linux charges write-zeroes to write
+            // sectors and discard to separate discard counters outside this comparison.
+            UBLK_IO_OP_WRITE | UBLK_IO_OP_WRITE_ZEROES => {
+                (&mut self.writes, Some(&mut self.write_sectors))
+            }
+            UBLK_IO_OP_DISCARD => return (sectors > 0).then_some(()).ok_or_else(invalid),
             UBLK_IO_OP_FLUSH => (&mut self.flushes, None),
             _ => return Err(invalid()),
         };
+        if flags & 0xff == UBLK_IO_OP_WRITE_ZEROES && sectors == 0 {
+            return Err(invalid());
+        }
         *requests = requests.checked_add(count).ok_or_else(invalid)?;
         if let Some(transferred) = transferred {
             *transferred = transferred.checked_add(sectors).ok_or_else(invalid)?;
@@ -129,11 +142,34 @@ mod tests {
                 write_sectors: 1792,
             }
         );
-        assert!(validate(&report.replace("0x801", "0x3")).is_err());
+        assert!(validate(&report.replace("0x801", "0xff")).is_err());
         // A flush transfers nothing, so a non-zero sector count is inconsistent.
         assert!(
             validate(&report.replace("cancelled=0 sectors=0", "cancelled=0 sectors=8")).is_err()
         );
+    }
+
+    #[test]
+    fn validates_unmap_ranges_and_matches_kernel_write_sectors() {
+        let report = "request-count op_flags=0x3 count=2 before_ready=0 errors=0 cancelled=1 sectors=32\n\
+                      request-count op_flags=0x8005 count=3 before_ready=0 errors=0 cancelled=1 sectors=48\n\
+                      request-count-end combinations=2 total=5 complete=true\n";
+        let totals = validate(report).unwrap();
+        assert_eq!(
+            (totals.read_sectors, totals.write_sectors, totals.writes),
+            (0, 48, 2)
+        );
+        for invalid in [
+            report.replace("sectors=32", "sectors=0"),
+            report.replace("sectors=48", "sectors=0"),
+            report.replace("errors=0", "errors=1"),
+            report.replace(
+                "count=2 before_ready=0 errors=0 cancelled=1",
+                "count=2 before_ready=0 errors=0 cancelled=2",
+            ),
+        ] {
+            assert!(validate(&invalid).is_err());
+        }
     }
 
     #[test]
