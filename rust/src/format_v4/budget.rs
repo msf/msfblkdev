@@ -31,6 +31,15 @@ impl Default for HeapBudgetOptions {
     }
 }
 
+impl HeapBudgetOptions {
+    pub(super) fn total_bytes_for(self, logical_bytes: u64) -> u64 {
+        let proportional = logical_bytes / 1_000_000 * u64::from(self.proportion_ppm)
+            + (logical_bytes % 1_000_000) * u64::from(self.proportion_ppm) / 1_000_000;
+        self.total_bytes
+            .unwrap_or(proportional.max(MINIMUM_HEAP_BYTES))
+    }
+}
+
 /// The validated division of the heap budget, in bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HeapBudget {
@@ -141,11 +150,7 @@ pub(crate) fn divide(
     geometry: Geometry,
     supporting: SupportingState,
 ) -> io::Result<(HeapBudget, Sizing, CleanerShape)> {
-    let proportional = logical_bytes / 1_000_000 * u64::from(options.proportion_ppm)
-        + (logical_bytes % 1_000_000) * u64::from(options.proportion_ppm) / 1_000_000;
-    let total_bytes = options
-        .total_bytes
-        .unwrap_or(proportional.max(MINIMUM_HEAP_BYTES));
+    let total_bytes = options.total_bytes_for(logical_bytes);
     // The cleaner share follows the write buffer but never drops below one window and one
     // proposal buffer, so write-through configurations still open.
     let cleaner_bytes = options

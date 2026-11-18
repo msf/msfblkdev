@@ -155,5 +155,21 @@ mod scenario_run;
 
 pub use lifecycle::run;
 
+/// The wrap/exhaustion fixture deliberately cannot meet the production formatter's fill target.
+/// Its private worker runs in the scenario directory under the supervisor's command deadline.
+/// Create-new prevents writing to any existing destination, including a device or symlink.
+// Failures leave the supervisor-owned fixture intact for diagnosis.
+pub(super) fn format_fixture(path: &Path) -> io::Result<()> {
+    let geometry = Geometry::expected();
+    let backing = OpenOptions::new().write(true).create_new(true).open(path)?;
+    backing.set_len(geometry.backing_bytes())?;
+    let blocks_per_segment = u32::try_from(geometry.segment_blocks).expect("fixed lab geometry");
+    block_storage::format_with_options(
+        path,
+        geometry.volume_bytes(),
+        block_storage::FormatOptions { blocks_per_segment },
+    )
+}
+
 #[cfg(test)]
 mod tests;

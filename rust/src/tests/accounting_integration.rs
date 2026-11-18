@@ -68,9 +68,9 @@ fn tiny_options() -> VolumeOpenOptions {
 
 #[test]
 fn public_accounting_apis_count_format_open_write_checkpoint_and_close() -> io::Result<()> {
-    // Default geometry: three 8 MiB segments. The sparse file costs nothing until written.
+    // Enough segments for the default fill target; only the 8 MiB candidate fits.
     let backing = TemporaryBacking::new()?;
-    backing.create_sized((2 + 3 * 2048) * BLOCK_SIZE as u64)?;
+    backing.create_sized((2 + 8 * 2048) * BLOCK_SIZE as u64)?;
     let unlimited = 64 * 1024 * 1024;
     let (accounting, reader) = AccountingFixture::new(unlimited)?;
 

@@ -120,6 +120,7 @@ pub enum Mode {
     Test,
     EngineCrash,
     UblkFio,
+    UblkFioFormatFixture,
     Ext4,
     Ext4Preflight,
     Ext4Populate,
@@ -167,6 +168,7 @@ where
         Some("test") => Ok(Mode::Test),
         Some("engine-crash") => Ok(Mode::EngineCrash),
         Some("ublk-fio") => Ok(Mode::UblkFio),
+        Some("ublk-fio-format-fixture") => Ok(Mode::UblkFioFormatFixture),
         Some("ext4") => Ok(Mode::Ext4),
         Some("ext4-preflight") => Ok(Mode::Ext4Preflight),
         Some("ext4-populate") => Ok(Mode::Ext4Populate),
@@ -254,7 +256,7 @@ where
     let (default_per_test, default_suite) = match mode {
         Mode::Test => (15, 55),
         Mode::EngineCrash => (1800, 3600),
-        Mode::UblkFio => (30, 180),
+        Mode::UblkFio | Mode::UblkFioFormatFixture => (30, 180),
         Mode::Ext4
         | Mode::Ext4Preflight
         | Mode::Ext4Populate
@@ -370,6 +372,7 @@ mod tests {
             vec!["lab"],
             vec!["lab", "unknown"],
             vec!["lab", "test", "extra"],
+            vec!["lab", "ublk-fio-format-fixture", "/tmp/backing"],
             vec!["lab", "ext4", "/dev/sda"],
             vec!["lab", "ext4", "/tmp/mount"],
             vec!["lab", "ext4-populate", "/tmp/mount"],

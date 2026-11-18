@@ -82,18 +82,13 @@ impl Segments {
         u32::try_from(self.flags.len()).expect("bounded")
     }
 
-    pub(crate) fn allocated_bytes(&self) -> usize {
-        std::mem::size_of_val(self.flags.as_ref())
-            + std::mem::size_of_val(self.seal_lsn.as_ref())
-            + std::mem::size_of_val(self.published_flags.as_ref())
-            + std::mem::size_of_val(self.live_blocks.as_ref())
-            + std::mem::size_of_val(self.metadata_blocks.as_ref())
-            + std::mem::size_of_val(self.used_blocks.as_ref())
-            + std::mem::size_of_val(self.discard_pending.as_ref())
-            + std::mem::size_of_val(self.discard_due.as_ref())
-            + std::mem::size_of_val(self.stuck.as_ref())
-            + std::mem::size_of_val(self.table_block.as_ref())
-            + std::mem::size_of_val(self.table_dirty.as_ref())
+    pub(super) fn allocation_bytes(capacity: u32) -> usize {
+        // flags, seal_lsn, published_flags, three block counters and three booleans;
+        // one address and one dirty flag per reserved table page.
+        let entry =
+            2 * size_of::<u8>() + size_of::<u64>() + 3 * size_of::<u32>() + 3 * size_of::<bool>();
+        let table = size_of::<u32>() + size_of::<bool>();
+        capacity as usize * entry + (capacity as usize).div_ceil(TABLE_ENTRIES) * table
     }
 
     pub(crate) fn entry(&self, segment: u32) -> io::Result<SegmentEntry> {
@@ -726,7 +721,7 @@ mod tests {
         segments.add_live(4).unwrap();
         assert!(segments.check_conservation().is_err());
         assert_eq!(
-            segments.allocated_bytes(),
+            Segments::allocation_bytes(segments.capacity()),
             8 * (1 + 8 + 1 + 4 + 4 + 4 + 1 + 1 + 1) + 4 + 1
         );
     }

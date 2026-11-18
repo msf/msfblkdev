@@ -49,9 +49,8 @@ The mapping index uses fixed direct and indirect pointer arrays in the descripto
 design). Client discard removes mappings. Backing discard releases free segments to the underlying
 allocator.
 
-These choices are decided and implemented. Segment size derives from the backing at format time (8
-MiB up to a 2 GiB backing, then 16 or 32 MiB), with an explicit override for small fixtures. The
-thresholds the implementation chose are listed under [implementation decisions](#implementation-decisions).
+The formatter selects the largest supported segment size that meets the requested logical fill
+on the supplied raw backing. Logical fill defaults to 100% of the advertised logical size.
 Logical growth and automatic growth policy remain separate work. Format 4 includes durable backing
 growth so external capacity can become usable without replacing the image; the daemon claims an
 operator-grown file on `SIGUSR1`.
@@ -187,9 +186,9 @@ checkpoint descriptor
   └─ last record boundary of each fixed head
 ```
 
-Segment size is fixed at format time and derives from backing size: 8 MiB for backings up to 2 GiB,
-then the smallest of 16 and 32 MiB whose table reach covers the backing. `format --segment-bytes`
-overrides it for fixtures; the minimum is four blocks and three segments. The two-block prefix
+The formatter tests 32, 16, then 8 MiB segments, using both logical size and raw capacity. It
+rejects the request before creating the image if no candidate meets the minimum logical fill.
+The chosen size is fixed for the life of the volume. The two-block prefix
 leaves segments offset from natural device alignment; hole punching whole segments on the lab's
 regular-file backings released the expected space, so the offset was not changed.
 

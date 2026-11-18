@@ -105,7 +105,7 @@ fn format_validates_geometry_boundaries() -> io::Result<()> {
         .kind(),
         io::ErrorKind::InvalidInput
     );
-    // The default segment size needs three 8 MiB segments.
+    // No automatically selected geometry fits on this tiny backing.
     assert_eq!(
         format(&too_small.0, BLOCK_SIZE as u64).unwrap_err().kind(),
         io::ErrorKind::InvalidInput

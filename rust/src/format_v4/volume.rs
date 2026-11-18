@@ -93,15 +93,12 @@ pub(crate) fn open(
     let buffer_blocks = clamp_write_buffer_blocks(options.write_buffer_bytes, geometry);
     let write_buffer = WriteBackBuffer::with_capacity(buffer_blocks);
     let logical_bytes = u64::from(geometry.volume_blocks) * BLOCK_SIZE as u64;
-    let supporting = SupportingState {
-        // The cleaner's scan view and the writer's spare are two more copies of the snapshot
-        // locations.
-        resident_index_bytes: log.index.allocated_bytes() as u64
-            + 2 * u64::from(geometry.page_count) * 4,
-        segment_state_bytes: log.segments.allocated_bytes() as u64,
-        write_buffer_lookup_bytes: write_buffer.lookup_bytes() as u64,
-        fixed_scratch_bytes: fixed_scratch_bytes(geometry, buffer_blocks),
-    };
+    let supporting = supporting_state(
+        geometry,
+        log.segments.capacity(),
+        buffer_blocks,
+        write_buffer.lookup_bytes(),
+    );
     let (budget, sizing, cleaner_shape) = budget::divide(
         options.heap,
         logical_bytes,
@@ -172,6 +169,48 @@ pub(crate) fn open(
         volume.log.segments.release_if_empty(segment)?;
     }
     Ok(volume)
+}
+
+fn supporting_state(
+    g: Geometry,
+    segment_capacity: u32,
+    buffer_blocks: usize,
+    lookup_bytes: usize,
+) -> SupportingState {
+    SupportingState {
+        // Include the cleaner scan view and the writer's spare snapshot locations.
+        resident_index_bytes: super::mapping_index::MappingIndex::allocation_bytes(g) as u64
+            + 2 * u64::from(g.page_count) * 4,
+        segment_state_bytes: super::segments::Segments::allocation_bytes(segment_capacity) as u64,
+        write_buffer_lookup_bytes: lookup_bytes as u64,
+        fixed_scratch_bytes: fixed_scratch_bytes(g, buffer_blocks),
+    }
+}
+
+/// Check the default daemon can open this geometry without allocating its volume-sized arrays.
+pub(super) fn format_heap_fits(geometry: Geometry) -> io::Result<bool> {
+    let options = VolumeOpenOptions::default();
+    let buffer_blocks =
+        clamp_write_buffer_blocks(crate::DEFAULT_FORMAT_WRITE_BUFFER_BYTES, geometry);
+    let buffer_bytes = buffer_blocks as u64 * BLOCK_SIZE as u64;
+    let lookup = WriteBackBuffer::new_lookup(buffer_blocks);
+    let supporting = supporting_state(
+        geometry,
+        segment_capacity(options, geometry),
+        buffer_blocks,
+        lookup.allocation_size(),
+    );
+    let min_slots = buffer_blocks.min(geometry.page_count as usize);
+    let cache = crate::mapping_cache::sizing::Sizing::for_capacity(min_slots)
+        .map_err(|_| io::Error::other("cannot size mapping-cache slots"))?;
+    let required = buffer_bytes
+        + buffer_bytes.max(CleanerShape::minimum_bytes(geometry))
+        + supporting.total()
+        + cache.allocated_bytes as u64;
+    Ok(required
+        <= options
+            .heap
+            .total_bytes_for(u64::from(geometry.volume_blocks) * BLOCK_SIZE as u64))
 }
 
 /// Fixed per-volume scratch: staging batch, read and footer blocks, read-ahead, iovecs and the
