@@ -3,9 +3,9 @@
 Date: 2026-08-30
 Author: Miguel Filipe
 Status: proposed
-Release target: v1.3, following v1.2.3; the V0.9–V1.2 labels below identify historical delivery stages, not current release versions
+Release history: the V0.9–V1.2 labels below identify delivery stages, not current release versions.
 Goal status: filesystem acceptance complete; SQLite accepted on ext4 and XFS; RocksDB and PostgreSQL acceptance remain open
-On-disk format: originally 1; current SQLite/XFS acceptance uses ADR-07 format 3
+On-disk format: originally 1; SQLite also passed on format 3. The [v2.0 qualification](docs/V2.0-QUALIFICATION.md) repeated the ext4 and XFS lifecycles and all 87 SQLite correctness cases on each filesystem on format 4. These were clean-restart tests, not aged SQLite A/F workloads.
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md)
 Updates: the ADR-01 delivery order when accepted
 

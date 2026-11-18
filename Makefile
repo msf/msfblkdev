@@ -40,6 +40,14 @@ lint-rust:
 test:
 	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- test
 
+# Linux, opt-in: one disposable regular file. The timeout covers I/O, not compilation.
+.PHONY: test-compaction-small
+test-compaction-small:
+	@cd rust && cargo test --locked --release --test compaction_small --no-run
+	@set -eu; dir=$$(mktemp -d); trap 'rm -rf -- "$$dir"' EXIT; \
+		cd rust && BLOCK_STORAGE_SMALL_FIXTURE="$$dir" timeout --kill-after=5s 120s \
+		cargo test --locked --release --test compaction_small -- --ignored --nocapture
+
 test-acceptance:
 	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- engine-crash
 

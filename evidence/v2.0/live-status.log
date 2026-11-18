@@ -1,0 +1,25 @@
+start 2026-11-18T13:31:11+00:00 checker  cargo test --manifest-path tools/blockcheck/Cargo.toml --locked --offline
+end 2026-11-18T13:31:15+00:00 checker rc=0 elapsed=4s
+start 2026-11-18T13:31:15+00:00 build-ext4  make build-ext4
+end 2026-11-18T13:31:24+00:00 build-ext4 rc=0 elapsed=9s
+start 2026-11-18T13:31:24+00:00 install-mount  sudo bash scripts/install-ext4-helper.sh
+end 2026-11-18T13:31:24+00:00 install-mount rc=0 elapsed=0s
+start 2026-11-18T13:31:24+00:00 setup-sqlite  make setup-sqlite
+end 2026-11-18T13:31:47+00:00 setup-sqlite rc=0 elapsed=23s
+start 2026-11-18T13:31:47+00:00 check-ext4  make check-ext4
+end 2026-11-18T13:31:48+00:00 check-ext4 rc=0 elapsed=1s
+start 2026-11-18T13:31:48+00:00 check-xfs  make check-xfs
+end 2026-11-18T13:31:48+00:00 check-xfs rc=0 elapsed=0s
+start 2026-11-18T13:31:48+00:00 check-sqlite  make check-sqlite
+end 2026-11-18T13:31:49+00:00 check-sqlite rc=0 elapsed=1s
+start 2026-11-18T13:31:49+00:00 test-ublk-fio  make test-ublk-fio
+end 2026-11-18T13:32:39+00:00 test-ublk-fio rc=0 elapsed=50s
+start 2026-11-18T13:32:39+00:00 test-ext4  make test-ext4
+end 2026-11-18T13:32:43+00:00 test-ext4 rc=0 elapsed=4s
+start 2026-11-18T13:32:43+00:00 test-xfs  make test-xfs
+end 2026-11-18T13:32:48+00:00 test-xfs rc=0 elapsed=5s
+start 2026-11-18T13:32:48+00:00 test-sqlite-ext4  make test-sqlite-ext4
+end 2026-11-18T13:34:48+00:00 test-sqlite-ext4 rc=0 elapsed=120s
+start 2026-11-18T13:34:48+00:00 test-sqlite-xfs  make test-sqlite-xfs
+end 2026-11-18T13:37:31+00:00 test-sqlite-xfs rc=0 elapsed=163s
+COMPLETE

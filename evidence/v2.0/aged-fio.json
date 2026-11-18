@@ -1,0 +1,40 @@
+{
+  "uniform": {
+    "fill_bytes": 4294967296,
+    "windows": 4,
+    "overwrite_bytes": 25769803776,
+    "final_two_Bps_and_WA": [
+      [
+        24659696.280616745,
+        4.971192836761475
+      ],
+      [
+        24852509.082701914,
+        4.962588389714559
+      ]
+    ],
+    "daemon_peak_bytes": 23584768,
+    "oom_kill": 0,
+    "segments_freed": 3522,
+    "enospc_all_live": 0
+  },
+  "zipf": {
+    "fill_bytes": 4294967296,
+    "windows": 9,
+    "overwrite_bytes": 57982058496,
+    "final_two_Bps_and_WA": [
+      [
+        77548650.64706266,
+        1.3147614002227783
+      ],
+      [
+        75725468.84911093,
+        1.28812837600708
+      ]
+    ],
+    "daemon_peak_bytes": 22822912,
+    "oom_kill": 0,
+    "segments_freed": 1854,
+    "enospc_all_live": 0
+  }
+}
