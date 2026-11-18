@@ -22,15 +22,7 @@ pub(super) fn run_all(
                 scenario.name()
             ))?;
             let mut outputs = OutputNames::default();
-            setup_fresh(
-                paths,
-                preflight,
-                timeout,
-                resources,
-                evidence,
-                started,
-                &mut outputs,
-            )?;
+            setup_fresh(paths, timeout, resources, evidence, started, &mut outputs)?;
             execute(
                 scenario,
                 paths,
@@ -224,7 +216,6 @@ fn require_wraparound(evidence: &mut Evidence, resources: &Resources) -> io::Res
 
 fn setup_fresh(
     paths: &Paths,
-    preflight: &Preflight,
     timeout: Duration,
     resources: &mut Resources,
     evidence: &mut Evidence,
@@ -237,8 +228,8 @@ fn setup_fresh(
     let owned = OwnedTempDir::create(&paths.temp_root)?;
     owned.validate()?;
     let backing_path = owned.path().join("backing.img");
+    let mut format = format_command(&paths.current_exe, owned.path());
     resources.temp = Some(owned);
-    let mut format = format_command(&preflight.daemon, &backing_path);
     evidence_command(evidence, "format", &format, started)?;
     let (stdout, stderr) = output_paths(resources, outputs.command("format"));
     let status = run_command_separate(&mut format, &stdout, &stderr, Instant::now() + timeout)?;

@@ -44,7 +44,6 @@ const SECTORS_PER_BLOCK: u64 = 1 << (BLOCK_SHIFT - SECTOR_SHIFT);
 const QUEUE_COUNT: u16 = 1;
 const DEFAULT_MAX_REQUEST_BYTES: u32 = 131_072;
 const DEFAULT_INFLIGHT_MEMORY_BYTES: u64 = 4 * 1024 * 1024;
-const DEFAULT_WRITE_BUFFER_BYTES: u64 = 4 * 1024 * 1024;
 // The engine caps the write-back buffer at 16 MiB (a release writes and fsyncs the whole buffer).
 const MAX_WRITE_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
 // Bound request buffers to the decoder's 338-payload limit. The paged engine may
@@ -285,7 +284,7 @@ impl Default for ServeConfig {
         Self {
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             inflight_memory_bytes: DEFAULT_INFLIGHT_MEMORY_BYTES,
-            write_buffer_bytes: DEFAULT_WRITE_BUFFER_BYTES,
+            write_buffer_bytes: block_storage::DEFAULT_FORMAT_WRITE_BUFFER_BYTES,
             mapping_cache_bytes: None,
             heap_ppm: block_storage::DEFAULT_HEAP_PROPORTION_PPM,
             heap_bytes: None,
@@ -379,10 +378,7 @@ enum CliCommand {
     },
     Format {
         backing_path: PathBuf,
-        backing_bytes: u64,
-        volume_bytes: u64,
-        /// Segment size; None lets the engine derive it from the backing size.
-        segment_bytes: Option<u64>,
+        sizes: FormatSizes,
     },
 }
 
@@ -395,7 +391,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] [--heap-ppm N] [--heap-bytes N] [--cleaner-bytes N] [--growth-capacity-bytes N] [--backing-discard off|punch] [--idle-wait-us N] [--max-maintenance-interval-ms N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N (or --size-bytes N --prealloc-bytes N) [--segment-bytes N]",
+                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] [--heap-ppm N] [--heap-bytes N] [--cleaner-bytes N] [--growth-capacity-bytes N] [--backing-discard off|punch] [--idle-wait-us N] [--max-maintenance-interval-ms N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N [--min-logical-fill-factor PERCENT]",
                 PathBuf::from(&program).display()
             ),
         )
@@ -427,9 +423,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
             let sizes = parse_format_sizes(&mut args, &usage)?;
             CliCommand::Format {
                 backing_path,
-                backing_bytes: sizes.backing_bytes,
-                volume_bytes: sizes.volume_bytes,
-                segment_bytes: sizes.segment_bytes,
+                sizes,
             }
         }
         _ => return Err(usage()),
@@ -437,19 +431,14 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
     Ok(command)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FormatSizes {
     backing_bytes: u64,
     volume_bytes: u64,
-    segment_bytes: Option<u64>,
+    min_logical_fill: u8,
 }
 
-/// Parses the volume, backing and optional segment sizes for `format`.
-///
-/// `--prealloc-mib` sets the backing file's declared length. The file is
-/// sparse, so that length is a ceiling that bounds `ENOSPC`, and the host
-/// allocates blocks only as the log consumes them. The byte spellings exist
-/// because the acceptance geometries are smaller than one MiB.
-/// `--segment-bytes` overrides the segment size the engine derives from the backing.
+/// Raw bytes set the declared length of a sparse backing file. They do not reserve host space.
 fn parse_format_sizes(
     args: &mut impl Iterator<Item = OsString>,
     usage: &impl Fn() -> io::Error,
@@ -457,45 +446,38 @@ fn parse_format_sizes(
     const MIB: u64 = 1024 * 1024;
     let mut backing_bytes = None;
     let mut volume_bytes = None;
-    let mut segment_bytes = None;
+    let mut min_logical_fill = None;
     while let Some(flag) = args.next() {
         let value = args.next().ok_or_else(usage)?;
-        let (target, scale) = match flag.to_str() {
-            Some("--prealloc-mib") => (&mut backing_bytes, MIB),
-            Some("--prealloc-bytes") => (&mut backing_bytes, 1),
-            Some("--size-mib") => (&mut volume_bytes, MIB),
-            Some("--size-bytes") => (&mut volume_bytes, 1),
-            Some("--segment-bytes") => (&mut segment_bytes, 1),
+        let size = match flag.to_str() {
+            Some("--prealloc-mib") => &mut backing_bytes,
+            Some("--size-mib") => &mut volume_bytes,
+            Some("--min-logical-fill-factor") if min_logical_fill.is_none() => {
+                let fill = value
+                    .to_str()
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .filter(|percent| (1..=100).contains(percent))
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "--min-logical-fill-factor must be an integer from 1 to 100",
+                        )
+                    })?;
+                min_logical_fill = Some(fill);
+                continue;
+            }
             _ => return Err(usage()),
         };
-        if target.is_some() {
+        if size.is_some() {
             return Err(usage());
         }
-        *target = Some(parse_bytes(&value)?.checked_mul(scale).ok_or_else(usage)?);
+        *size = Some(parse_bytes(&value)?.checked_mul(MIB).ok_or_else(usage)?);
     }
-    match (backing_bytes, volume_bytes) {
-        (Some(backing_bytes), Some(volume_bytes)) => Ok(FormatSizes {
-            backing_bytes,
-            volume_bytes,
-            segment_bytes,
-        }),
-        _ => Err(usage()),
-    }
-}
-
-fn format_options(segment_bytes: Option<u64>) -> io::Result<block_storage::FormatOptions> {
-    let Some(segment_bytes) = segment_bytes else {
-        return Ok(block_storage::FormatOptions::default());
-    };
-    if segment_bytes == 0 || !segment_bytes.is_multiple_of(u64::from(LOGICAL_BLOCK_BYTES)) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "--segment-bytes must be a positive multiple of 4096",
-        ));
-    }
-    let blocks_per_segment = u32::try_from(segment_bytes / u64::from(LOGICAL_BLOCK_BYTES))
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "--segment-bytes is too large"))?;
-    Ok(block_storage::FormatOptions { blocks_per_segment })
+    Ok(FormatSizes {
+        backing_bytes: backing_bytes.ok_or_else(usage)?,
+        volume_bytes: volume_bytes.ok_or_else(usage)?,
+        min_logical_fill: min_logical_fill.unwrap_or(100),
+    })
 }
 
 fn parse_serve_config(
@@ -1484,13 +1466,19 @@ fn delete(device_id: i32) -> io::Result<()> {
 
 fn format_new(
     backing_path: &Path,
-    backing_bytes: u64,
-    volume_bytes: u64,
-    segment_bytes: Option<u64>,
+    sizes: FormatSizes,
     ledger_path: Option<&OsStr>,
 ) -> io::Result<()> {
+    let FormatSizes {
+        backing_bytes,
+        volume_bytes,
+        min_logical_fill,
+    } = sizes;
+    let plan = block_storage::plan_format(volume_bytes, backing_bytes, min_logical_fill)?;
+    let blocks_per_segment = u32::try_from(plan.segment_bytes / u64::from(LOGICAL_BLOCK_BYTES))
+        .expect("supported segment size fits in u32 blocks");
+    let options = block_storage::FormatOptions { blocks_per_segment };
     let accounting = io_ledger::open_optional(ledger_path)?;
-    let options = format_options(segment_bytes)?;
     let backing = OpenOptions::new()
         .read(true)
         .write(true)
@@ -1508,12 +1496,11 @@ fn format_new(
             None => block_storage::format_with_options(backing_path, volume_bytes, options),
         }) {
         Ok(()) => {
-            if let Ok(volume) = block_storage::open(backing_path) {
-                if let Ok(usage) = volume.space_usage() {
-                    log_info!("event=format {}", usage.summary());
-                }
-                let _ = volume.close();
-            }
+            log_info!(
+                "event=format logical_bytes={volume_bytes} raw_bytes={backing_bytes} segment_bytes={} min_logical_fill_percent={min_logical_fill} expected_max_logical_fill_percent={}",
+                plan.segment_bytes,
+                plan.expected_max_logical_fill
+            );
             return Ok(());
         }
         Err(error) => error,
@@ -1540,16 +1527,8 @@ fn run() -> io::Result<()> {
         CliCommand::Delete { device_id } => delete(device_id),
         CliCommand::Format {
             backing_path,
-            backing_bytes,
-            volume_bytes,
-            segment_bytes,
-        } => format_new(
-            &backing_path,
-            backing_bytes,
-            volume_bytes,
-            segment_bytes,
-            ledger_path.as_deref(),
-        ),
+            sizes,
+        } => format_new(&backing_path, sizes, ledger_path.as_deref()),
     }
 }
 
@@ -1889,56 +1868,84 @@ mod tests {
             parse_args(["daemon", "delete", "7"].map(OsString::from)).unwrap(),
             CliCommand::Delete { device_id: 7 }
         );
+    }
+
+    fn format_args(flags: &[&str]) -> io::Result<FormatSizes> {
+        let args = ["daemon", "format", "volume.img"]
+            .into_iter()
+            .chain(flags.iter().copied());
+        let CliCommand::Format {
+            backing_path,
+            sizes,
+        } = parse_args(args.map(OsString::from))?
+        else {
+            panic!("format command expected");
+        };
+        assert_eq!(backing_path, Path::new("volume.img"));
+        Ok(sizes)
+    }
+
+    #[test]
+    fn format_requires_logical_and_raw_sizes_and_defaults_to_full_logical_fill() {
+        let full = format_args(&["--size-mib", "4", "--prealloc-mib", "512"]).unwrap();
         assert_eq!(
-            parse_args(
-                [
-                    "daemon",
-                    "format",
-                    "volume.img",
-                    "--prealloc-bytes",
-                    "1048576",
-                    "--size-bytes",
-                    "16384",
-                ]
-                .map(OsString::from),
-            )
-            .unwrap(),
-            CliCommand::Format {
-                backing_path: PathBuf::from("volume.img"),
-                backing_bytes: 1_048_576,
-                volume_bytes: 16_384,
-                segment_bytes: None,
+            full,
+            FormatSizes {
+                volume_bytes: 4 << 20,
+                backing_bytes: 512 << 20,
+                min_logical_fill: 100
             }
         );
         assert_eq!(
-            parse_args(
-                [
-                    "daemon",
-                    "format",
-                    "volume.img",
-                    "--prealloc-bytes",
-                    "1048576",
-                    "--size-bytes",
-                    "16384",
-                    "--segment-bytes",
-                    "131072",
-                ]
-                .map(OsString::from),
-            )
+            format_args(&[
+                "--prealloc-mib",
+                "512",
+                "--min-logical-fill-factor",
+                "75",
+                "--size-mib",
+                "4"
+            ])
             .unwrap(),
-            CliCommand::Format {
-                backing_path: PathBuf::from("volume.img"),
-                backing_bytes: 1_048_576,
-                volume_bytes: 16_384,
-                segment_bytes: Some(131_072),
+            FormatSizes {
+                min_logical_fill: 75,
+                ..full
             }
         );
-        assert!(format_options(Some(4095)).is_err());
-        assert!(format_options(Some(0)).is_err());
-        assert_eq!(
-            format_options(Some(131_072)).unwrap().blocks_per_segment,
-            32
-        );
+        assert!(format_args(&["--size-mib", "4"]).is_err());
+        assert!(format_args(&["--prealloc-mib", "4"]).is_err());
+        for size in ["1.5", "-1", "18446744073709551615"] {
+            assert!(format_args(&["--size-mib", "4", "--prealloc-mib", size]).is_err());
+        }
+        for fill in ["0", "101", "-1", "1.5", "256", "abc"] {
+            assert!(
+                format_args(&[
+                    "--size-mib",
+                    "4",
+                    "--prealloc-mib",
+                    "512",
+                    "--min-logical-fill-factor",
+                    fill
+                ])
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_sizes_byte_flags_aliases_and_forced_segments() {
+        for flag in [
+            "--size-mib",
+            "--prealloc-mib",
+            "--size-bytes",
+            "--prealloc-bytes",
+            "--raw-mib",
+            "--raw-bytes",
+            "--segment-bytes",
+        ] {
+            assert!(
+                format_args(&["--size-mib", "4", "--prealloc-mib", "512", flag, "4096"]).is_err()
+            );
+        }
     }
 
     #[test]
@@ -1955,17 +1962,36 @@ mod tests {
     #[test]
     fn format_new_sizes_formats_and_opens_exact_image() -> io::Result<()> {
         let backing = TemporaryPath::new()?;
-        format_new(
-            &backing.0,
-            1024 * 1024,
-            4 * u64::from(LOGICAL_BLOCK_BYTES),
-            Some(32 * u64::from(LOGICAL_BLOCK_BYTES)),
-            None,
-        )?;
-
-        assert_eq!(std::fs::metadata(&backing.0)?.len(), 1024 * 1024);
+        let sizes = format_args(&["--size-mib", "128", "--prealloc-mib", "320"])?;
+        let plan = block_storage::plan_format(sizes.volume_bytes, sizes.backing_bytes, 100)?;
+        format_new(&backing.0, sizes, None)?;
+        assert_eq!(std::fs::metadata(&backing.0)?.len(), sizes.backing_bytes);
         let volume = block_storage::open(&backing.0)?;
-        assert_eq!(volume.volume_blocks(), 4);
+        assert_eq!(
+            u64::from(volume.volume_blocks()) * u64::from(LOGICAL_BLOCK_BYTES),
+            sizes.volume_bytes
+        );
+        assert_eq!(volume.space_usage()?.segment_bytes, plan.segment_bytes);
+        volume.close()
+    }
+
+    #[test]
+    fn format_new_honors_partial_fill_that_default_rejects() -> io::Result<()> {
+        let backing = TemporaryPath::new()?;
+        let full = format_args(&["--size-mib", "128", "--prealloc-mib", "128"])?;
+        assert!(format_new(&backing.0, full, None).is_err());
+        assert!(!backing.0.exists());
+        let partial = format_args(&[
+            "--size-mib",
+            "128",
+            "--prealloc-mib",
+            "128",
+            "--min-logical-fill-factor",
+            "50",
+        ])?;
+        format_new(&backing.0, partial, None)?;
+        let volume = block_storage::open(&backing.0)?;
+        assert_eq!(volume.space_usage()?.segment_bytes, 8 << 20);
         volume.close()
     }
 
@@ -1974,20 +2000,35 @@ mod tests {
         let backing = TemporaryBacking::new()?;
         std::fs::write(&backing.0, b"preserve me")?;
 
-        let error = format_new(&backing.0, 1024 * 1024, 4096, None, None).unwrap_err();
+        let sizes = format_args(&["--prealloc-mib", "512", "--size-mib", "128"])?;
+        let error = format_new(&backing.0, sizes, None).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&backing.0)?, b"preserve me");
         Ok(())
     }
 
     #[test]
-    fn format_new_removes_created_file_after_engine_validation_failure() -> io::Result<()> {
-        for (backing_bytes, volume_bytes) in [(1024 * 1024 + 1, 4096), (1024 * 1024, 4097)] {
-            let backing = TemporaryPath::new()?;
-            let error =
-                format_new(&backing.0, backing_bytes, volume_bytes, None, None).unwrap_err();
-            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-            assert!(!backing.0.exists());
+    fn format_new_rejects_invalid_or_insufficient_space_before_file_io() -> io::Result<()> {
+        let missing = TemporaryPath::new()?;
+        let sentinel = TemporaryBacking::new()?;
+        std::fs::write(&sentinel.0, b"preserve existing data")?;
+        for (backing_bytes, volume_bytes) in [
+            (1024 * 1024 + 1, 4096),
+            (1024 * 1024, 4097),
+            (128 << 20, 128 << 20),
+        ] {
+            let sizes = FormatSizes {
+                backing_bytes,
+                volume_bytes,
+                min_logical_fill: 100,
+            };
+            for path in [&missing.0, &sentinel.0] {
+                // Planning must win over both a missing ledger and an existing destination.
+                let error = format_new(path, sizes, Some(missing.0.as_os_str())).unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            }
+            assert!(!missing.0.exists());
+            assert_eq!(std::fs::read(&sentinel.0)?, b"preserve existing data");
         }
         Ok(())
     }
@@ -1996,14 +2037,8 @@ mod tests {
     fn invalid_optional_ledger_fails_before_backing_creation() -> io::Result<()> {
         let backing = TemporaryPath::new()?;
         let missing_ledger = backing.0.with_extension("missing-ledger");
-        let error = format_new(
-            &backing.0,
-            1024 * 1024,
-            4096,
-            None,
-            Some(missing_ledger.as_os_str()),
-        )
-        .unwrap_err();
+        let sizes = format_args(&["--prealloc-mib", "512", "--size-mib", "128"])?;
+        let error = format_new(&backing.0, sizes, Some(missing_ledger.as_os_str())).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         assert!(!backing.0.exists());
         assert!(io_ledger::open_optional(None)?.is_none());

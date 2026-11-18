@@ -227,19 +227,11 @@ pub(super) fn device_is_absent(paths: &Paths, id: u32) -> io::Result<bool> {
     Ok(true)
 }
 
-pub(super) fn format_command(daemon: &Path, backing: &Path) -> Command {
-    let geometry = Geometry::expected();
-    let mut command = Command::new(daemon);
-    command.args([
-        OsStr::new("format"),
-        backing.as_os_str(),
-        OsStr::new("--prealloc-bytes"),
-        OsStr::new(&geometry.backing_bytes().to_string()),
-        OsStr::new("--size-bytes"),
-        OsStr::new(&geometry.volume_bytes().to_string()),
-        OsStr::new("--segment-bytes"),
-        OsStr::new(&geometry.segment_bytes().to_string()),
-    ]);
+pub(super) fn format_command(lab: &Path, owned_dir: &Path) -> Command {
+    let mut command = Command::new(lab);
+    command
+        .current_dir(owned_dir)
+        .arg("ublk-fio-format-fixture");
     command
 }
 

@@ -74,10 +74,15 @@ The Rust engine formats and opens ADR-08 version 4 only. It rejects version-1, v
 and unknown-format images before recovery writes anything. There is no migration path. Use freshly
 formatted disposable images.
 
-The backing holds two checkpoint descriptors, then whole segments. A segment is 8 MiB up to a 2 GiB
-backing, then 16 or 32 MiB. `format --segment-bytes` overrides the size. New writes append on the
-User head. Relocated copies append on the Relocation head. Both heads share one global LSN
-sequence.
+The formatter requires the advertised logical size and the raw backing size. For example:
+
+```sh
+block-storage-ublk format disk.img --size-mib 4096 --prealloc-mib 6144
+```
+
+`--min-logical-fill-factor` sets the minimum percent of the **logical** volume that must fit as live payload while leaving room for cleaning. It defaults to `100`: for a 4 GiB volume, all 4 GiB must fit. The formatter tries 32, 16, then 8 MiB segments and picks the largest size that meets the requested fill. If none fits, it rejects the request before creating the image. The reported maximum logical fill is a sizing estimate, not a measured endurance guarantee. The raw size sets the sparse file's length; it does not reserve that much free space on the host filesystem.
+
+The backing holds two checkpoint descriptors, then whole segments. New writes append on the user head. Relocated copies append on the relocation head. Both heads share one global LSN sequence.
 
 Space reclamation works in this way:
 
