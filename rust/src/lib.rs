@@ -20,6 +20,7 @@ use accounted_io::{BackingIo, submit_exact};
 pub use format_v4::budget::{
     DEFAULT_HEAP_PROPORTION_PPM, HeapBudget, HeapBudgetOptions, MINIMUM_HEAP_BYTES,
 };
+pub use format_v4::format_plan::{DEFAULT_FORMAT_WRITE_BUFFER_BYTES, FormatPlan, plan_format};
 pub use format_v4::log::LogWrites;
 pub use format_v4::metrics::{MappingIo, MappingStats, SpaceUsage};
 pub use format_v4::reclaim::ReclaimStats;
@@ -285,8 +286,7 @@ impl WriteBackBuffer {
         let mut lbas = Vec::new();
         lbas.reserve_exact(capacity_blocks);
         // Twice the live entries lets the pinned hashbrown rehash tombstones in place.
-        let mut slot_of_lba = hashbrown::HashMap::with_hasher(std::hash::RandomState::new());
-        slot_of_lba.reserve(capacity_blocks * 2);
+        let slot_of_lba = Self::new_lookup(capacity_blocks);
         let mut page_scratch = Vec::new();
         page_scratch.reserve_exact(capacity_blocks);
         Self {
@@ -295,6 +295,14 @@ impl WriteBackBuffer {
             slot_of_lba,
             page_scratch,
         }
+    }
+
+    fn new_lookup(
+        capacity_blocks: usize,
+    ) -> hashbrown::HashMap<u32, usize, std::hash::RandomState> {
+        let mut lookup = hashbrown::HashMap::with_hasher(std::hash::RandomState::new());
+        lookup.reserve(capacity_blocks * 2);
+        lookup
     }
 
     /// Bytes the lookup table allocated, for the heap budget.
@@ -538,7 +546,7 @@ pub fn open_with_accounting(
     format_v4::volume::open(backing_path.as_ref(), options, Some(accounting))
 }
 
-/// Formats a format-4 volume with the default segment size for the backing.
+/// Formats an existing backing using its actual length, targeting 100% logical fill.
 pub fn format(backing_path: impl AsRef<Path>, volume_bytes: u64) -> io::Result<()> {
     format_v4::storage::format(
         backing_path.as_ref(),

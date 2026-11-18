@@ -22,7 +22,7 @@ use std::{
 /// Consecutive one-block records per positional write (128 KiB), as in format 3.
 pub(crate) const BATCH_BLOCKS: usize = 32;
 
-/// Format-time choices. `blocks_per_segment` of zero selects the default for the backing size.
+/// Format-time choices. `blocks_per_segment` of zero selects the largest eligible size for 100% logical fill.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FormatOptions {
     pub blocks_per_segment: u32,
@@ -56,7 +56,8 @@ pub(crate) fn format(
     }
     let (backing, backing_blocks) = open_backing(path)?;
     let blocks_per_segment = if options.blocks_per_segment == 0 {
-        Geometry::default_blocks_per_segment(backing_blocks * BLOCK_SIZE as u64)
+        (crate::plan_format(volume_bytes, backing_blocks * BLOCK_SIZE as u64, 100)?.segment_bytes
+            / BLOCK_SIZE as u64) as u32
     } else {
         options.blocks_per_segment
     };

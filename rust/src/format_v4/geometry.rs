@@ -1,6 +1,6 @@
 use super::FIRST_SEGMENT_BLOCK;
 use crate::mapping_cache::ENTRIES_PER_PAGE;
-use crate::{BLOCK_SIZE, MAX_BACKING_BLOCKS, MAX_VOLUME_BLOCKS, invalid_data};
+use crate::{MAX_BACKING_BLOCKS, MAX_VOLUME_BLOCKS, invalid_data};
 use std::io;
 
 /// Child pointers per `MappingIndexPage`: (4072 - 40) / 4.
@@ -82,20 +82,6 @@ impl Geometry {
             return Err(invalid_data("backing cannot shrink"));
         }
         Ok(grown)
-    }
-
-    /// Eight MiB segments up to 2 GiB of backing, then the smallest of 16 and 32 MiB whose
-    /// table reach covers the backing. Larger backings need larger segments or another level.
-    pub(crate) fn default_blocks_per_segment(backing_bytes: u64) -> u32 {
-        const MIB: u64 = 1024 * 1024;
-        for segment_bytes in [8 * MIB, 16 * MIB, 32 * MIB] {
-            let reach = segment_bytes * MAX_SEGMENTS;
-            let small = segment_bytes == 8 * MIB && backing_bytes <= 2048 * MIB;
-            if small || (segment_bytes > 8 * MIB && backing_bytes <= reach) {
-                return u32::try_from(segment_bytes / BLOCK_SIZE as u64).expect("small");
-            }
-        }
-        u32::try_from(32 * MIB / BLOCK_SIZE as u64).expect("small")
     }
 
     pub(crate) fn segment_area_end(self) -> u64 {
@@ -303,11 +289,5 @@ mod tests {
             3
         );
         assert!(geometry.with_backing(2 + 2 * 4).is_err());
-        assert_eq!(Geometry::default_blocks_per_segment(1 << 30), 2048);
-        assert_eq!(Geometry::default_blocks_per_segment(2 << 30), 2048);
-        assert_eq!(Geometry::default_blocks_per_segment((2 << 30) + 1), 4096);
-        assert_eq!(Geometry::default_blocks_per_segment(4 << 40), 4096);
-        assert_eq!(Geometry::default_blocks_per_segment(7 << 40), 8192);
-        assert_eq!(Geometry::default_blocks_per_segment(20 << 40), 8192);
     }
 }

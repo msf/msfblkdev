@@ -31,12 +31,14 @@ impl MappingIndex {
         })
     }
 
+    pub(super) fn allocation_bytes(geometry: Geometry) -> usize {
+        geometry.page_count as usize * size_of::<u32>()
+            + (geometry.direct_pages + geometry.indirect_pages) as usize
+                * (size_of::<u32>() + size_of::<bool>())
+    }
+
     pub(crate) fn allocated_bytes(&self) -> usize {
-        std::mem::size_of_val(self.snapshot_block.as_ref())
-            + std::mem::size_of_val(self.direct_block.as_ref())
-            + std::mem::size_of_val(self.indirect_block.as_ref())
-            + std::mem::size_of_val(self.direct_dirty.as_ref())
-            + std::mem::size_of_val(self.indirect_dirty.as_ref())
+        Self::allocation_bytes(self.geometry)
     }
 
     pub(crate) fn snapshot_block(&self, page: u32) -> u32 {

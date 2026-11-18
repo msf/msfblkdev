@@ -10,6 +10,7 @@ pub(crate) mod checkpoint_load;
 pub(crate) mod checkpoint_publish;
 pub(crate) mod data_record;
 pub(crate) mod descriptor;
+pub(crate) mod format_plan;
 pub(crate) mod geometry;
 pub(crate) mod heads;
 pub(crate) mod index_page;
