@@ -31,6 +31,18 @@ fn parse(cpu: &str, online: &str, memory: &str) -> io::Result<Value> {
     };
     let model = field(cpu, "model name")
         .or_else(|| field(cpu, "Hardware"))
+        .or_else(|| {
+            // arm64 /proc/cpuinfo may report MIDR fields instead of a model name. Keep the
+            // implementer and part from the same processor; neither is a marketing name.
+            cpu.split("\n\n").find_map(|core| {
+                let implementer = field(core, "CPU implementer")?;
+                let part = field(core, "CPU part")?;
+                let implementer = u8::from_str_radix(implementer.strip_prefix("0x")?, 16).ok()?;
+                let part = u16::from_str_radix(part.strip_prefix("0x")?, 16).ok()?;
+                (part <= 0xfff)
+                    .then(|| format!("CPU implementer 0x{implementer:02x} part 0x{part:03x}"))
+            })
+        })
         .ok_or_else(|| io::Error::other("CPU model is unavailable"))?;
     let memory =
         field(memory, "MemTotal").ok_or_else(|| io::Error::other("memory size is unavailable"))?;
@@ -53,6 +65,28 @@ fn parse(cpu: &str, online: &str, memory: &str) -> io::Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn records_arm_cpu_fields_without_inventing_a_model_name() {
+        let memory = "MemTotal: 1024 kB";
+        let cpu = "processor: 0\nCPU implementer: 0x61\nCPU part: 0x000";
+        assert_eq!(
+            parse(cpu, "0", memory).unwrap()["cpu_model"],
+            "CPU implementer 0x61 part 0x000"
+        );
+        assert_eq!(
+            parse(&format!("model name: known\n{cpu}"), "0", memory).unwrap()["cpu_model"],
+            "known"
+        );
+        for invalid in [
+            "CPU implementer: 0x61",
+            "CPU implementer: 0x61\n\nCPU part: 0x000",
+            "CPU implementer: nope\nCPU part: 0x000",
+            "CPU implementer: 0x61\nCPU part: 0x1000",
+        ] {
+            assert!(parse(invalid, "0", memory).is_err());
+        }
+    }
 
     #[test]
     fn records_stable_hardware_not_free_memory_or_frequency() {
