@@ -15,6 +15,9 @@ use crate::{
 };
 use std::{fs::File, io};
 
+#[cfg(feature = "test-failpoints")]
+mod live_gate;
+
 /// Consecutive one-block metadata records staged for one positional write.
 struct Batch {
     headers: [RecordHeader; BATCH_BLOCKS],
@@ -290,15 +293,23 @@ impl Log {
         let descriptor = self.descriptor()?;
         let mut block = AlignedBlock([0; BLOCK_SIZE]);
         descriptor.encode(&mut block.0)?;
-        storage::write_blocks(
+        #[cfg(feature = "test-failpoints")]
+        let armed = live_gate::arm(self, &descriptor)?;
+        let written = storage::write_blocks(
             io,
             backing,
             descriptor.slot.block(),
             std::slice::from_ref(&block),
-        )?;
+        );
+        #[cfg(feature = "test-failpoints")]
+        live_gate::report(armed, "descriptor-write", &written);
+        written?;
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint(crate::DESCRIPTOR_WRITE_COMPLETE_FAILPOINT)?;
-        storage::sync(io, backing)?;
+        let synced = storage::sync(io, backing);
+        #[cfg(feature = "test-failpoints")]
+        live_gate::report(armed, "final-fsync", &synced);
+        synced?;
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint(crate::DESCRIPTOR_FSYNC_COMPLETE_FAILPOINT)?;
         self.active_slot = descriptor.slot;
