@@ -1,0 +1,145 @@
++ cd /dev/shm/adr05-f02.StdZyN05/rust
++ export TMPDIR=/dev/shm/adr05-f02.StdZyN05/tmp CARGO_TARGET_DIR=/dev/shm/adr05-f02.StdZyN05/target CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
++ TMPDIR=/dev/shm/adr05-f02.StdZyN05/tmp
++ CARGO_TARGET_DIR=/dev/shm/adr05-f02.StdZyN05/target
++ CARGO_PROFILE_DEV_DEBUG=0
++ CARGO_PROFILE_TEST_DEBUG=0
++ CARGO_INCREMENTAL=0
++ cargo +1.97.1 fmt --check
++ timeout 120 cargo +1.97.1 clippy --offline --locked --all-targets --features lab -- -D warnings
+    Checking parking v2.2.1
+    Checking pin-project-lite v0.2.17
+    Checking futures-core v0.3.34
+    Checking futures-io v0.3.34
+    Checking fastrand v2.5.0
+    Checking bitflags v2.13.2
+    Checking linux-raw-sys v0.12.1
+    Checking cfg-if v1.0.5
+    Checking crossbeam-utils v0.8.23
+    Checking libc v0.2.191
+    Checking slab v0.4.12
+    Checking async-task v4.7.1
+    Checking atomic-waker v1.1.2
+    Checking serde_core v1.0.229
+   Compiling serde_json v1.0.154
+    Checking zmij v1.0.23
+    Checking memchr v2.8.3
+    Checking itoa v1.0.19
+    Checking thiserror v1.0.69
+    Checking log v0.4.35
+    Checking bitmaps v3.2.1
+    Checking event-listener v5.4.2
+    Checking futures-timer v3.0.4
+    Checking xxhash-rust v0.8.21
+    Checking hashbrown v0.17.1
+    Checking futures-lite v2.6.1
+    Checking piper v0.2.5
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+    Checking async-lock v3.5.0
+    Checking async-channel v2.5.0
+    Checking blocking v1.7.0
+    Checking async-executor v1.14.1
+    Checking async-fs v2.2.0
+    Checking errno v0.3.15
+    Checking io-uring v0.7.16
+    Checking signal-hook-registry v1.4.8
+    Checking rustix v1.1.6
+    Checking serde v1.0.229
+    Checking libublk-rs-sys v0.1.2
+    Checking polling v3.11.0
+    Checking async-io v2.6.0
+    Checking async-signal v0.2.14
+    Checking async-net v2.0.0
+    Checking async-process v2.5.0
+    Checking smol v2.0.2
+    Checking libublk v0.4.8
+    Checking block-storage v0.0.0 (/dev/shm/adr05-f02.StdZyN05/rust)
+    Finished `dev` profile [unoptimized] target(s) in 2.27s
++ for group in format_v4_protocol checkpoint_replay stale_tail reclaim
++ timeout 120 cargo +1.97.1 test --offline --locked --lib tests::format_v4_protocol::
+   Compiling block-storage v0.0.0 (/dev/shm/adr05-f02.StdZyN05/rust)
+    Finished `test` profile [unoptimized] target(s) in 0.95s
+     Running unittests src/lib.rs (/dev/shm/adr05-f02.StdZyN05/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 7 tests
+test tests::format_v4_protocol::replay_cursor_skips_intact_old_metadata_but_not_damaged_framing ... ok
+test tests::format_v4_protocol::format_writes_initial_table_page_and_two_equal_roots ... ok
+test tests::format_v4_protocol::link_fsync_precedes_every_write_into_the_new_segment ... ok
+test tests::format_v4_protocol::publication_moves_snapshots_index_and_table_pages_and_older_root_remains_a_fallback ... ok
+test tests::format_v4_protocol::recovery_merges_both_heads_by_global_lsn_and_follows_durable_links ... ok
+test tests::format_v4_protocol::bounded_recovery_publishes_one_root_after_replaying_windows ... ok
+test tests::format_v4_protocol::torn_data_footer_ends_the_prefix_but_torn_metadata_fails_closed ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 191 filtered out; finished in 0.00s
+
++ for group in format_v4_protocol checkpoint_replay stale_tail reclaim
++ timeout 120 cargo +1.97.1 test --offline --locked --lib tests::checkpoint_replay::
+    Finished `test` profile [unoptimized] target(s) in 0.01s
+     Running unittests src/lib.rs (/dev/shm/adr05-f02.StdZyN05/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 13 tests
+test tests::checkpoint_replay::clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum ... ok
+test tests::checkpoint_replay::log_full_write_does_not_publish_live_checkpoint ... ok
+test tests::checkpoint_replay::flush_persists_data_without_advancing_checkpoint ... ok
+test tests::checkpoint_replay::close_persists_snapshot_index_page_and_descriptor ... ok
+test tests::checkpoint_replay::equal_lsn_checkpoints_must_describe_one_checkpoint ... ok
+test tests::checkpoint_replay::close_without_mapping_changes_does_not_publish_checkpoint ... ok
+test tests::checkpoint_replay::reconstructs_every_recovery_cursor_from_replayed_state ... ok
+test tests::checkpoint_replay::falls_back_from_corrupted_newest_descriptor_and_replays_tail ... ok
+test tests::checkpoint_replay::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation ... ok
+test tests::checkpoint_replay::falls_back_from_corrupted_newest_index_page_and_replays_tail ... ok
+test tests::checkpoint_replay::payload_damage_after_flush_is_local_to_the_mapped_version ... ok
+test tests::checkpoint_replay::rejects_invalid_checkpoint_after_bytes_before_touching_backing ... ok
+test tests::checkpoint_replay::checkpoints_before_buffered_group_exceeding_replay_bound ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 185 filtered out; finished in 0.02s
+
++ for group in format_v4_protocol checkpoint_replay stale_tail reclaim
++ timeout 120 cargo +1.97.1 test --offline --locked --lib tests::stale_tail::
+    Finished `test` profile [unoptimized] target(s) in 0.02s
+     Running unittests src/lib.rs (/dev/shm/adr05-f02.StdZyN05/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 12 tests
+test tests::stale_tail::stale_tail_clear_leaves_the_partial_trailing_segment_alone ... ok
+test tests::stale_tail::rejects_invalid_footer_with_nonzero_unused_lba ... ok
+test tests::stale_tail::rejects_invalid_footer_with_zero_payloads ... ok
+test tests::stale_tail::rejects_invalid_footer_declaring_position_beyond_its_segment ... ok
+test tests::stale_tail::rejects_invalid_footer_with_duplicate_lbas ... ok
+test tests::stale_tail::rejects_invalid_footer_with_out_of_range_lba ... ok
+test tests::stale_tail::rejects_invalid_footer_with_nonzero_unused_checksum ... ok
+test tests::stale_tail::recover_after_stale_tail_fsync_boundary ... ok
+test tests::stale_tail::rejects_invalid_footer_above_maximum_payloads ... ok
+test tests::stale_tail::invalid_gap_stops_replay_and_clears_the_rest_of_both_open_segments ... ok
+test tests::stale_tail::recover_after_each_stale_tail_clear_batch_boundary ... ok
+test tests::stale_tail::recovery_accepts_every_format_four_payload_count ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 5.44s
+
++ for group in format_v4_protocol checkpoint_replay stale_tail reclaim
++ timeout 120 cargo +1.97.1 test --offline --locked --lib tests::reclaim::
+    Finished `test` profile [unoptimized] target(s) in 0.01s
+     Running unittests src/lib.rs (/dev/shm/adr05-f02.StdZyN05/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 15 tests
+test tests::reclaim::backing_discard_can_be_disabled ... ok
+test tests::reclaim::entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched ... ok
+test tests::reclaim::backing_growth_adds_free_segments_and_is_idempotent_by_bound ... ok
+test tests::reclaim::fallback_to_the_older_root_replays_a_link_into_a_pending_segment ... ok
+test tests::reclaim::pressure_publishes_a_metadata_only_victim_without_reopen ... ok
+test tests::reclaim::relocation_accounts_for_dirty_pages_between_nonadjacent_source_pages ... ok
+test tests::reclaim::user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy ... ok
+test tests::reclaim::victim_left_with_only_current_metadata_is_released_after_the_next_publication ... ok
+test tests::reclaim::relocation_splits_records_that_need_more_pages_than_the_cache ... ok
+test tests::reclaim::growth_record_survives_sigkill_at_both_boundaries ... ok
+test tests::reclaim::proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn ... ok
+test tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data ... ok
+test tests::reclaim::cleaner_follows_backing_growth_at_runtime_and_after_replay ... ok
+test tests::reclaim::steady_state_writes_reads_and_maintenance_allocate_nothing ... ok
+test tests::reclaim::overwrites_beyond_capacity_reuse_segments_and_keep_latest_values ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 183 filtered out; finished in 0.14s
+
++ sha256sum src/tests/format_v4_protocol.rs src/format_v4/tail.rs
+801ccf4e166a80f9ac3cc6d9cbabdcf9c3d17b036b9130727da93f85105cf180  src/tests/format_v4_protocol.rs
+4e3e417f1d9ef6761165a3e4f5320a85e74d6d98cec67d185c97ae822decb232  src/format_v4/tail.rs

@@ -1,0 +1,49 @@
++ cd /dev/shm/adr05-f01.VuiGzL/rust
++ export CARGO_TARGET_DIR=/dev/shm/adr05-seam.hoNScE/rust/target TMPDIR=/var/tmp CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0
++ CARGO_TARGET_DIR=/dev/shm/adr05-seam.hoNScE/rust/target
++ TMPDIR=/var/tmp
++ CARGO_INCREMENTAL=0
++ CARGO_PROFILE_TEST_DEBUG=0
++ uname -srmo
+Linux 7.2.12-orbstack-00394-gbecdd6130068 aarch64 GNU/Linux
++ rustc +1.97.1 -vV
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: aarch64-unknown-linux-gnu
+release: 1.97.1
+LLVM version: 22.1.6
++ timeout 120 cargo +1.97.1 test --locked --offline --lib pre_io_capacity_enospc_keeps_volume_usable -- --nocapture
+   Compiling block-storage v0.0.0 (/dev/shm/adr05-f01.VuiGzL/rust)
+    Finished `test` profile [unoptimized] target(s) in 0.97s
+     Running unittests src/lib.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 1 test
+capacity ENOSPC: backing write hits=0 image unchanged; subsequent flush ok
+test accounted_io::fault_plan::adr05_seam::pre_io_capacity_enospc_keeps_volume_usable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 196 filtered out; finished in 0.02s
+
++ timeout 120 cargo +1.97.1 test --locked --offline --lib backing_enospc_at_checkpoint_b_final_fsync_must_latch -- --ignored --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.01s
+     Running unittests src/lib.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 1 test
+checkpoint B final fsync: No space left on device (os error 28), hits=1 failed=false subsequent_flush=Ok(())
+
+thread 'accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch' (2409990) panicked at src/accounted_io/fault_plan/adr05_seam.rs:276:5:
+a backing failure must not bypass the volume latch
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+failed fixture: /var/tmp/adr05-seam-2409989-0
+test accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch ... FAILED
+
+failures:
+
+failures:
+    accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 196 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`
+exit=101

@@ -1,0 +1,21 @@
+adr05-triage-v1 at 292040d77a9e3c48d23690c5d00e3f92705fc4fa
+Original retained image (working copy) baseline scan via adr05-traces scan small:
+Error: Custom { kind: InvalidData, error: "invalid metadata framing in replay tail" }
+exit=1
+Test-only reproduction before changing probe_next:
+   Compiling block-storage v0.0.0 (/dev/shm/adr05-f02.StdZyN05/rust)
+    Finished `test` profile [unoptimized] target(s) in 1.04s
+     Running unittests src/lib.rs (/dev/shm/adr05-f02.StdZyN05/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 1 test
+Error: Custom { kind: InvalidData, error: "invalid metadata framing in replay tail" }
+test tests::format_v4_protocol::replay_cursor_skips_intact_old_metadata_but_not_damaged_framing ... FAILED
+
+failures:
+
+failures:
+    tests::format_v4_protocol::replay_cursor_skips_intact_old_metadata_but_not_damaged_framing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 197 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

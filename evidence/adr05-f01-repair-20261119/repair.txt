@@ -1,0 +1,123 @@
++ cd /dev/shm/adr05-f01.VuiGzL/rust
++ export CARGO_TARGET_DIR=/dev/shm/adr05-seam.hoNScE/rust/target TMPDIR=/var/tmp CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0
++ CARGO_TARGET_DIR=/dev/shm/adr05-seam.hoNScE/rust/target
++ TMPDIR=/var/tmp
++ CARGO_INCREMENTAL=0
++ CARGO_PROFILE_TEST_DEBUG=0
++ date -u
+Thu Nov 19 04:27:49 PM UTC 2026
++ timeout 120 cargo +1.97.1 test --locked --offline --lib adr05_seam -- --nocapture
+   Compiling block-storage v0.0.0 (/dev/shm/adr05-f01.VuiGzL/rust)
+    Finished `test` profile [unoptimized] target(s) in 1.03s
+     Running unittests src/lib.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 6 tests
+second open read: Reject(5) hits=1 no writes; Input/output error (os error 5)
+second open read: ShortZero hits=1 no writes; short io_uring operation
+test accounted_io::fault_plan::adr05_seam::open_io_and_zero_byte_read_fail_without_image_changes ... ok
+capacity ENOSPC: backing write hits=0 image unchanged; subsequent flush ok
+test accounted_io::fault_plan::adr05_seam::pre_io_capacity_enospc_keeps_volume_usable ... ok
+short writev: hits=1 ledger errors +1, pending=0, durable overwrite unchanged
+format: native == no-hit; second write ENOSPC hits=1 roots unpublished
+test accounted_io::fault_plan::adr05_seam::writev_short_releases_no_bytes_and_charges_existing_failure_path ... ok
+test accounted_io::fault_plan::adr05_seam::format_no_hit_is_byte_identical_and_enospc_stops_before_first_root ... ok
+second fsync: completed then reported EIO hits=1; recovered latest write
+test accounted_io::fault_plan::adr05_seam::completed_fsync_can_report_uncertain_completion_and_latch_volume ... ok
+checkpoint B final fsync: No space left on device (os error 28), hits=1 failed=true subsequent_flush=Err(Custom { kind: Other, error: "volume failed" })
+test accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 191 filtered out; finished in 0.05s
+
++ timeout 120 cargo +1.97.1 test --locked --offline --bin block-storage-ublk latched_enospc_preserves_errno_and_fails_the_queue -- --nocapture
+   Compiling block-storage v0.0.0 (/dev/shm/adr05-f01.VuiGzL/rust)
+    Finished `test` profile [unoptimized] target(s) in 0.61s
+     Running unittests src/bin/block-storage-ublk.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage_ublk-273a2730ecb1506b)
+
+running 1 test
+test tests::latched_enospc_preserves_errno_and_fails_the_queue ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.01s
+
++ timeout 120 cargo +1.97.1 test --locked --offline --lib tests::reclaim
+    Finished `test` profile [unoptimized] target(s) in 0.01s
+     Running unittests src/lib.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 16 tests
+test tests::reclaim::backing_growth_adds_free_segments_and_is_idempotent_by_bound ... ok
+test tests::reclaim::backing_discard_can_be_disabled ... ok
+test tests::reclaim::entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched ... ok
+test tests::reclaim::fallback_to_the_older_root_replays_a_link_into_a_pending_segment ... ok
+test tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data ... ok
+test tests::reclaim::relocation_accounts_for_dirty_pages_between_nonadjacent_source_pages ... ok
+test tests::reclaim::growth_record_survives_sigkill_at_both_boundaries ... ok
+test tests::reclaim::relocation_splits_records_that_need_more_pages_than_the_cache ... ok
+test tests::reclaim::user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy ... ok
+test tests::reclaim::victim_left_with_only_current_metadata_is_released_after_the_next_publication ... ok
+test tests::reclaim::proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn ... ok
+test tests::reclaim::pressure_publishes_a_metadata_only_victim_without_reopen ... ok
+test tests::reclaim::cleaner_follows_backing_growth_at_runtime_and_after_replay ... ok
+test tests::reclaim::steady_state_writes_reads_and_maintenance_allocate_nothing ... ok
+test tests::reclaim::overwrites_beyond_capacity_reuse_segments_and_keep_latest_values ... ok
+test tests::reclaim_crash::relocation_and_barrier_crashes_keep_a_consistent_prefix_and_a_usable_volume ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 181 filtered out; finished in 1.68s
+
++ timeout 90 cargo +1.97.1 test --locked --offline --bin block-storage-ublk
+    Finished `test` profile [unoptimized] target(s) in 0.01s
+     Running unittests src/bin/block-storage-ublk.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage_ublk-273a2730ecb1506b)
+
+running 37 tests
+test request_counts::tests::counts_each_flag_combination_including_discovery_and_unknown_requests ... ok
+test request_counts::tests::report_propagates_output_failures ... ok
+test request_counts::tests::capacity_and_counter_overflow_cannot_report_complete_evidence ... ok
+test tests::accepts_fua_writes_but_rejects_fua_reads_flushes_and_unknown_flags ... ok
+test request_counts::tests::totals_decode_operations_and_exclude_cancelled_requests ... ok
+test tests::configures_exact_v07_target_parameters ... ok
+test tests::configures_single_queue_with_derived_depth ... ok
+test tests::configures_unprivileged_control_without_user_recovery ... ok
+test tests::decodes_only_exact_supported_requests ... ok
+test tests::daemon_shutdown_propagates_each_error ... ok
+test tests::failfast_read_hints_preserve_results_and_geometry_checks ... ok
+test tests::fetched_requests_complete_once_without_shutdown_or_post_failure_engine_io ... ok
+test tests::readiness_line_is_explicitly_flushed_and_flush_errors_are_returned ... ok
+test tests::format_new_rejects_invalid_or_insufficient_space_before_file_io ... ok
+test tests::maps_engine_capacity_and_fatal_errors_to_stable_errno ... ok
+test tests::rejects_duplicate_sizes_byte_flags_aliases_and_forced_segments ... ok
+test tests::rejects_invalid_arguments_and_negative_delete_ids ... ok
+test tests::parses_explicit_commands ... ok
+test tests::format_new_never_overwrites_an_existing_path ... ok
+test tests::invalid_optional_ledger_fails_before_backing_creation ... ok
+test tests::metadata_hint_preserves_read_write_decoding_and_validation ... ok
+test tests::format_requires_logical_and_raw_sizes_and_defaults_to_full_logical_fill ... ok
+test tests::shutdown_reports_queue_and_close_errors ... ok
+test tests::serve_config_validation_and_depth_derivation ... ok
+test tests::stop_control_uses_recorded_id_on_stop_thread ... ok
+
+running 1 test
+test tests::signal_state_stops_new_work_and_handler_is_restored ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.00s
+
+info event=format logical_bytes=134217728 raw_bytes=335544320 segment_bytes=16777216 min_logical_fill_percent=100 expected_max_logical_fill_percent=100
+info event=format logical_bytes=134217728 raw_bytes=134217728 segment_bytes=8388608 min_logical_fill_percent=50 expected_max_logical_fill_percent=51
+test tests::exclusive_backing_lock_tracks_the_inode_and_owner_process ... ok
+test tests::signal_state_stops_new_work_and_handler_is_restored ... ok
+test tests::rejects_a_short_libublk_buffer_without_engine_io ... ok
+test tests::latched_enospc_preserves_errno_and_fails_the_queue ... ok
+test tests::shutdown_waits_for_in_flight_work_before_stopping ... ok
+test tests::adapter_targets_exact_lba_and_flushes_with_stale_descriptor_geometry ... ok
+test tests::discard_and_write_zeroes_unmap_blocks_and_persist ... ok
+test tests::multi_block_request_splits_into_consecutive_logical_blocks ... ok
+test tests::fatal_engine_error_is_completed_before_post_failure_work_is_rejected ... ok
+test tests::cache_budget_reaches_engine_and_fua_persists_across_mapping_pages ... ok
+test tests::format_new_honors_partial_fill_that_default_rejects ... ok
+test tests::format_new_sizes_formats_and_opens_exact_image ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
++ cargo +1.97.1 fmt --check
++ timeout 120 cargo +1.97.1 clippy --locked --offline --all-targets --features lab -- -D warnings
+   Compiling serde_json v1.0.154
+    Checking libublk v0.4.8
+    Checking block-storage v0.0.0 (/dev/shm/adr05-f01.VuiGzL/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.32s
