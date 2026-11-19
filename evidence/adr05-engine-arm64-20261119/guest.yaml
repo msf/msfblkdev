@@ -1,0 +1,20 @@
+vmType: vz
+arch: aarch64
+cpus: 4
+memory: 5GiB
+disk: 20GiB
+images:
+- location: "/Volumes/test-vol/eng-pIwse2/debian-13-generic-arm64-20261116-2664.qcow2"
+  arch: aarch64
+  digest: "sha512:3d4655799e64ca93f51832da31101188f28e01cb14fec2164ac9a7a5f70f303b80f72e9632498dd9cb0099ad04b12c186bffe4f0cd50c5e739faa3ee85007eb0"
+mounts: []
+additionalDisks:
+- name: engine-scratch
+  format: true
+  fsType: ext4
+ssh:
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+containerd:
+  system: false
+  user: false

@@ -1,0 +1,81 @@
+ADR-05 injector probe (no engine)
+source_base=140fc81173fdb480bd33d11d19e7d2fcfbf0eab8
+source_changes=uncommitted standalone probe-io.c and guest-probe.py; exact SHA256 below
+ProductName:		macOS
+ProductVersion:		26.7.3
+BuildVersion:		25G342
+limactl version 2.2.0
+vmType=vz arch=aarch64 mounts=[] os_disk=14GiB scratch_disk=512MiB
+image=https://cloud.debian.org/images/cloud/trixie/20261116-2664/debian-13-generic-arm64-20261116-2664.qcow2
+SHA512 from Debian HTTPS SHA512SUMS: 3d4655799e64ca93f51832da31101188f28e01cb14fec2164ac9a7a5f70f303b80f72e9632498dd9cb0099ad04b12c186bffe4f0cd50c5e739faa3ee85007eb0  debian-13-generic-arm64-20261116-2664.qcow2
+debian-13-generic-arm64-20261116-2664.qcow2: OK
+
+Guest transcript:
++ date -u
+Thu Nov 19 10:38:41 UTC 2026
++ uname -srmo
+Linux 6.12.117+deb13-arm64 aarch64 GNU/Linux
++ id
+uid=501(miguel) gid=1000(miguel) groups=1000(miguel),46(plugdev),999(systemd-journal)
++ lsblk -bo NAME,MAJ:MIN,SIZE,FSTYPE,UUID,MOUNTPOINT
+NAME    MAJ:MIN        SIZE FSTYPE  UUID                                 MOUNTPOINT
+vda     254:0   15032385536                                              
+├─vda1  254:1   14898150912 ext4    050705a5-be90-410a-81b9-b6714a0b0569 /
+└─vda15 254:15    133169152 vfat    7674-06C7                            /boot/efi
+vdb     254:16    536870912                                              
+└─vdb1  254:17    534773760 ext4    7e907dc9-564e-4c9f-b5fe-73d8d29f5f3b /mnt/lima-scratch-gsn55i
+vdc     254:32     19906560 iso9660 2026-11-19-10-34-18-79               /mnt/lima-cidata
++ findmnt -n -o SOURCE,FSTYPE,OPTIONS -M /mnt/lima-scratch-gsn55i
+/dev/vdb1 ext4 rw,relatime
+++ uname -r
++ grep -E '^CONFIG_(IO_URING|BLK_DEV_UBLK|FUSE_FS)=' /boot/config-6.12.117+deb13-arm64
+CONFIG_IO_URING=y
+CONFIG_BLK_DEV_UBLK=m
+CONFIG_FUSE_FS=y
++ cc -dumpmachine
+aarch64-linux-gnu
++ cc --version
+cc (Debian 14.2.0-19) 14.2.0
+Copyright (C) 2024 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
++ cc -std=c11 -Wall -Wextra -Werror -O2 -o probe-io probe-io.c -luring
+++ uname -r
++ sha256sum guest-probe.py probe-io.c probe-io /boot/config-6.12.117+deb13-arm64
+368db0ee0eb66c2f9743b8762e137ef6afd660503f0bc8cf92663a12de2bd9e2  guest-probe.py
+82868a832e26e6a3b1d432d95a0bdd4c350aecf2f07822694b0f0e4913d993a3  probe-io.c
+fc040f6cc1e4d015fa8563bb6a69a5f25b10c222f00b20df0dea5eacacbcae73  probe-io
+9262ff03af4f202d43819e3b322d64cc0b268937001cb6fb0821bf4c30177a13  /boot/config-6.12.117+deb13-arm64
++ timeout -k 5s 90s python3 -u guest-probe.py /mnt/lima-scratch-gsn55i/probe /dev/vdb1
+qemu-storage-daemon version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)
+Copyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers
+preflight=ok uid=501 scratch=/mnt/lima-scratch-gsn55i/probe device=/dev/vdb1 fstype=ext4 image_bytes=4096 max_pwrite_bytes=20480
+case=normal fixture=/mnt/lima-scratch-gsn55i/probe/adr05-normal-8ibac11q
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-scratch-gsn55i/probe/adr05-normal-8ibac11q/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base"}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-scratch-gsn55i/probe/adr05-normal-8ibac11q/export"}'
+op=pwrite result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0xa5
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=normal base_match=1 elapsed_s=0.058 result=PASS
+case=write fixture=/mnt/lima-scratch-gsn55i/probe/adr05-write-byailhl3
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-scratch-gsn55i/probe/adr05-write-byailhl3/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "write_aio", "iotype": "write", "errno": 5, "once": true}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-scratch-gsn55i/probe/adr05-write-byailhl3/export"}'
+op=pwrite result=-1 errno=5 expected=-1 expected_errno=5
+op=pwrite.retry result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0xa5
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=write base_match=1 elapsed_s=0.059 result=PASS
+case=fsync fixture=/mnt/lima-scratch-gsn55i/probe/adr05-fsync-afpwlfs6
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-scratch-gsn55i/probe/adr05-fsync-afpwlfs6/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "flush_to_disk", "iotype": "flush", "errno": 5, "once": true}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-scratch-gsn55i/probe/adr05-fsync-afpwlfs6/export"}'
+op=pwrite result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=-1 errno=5 expected=-1 expected_errno=5
+op=pwrite.after-fsync result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync.retry result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0x5a
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=fsync base_match=1 elapsed_s=0.057 result=PASS
+injector=PASS

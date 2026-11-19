@@ -1,0 +1,57 @@
++ timeout -k5 90 python3 -u engine-checkpoint.py /mnt/lima-engine-scratch/probe /dev/vdb1 ../engine-src/rust/target/debug/examples/adr05-engine
+fixtures=/mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e device=/dev/vdb1 client=/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine format-new /mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/control/image
+qemu-storage-daemon --trace enable=blk_co_pwritev --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/control/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base"}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/control/export"}'
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine control /mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/control/export
+blk_co_pwritev blk 0xaaaac73b5010 bs 0xaaaac73bcfd0 offset 12288 bytes 126976 flags 0x0
+blk_co_pwritev blk 0xaaaac73b5010 bs 0xaaaac73bcfd0 offset 139264 bytes 131072 flags 0x0
+blk_co_pwritev blk 0xaaaac73b5010 bs 0xaaaac73bcfd0 offset 12288 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0x17 result=ok
+blk_co_pwritev blk 0xaaaac73b5010 bs 0xaaaac73bcfd0 offset 20480 bytes 8192 flags 0x0
+op=write_block lba=5 byte=0x53 result=ok
+blk_co_pwritev blk 0xaaaac73b5010 bs 0xaaaac73bcfd0 offset 28672 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0xab result=ok
+op=flush result=ok
+blk_co_pwritev blk 0xaaaac73b5010 bs 0xaaaac73bcfd0 offset 36864 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaac73b5010 bs 0xaaaac73bcfd0 offset 40960 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaac73b5010 bs 0xaaaac73bcfd0 offset 4096 bytes 4096 flags 0x0
+op=close result=ok
+case=control roots_before=['cd8672394f45e3b46e7811148cc82bf989a1c299d907625373aec7706bbeca90', 'eb7ecee3c2879fe9b35af3f278d1c3872d14292afb3130ffb06cfaa50b8ed560'] roots_after=['cd8672394f45e3b46e7811148cc82bf989a1c299d907625373aec7706bbeca90', 'b4f3d1171cd7d4b857f1561e8582bfc33fb2b07b99ad693f35fea2c96da941f9']
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine verify-copy /mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/control/recovery-copy
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+op=read_block lba=1 byte=0xab bytes=4096 match=true
+op=read_block lba=2 byte=0x00 bytes=4096 match=true
+op=read_block lba=3 byte=0x00 bytes=4096 match=true
+op=read_block lba=4 byte=0x00 bytes=4096 match=true
+op=read_block lba=5 byte=0x53 bytes=4096 match=true
+op=read_block lba=6 byte=0x00 bytes=4096 match=true
+op=read_block lba=7 byte=0x00 bytes=4096 match=true
+case=control result=PASS elapsed_s=0.086
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine format-new /mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/descriptor-eio/image
+qemu-storage-daemon --trace enable=blk_co_pwritev --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/descriptor-eio/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "write_aio", "iotype": "write", "sector": 8, "once": true, "errno": 5}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/descriptor-eio/export"}'
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine descriptor-eio /mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/descriptor-eio/export
+blk_co_pwritev blk 0xaaaadb2ae2f0 bs 0xaaaadb2a7fa0 offset 12288 bytes 126976 flags 0x0
+blk_co_pwritev blk 0xaaaadb2ae2f0 bs 0xaaaadb2a7fa0 offset 139264 bytes 131072 flags 0x0
+blk_co_pwritev blk 0xaaaadb2ae2f0 bs 0xaaaadb2a7fa0 offset 12288 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0x17 result=ok
+blk_co_pwritev blk 0xaaaadb2ae2f0 bs 0xaaaadb2a7fa0 offset 20480 bytes 8192 flags 0x0
+op=write_block lba=5 byte=0x53 result=ok
+blk_co_pwritev blk 0xaaaadb2ae2f0 bs 0xaaaadb2a7fa0 offset 28672 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0xab result=ok
+op=flush result=ok
+blk_co_pwritev blk 0xaaaadb2ae2f0 bs 0xaaaadb2a7fa0 offset 36864 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaadb2ae2f0 bs 0xaaaadb2a7fa0 offset 40960 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaadb2ae2f0 bs 0xaaaadb2a7fa0 offset 4096 bytes 4096 flags 0x0
+op=close errno=5 result=expected_eio
+case=descriptor-eio roots_before=['dca551b45fee09eab1b5c609b873c10bae426c6db319a67ad3738d0d3708cd43', '4373081d1df4725f452aa45af1a4fafa10ab7667a539c58747b219de4ba38548'] roots_after=['dca551b45fee09eab1b5c609b873c10bae426c6db319a67ad3738d0d3708cd43', '4373081d1df4725f452aa45af1a4fafa10ab7667a539c58747b219de4ba38548']
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine verify-copy /mnt/lima-engine-scratch/probe/adr05-engine-tda66c5e/descriptor-eio/recovery-copy
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+op=read_block lba=1 byte=0xab bytes=4096 match=true
+op=read_block lba=2 byte=0x00 bytes=4096 match=true
+op=read_block lba=3 byte=0x00 bytes=4096 match=true
+op=read_block lba=4 byte=0x00 bytes=4096 match=true
+op=read_block lba=5 byte=0x53 bytes=4096 match=true
+op=read_block lba=6 byte=0x00 bytes=4096 match=true
+op=read_block lba=7 byte=0x00 bytes=4096 match=true
+case=descriptor-eio result=PASS elapsed_s=0.108
+engine_checkpoint=PASS

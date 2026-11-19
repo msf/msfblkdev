@@ -1,0 +1,56 @@
++ timeout -k5 25 python3 -u -
+fixtures=/mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws device=/dev/vdb1 client=/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine format-new /mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/control/image
+qemu-storage-daemon --trace enable=blk_co_pwritev --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/control/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base"}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/control/export"}'
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine control /mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/control/export
+blk_co_pwritev blk 0xaaab14700010 bs 0xaaab14707fd0 offset 12288 bytes 126976 flags 0x0
+blk_co_pwritev blk 0xaaab14700010 bs 0xaaab14707fd0 offset 139264 bytes 131072 flags 0x0
+blk_co_pwritev blk 0xaaab14700010 bs 0xaaab14707fd0 offset 12288 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0x17 result=ok
+blk_co_pwritev blk 0xaaab14700010 bs 0xaaab14707fd0 offset 20480 bytes 8192 flags 0x0
+op=write_block lba=5 byte=0x53 result=ok
+blk_co_pwritev blk 0xaaab14700010 bs 0xaaab14707fd0 offset 28672 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0xab result=ok
+op=flush result=ok
+blk_co_pwritev blk 0xaaab14700010 bs 0xaaab14707fd0 offset 36864 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaab14700010 bs 0xaaab14707fd0 offset 40960 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaab14700010 bs 0xaaab14707fd0 offset 4096 bytes 4096 flags 0x0
+op=close result=ok
+case=control roots_before=['3aebe22a678407d4d9c3dd89e32affff1b0f5a708ec3e3368adfb60aa2cf13bf', '5a594b9b279db88b4060846f244f3f144d4de10f20699c54ede7077d768dc798'] roots_after=['3aebe22a678407d4d9c3dd89e32affff1b0f5a708ec3e3368adfb60aa2cf13bf', '86ceb272b1e09ceec3e91a8c3b2c36bcd6cf368d0de95a3fef9f602f75464c87']
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine verify-copy /mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/control/recovery-copy
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+op=read_block lba=1 byte=0xab bytes=4096 match=true
+op=read_block lba=2 byte=0x00 bytes=4096 match=true
+op=read_block lba=3 byte=0x00 bytes=4096 match=true
+op=read_block lba=4 byte=0x00 bytes=4096 match=true
+op=read_block lba=5 byte=0x53 bytes=4096 match=true
+op=read_block lba=6 byte=0x00 bytes=4096 match=true
+op=read_block lba=7 byte=0x00 bytes=4096 match=true
+case=control result=PASS elapsed_s=0.080
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine format-new /mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/descriptor-eio/image
+qemu-storage-daemon --trace enable=blk_co_pwritev --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/descriptor-eio/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "write_aio", "iotype": "write", "sector": 3000, "once": true, "errno": 5}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/descriptor-eio/export"}'
+/home/miguel.guest/engine-src/rust/target/debug/examples/adr05-engine descriptor-eio /mnt/lima-engine-scratch/probe/adr05-engine-ifs8o5ws/descriptor-eio/export
+blk_co_pwritev blk 0xaaaad65ca2f0 bs 0xaaaad65c3fa0 offset 12288 bytes 126976 flags 0x0
+blk_co_pwritev blk 0xaaaad65ca2f0 bs 0xaaaad65c3fa0 offset 139264 bytes 131072 flags 0x0
+blk_co_pwritev blk 0xaaaad65ca2f0 bs 0xaaaad65c3fa0 offset 12288 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0x17 result=ok
+blk_co_pwritev blk 0xaaaad65ca2f0 bs 0xaaaad65c3fa0 offset 20480 bytes 8192 flags 0x0
+op=write_block lba=5 byte=0x53 result=ok
+blk_co_pwritev blk 0xaaaad65ca2f0 bs 0xaaaad65c3fa0 offset 28672 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0xab result=ok
+op=flush result=ok
+blk_co_pwritev blk 0xaaaad65ca2f0 bs 0xaaaad65c3fa0 offset 36864 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaad65ca2f0 bs 0xaaaad65c3fa0 offset 40960 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaad65ca2f0 bs 0xaaaad65c3fa0 offset 4096 bytes 4096 flags 0x0
+Error: Custom { kind: Other, error: "checkpoint close missed EIO" }
+wrong_sector_rejected=true
+++ mktemp -d /mnt/lima-engine-scratch/probe/negative.XXXXXX
++ p=/mnt/lima-engine-scratch/probe/negative.VC6MXM
++ bin=../engine-src/rust/target/debug/examples/adr05-engine
++ timeout 8 ../engine-src/rust/target/debug/examples/adr05-engine format-new /mnt/lima-engine-scratch/probe/negative.VC6MXM/empty
++ timeout 8 ../engine-src/rust/target/debug/examples/adr05-engine verify-copy /mnt/lima-engine-scratch/probe/negative.VC6MXM/empty
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+Error: Custom { kind: Other, error: "wrong recovered bytes at LBA 1" }
+missing_history_rejected=true
++ test 1 = 1
++ echo missing_history_rejected=true

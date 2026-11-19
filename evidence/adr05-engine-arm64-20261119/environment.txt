@@ -1,0 +1,59 @@
+source_base=140fc81173fdb480bd33d11d19e7d2fcfbf0eab8
+All tracked rust/ files on guest matched git archive of source_base (SHA256). The only additional Rust source in this build is examples/adr05-engine.rs; no engine failpoints or features enabled.
+Darwin liskov 25.6.0 Darwin Kernel Version 25.6.0: Mon Oct 12 00:41:41 PDT 2026; root:xnu-12377.161.15.701.48~2/RELEASE_ARM64_T6050 arm64 arm Darwin
+ProductName:		macOS
+ProductVersion:		26.7.3
+BuildVersion:		25G342
+limactl version 2.2.0
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/disk3s8    187G  2.1M  187G   1% /Volumes/test-vol
+https://cloud.debian.org/images/cloud/trixie/20261116-2664/debian-13-generic-arm64-20261116-2664.qcow2
+debian-13-generic-arm64-20261116-2664.qcow2: OK
++ . /home/miguel.guest/.cargo/env
+++ case ":${PATH}:" in
++ date -u
+Thu Nov 19 10:56:13 UTC 2026
++ uname -a
+Linux lima-eng-adr05 6.12.117+deb13-arm64 #1 SMP Debian 6.12.117-1 (2026-11-12) aarch64 GNU/Linux
++ id
+uid=501(miguel) gid=1000(miguel) groups=1000(miguel),46(plugdev),999(systemd-journal)
++ lsblk -bo NAME,MAJ:MIN,SIZE,FSTYPE,MOUNTPOINT,UUID
+NAME    MAJ:MIN        SIZE FSTYPE  MOUNTPOINT               UUID
+vda     254:0   21474836480                                  
+├─vda1  254:1   21340601856 ext4    /                        050705a5-be90-410a-81b9-b6714a0b0569
+└─vda15 254:15    133169152 vfat    /boot/efi                7674-06C7
+vdb     254:16    536870912                                  
+└─vdb1  254:17    534773760 ext4    /mnt/lima-engine-scratch 65a6eff5-5529-489a-9dd2-3fedeaf9d7f7
+vdc     254:32     19906560 iso9660 /mnt/lima-cidata         2026-11-19-10-51-47-04
++ rustc -vV
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: aarch64-unknown-linux-gnu
+release: 1.97.1
+LLVM version: 22.1.6
++ qemu-storage-daemon --version
+qemu-storage-daemon version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)
+Copyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers
+++ uname -r
++ sha256sum engine-src/rust/Cargo.lock engine-src/rust/examples/adr05-engine.rs engine-src/rust/target/debug/examples/adr05-engine engine-lab/engine-checkpoint.py engine-lab/qsd.py engine-lab/guest-probe.py engine-lab/probe-io.c engine-lab/probe-io /boot/config-6.12.117+deb13-arm64
+8c799d365eb3f0e66e776533bdcbdfd9ce69550bee566f9cbd0864ec87b50249  engine-src/rust/Cargo.lock
+89b9499ded1e585206b5ae9259124b6307d84a94da7c7257f2f8ede34c9bf6c5  engine-src/rust/examples/adr05-engine.rs
+20014b6943c883eab1cea6c8a3238a01a1a3d806e7205bb5c6d4fc2320d1f0e3  engine-src/rust/target/debug/examples/adr05-engine
+c0dbb1c6680978950e75ebec752bf1c69a73be380d949fc4b8bafe9619754397  engine-lab/engine-checkpoint.py
+aabde5f42ec4a986e75b42662b510eb811aeb8f6febc162989d4857b7ed0693c  engine-lab/qsd.py
+6d974c4e847401a9584d241b4219bac1940bcfe2c02d0473ac13073a10cafa4c  engine-lab/guest-probe.py
+82868a832e26e6a3b1d432d95a0bdd4c350aecf2f07822694b0f0e4913d993a3  engine-lab/probe-io.c
+fc040f6cc1e4d015fa8563bb6a69a5f25b10c222f00b20df0dea5eacacbcae73  engine-lab/probe-io
+9262ff03af4f202d43819e3b322d64cc0b268937001cb6fb0821bf4c30177a13  /boot/config-6.12.117+deb13-arm64
+++ uname -r
++ grep -E '^CONFIG_(IO_URING|FUSE_FS|BLK_DEV_UBLK)=' /boot/config-6.12.117+deb13-arm64
+CONFIG_IO_URING=y
+CONFIG_BLK_DEV_UBLK=m
+CONFIG_FUSE_FS=y
++ dpkg-query -W gcc liburing-dev qemu-utils fuse3
+fuse3	3.17.2-3
+gcc	4:14.2.0-1
+liburing-dev:arm64	2.9-1
+qemu-utils	1:10.0.13+ds-0+deb13u1

@@ -1,0 +1,36 @@
+time="2026-11-19T10:55:02Z" level=info msg="Exiting ssh session for the instance `eng-adr05`"
++ id
+uid=501(miguel) gid=1000(miguel) groups=1000(miguel),46(plugdev),999(systemd-journal)
++ cc -std=c11 -Wall -Wextra -Werror -O2 -o probe-io probe-io.c -luring
++ timeout -k5 90 python3 -u guest-probe.py /mnt/lima-engine-scratch/probe /dev/vdb1
+qemu-storage-daemon version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)
+Copyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers
+preflight=ok uid=501 scratch=/mnt/lima-engine-scratch/probe device=/dev/vdb1 fstype=ext4 image_bytes=4096 max_pwrite_bytes=20480
+case=normal fixture=/mnt/lima-engine-scratch/probe/adr05-normal-dxteay7q
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-engine-scratch/probe/adr05-normal-dxteay7q/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base"}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-engine-scratch/probe/adr05-normal-dxteay7q/export"}'
+op=pwrite result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0xa5
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=normal base_match=1 elapsed_s=0.062 result=PASS
+case=write fixture=/mnt/lima-engine-scratch/probe/adr05-write-p0_nsolp
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-engine-scratch/probe/adr05-write-p0_nsolp/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "write_aio", "iotype": "write", "errno": 5, "once": true}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-engine-scratch/probe/adr05-write-p0_nsolp/export"}'
+op=pwrite result=-1 errno=5 expected=-1 expected_errno=5
+op=pwrite.retry result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0xa5
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=write base_match=1 elapsed_s=0.059 result=PASS
+case=fsync fixture=/mnt/lima-engine-scratch/probe/adr05-fsync-2nh1uyir
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-engine-scratch/probe/adr05-fsync-2nh1uyir/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "flush_to_disk", "iotype": "flush", "errno": 5, "once": true}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-engine-scratch/probe/adr05-fsync-2nh1uyir/export"}'
+op=pwrite result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=-1 errno=5 expected=-1 expected_errno=5
+op=pwrite.after-fsync result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync.retry result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0x5a
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=fsync base_match=1 elapsed_s=0.058 result=PASS
+injector=PASS

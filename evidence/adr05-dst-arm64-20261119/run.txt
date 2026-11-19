@@ -1,0 +1,106 @@
+ADR-05 checkpoint B: fixed descriptor-survival simulation (format 4)
+
+Build: Debian arm64 (OrbStack dev). No added dependencies. Separate test binary only.
+CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0; default crate features (unit tests enable failpoints).
+Source: 140fc81173fdb480bd33d11d19e7d2fcfbf0eab8 plus tests/reclaim.rs module registration
+and new tests/reclaim/descriptor_survival.rs. See transcript for source and ELF SHA-256.
+
+Model: 8 logical blocks, 12 segments of 8 blocks, 4 KiB blocks. Write LBAs 0..2 twice:
+first values 1/2/3, then 10/11/12 (little-endian u32 repeated across each block). Flush.
+Publish A until segment 0 is pending on disk. No subsequent client writes. Two children
+start from copies of A. Stop one after B's records fsync, one after B's descriptor write.
+A failed descriptor fsync adds no guarantee: the crash image can retain the old slot or
+the completed new descriptor. The test requires the cuts to agree on every other byte.
+Open a fresh copy of each image; check selected root, segment 0's state and all 8 LBAs.
+The control rewrites a block still needed by A; reading flushed LBA 0 must detect damage.
+
+Limits: one fixture, one pending 4 KiB write assumed atomic for this model. No physical
+power cut, simulated io_uring implementation, injected errno or control of thread scheduling.
+This control does not independently traverse every reference reachable from every root.
+
+Native builder transcript:
++ rustc +1.97.1 -vV
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: aarch64-unknown-linux-gnu
+release: 1.97.1
+LLVM version: 22.1.6
++ timeout 60 cargo +1.97.1 test --offline --locked --lib descriptor_survival -- --nocapture
+   Compiling block-storage v0.0.0 (/var/tmp/adr05-dst-build-3wxsBt/rust)
+    Finished `test` profile [unoptimized] target(s) in 0.98s
+     Running unittests src/lib.rs (target/debug/deps/block_storage-0092e8180c316dad)
+
+running 1 test
+descriptor_slot=Green checkpoint_lsn=13 segment_0=PendingFree verified_lbas=8
+descriptor_slot=Blue checkpoint_lsn=14 segment_0=Free verified_lbas=8
+control=early-reuse lba=0 physical=18 detected=payload checksum mismatch
+test tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 189 filtered out; finished in 0.04s
+
++ timeout 90 cargo +1.97.1 clippy --offline --locked --lib --tests -- -D warnings
+    Checking block-storage v0.0.0 (/var/tmp/adr05-dst-build-3wxsBt/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.92s
++ sha256sum Cargo.lock src/tests/reclaim.rs src/tests/reclaim/descriptor_survival.rs target/debug/deps/block_storage-0092e8180c316dad
+8c799d365eb3f0e66e776533bdcbdfd9ce69550bee566f9cbd0864ec87b50249  Cargo.lock
+31657113c8bae2292a299cf1cf226ebecf7a7c045ad1a55075d2d7ec587fb3ca  src/tests/reclaim.rs
+313fd12c7e41dd0acb41c770197ba02af70797ad8bce9fa291266a623ef44730  src/tests/reclaim/descriptor_survival.rs
+397eea5bdfc583e11625c433f969af8c203ef1249773e792cfca538e1d12688a  target/debug/deps/block_storage-0092e8180c316dad
+
+Disposable test host and image (digest verified against Debian HTTPS SHA512SUMS):
+Darwin liskov 25.6.0 Darwin Kernel Version 25.6.0: Mon Oct 12 00:41:41 PDT 2026; root:xnu-12377.161.15.701.48~2/RELEASE_ARM64_T6050 arm64 arm Darwin
+ProductName:		macOS
+ProductVersion:		26.7.3
+BuildVersion:		25G342
+limactl version 2.2.0
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/disk3s8    187G  2.1M  187G   1% /Volumes/test-vol
+https://cloud.debian.org/images/cloud/trixie/20261116-2664/debian-13-generic-arm64-20261116-2664.qcow2
+3d4655799e64ca93f51832da31101188f28e01cb14fec2164ac9a7a5f70f303b80f72e9632498dd9cb0099ad04b12c186bffe4f0cd50c5e739faa3ee85007eb0  debian-13-generic-arm64-20261116-2664.qcow2
+debian-13-generic-arm64-20261116-2664.qcow2: OK
+
+Guest transcript (separate ext4 scratch disk):
++ date -u
+Thu Nov 19 10:55:55 UTC 2026
++ uname -srmo
+Linux 6.12.117+deb13-arm64 aarch64 GNU/Linux
++ id
+uid=501(miguel) gid=1000(miguel) groups=1000(miguel),46(plugdev),999(systemd-journal)
++ lsblk -bo NAME,SIZE,UUID,FSTYPE,MOUNTPOINT
+NAME           SIZE UUID                                 FSTYPE  MOUNTPOINT
+vda     21474836480                                              
+├─vda1  21340601856 050705a5-be90-410a-81b9-b6714a0b0569 ext4    /
+└─vda15   133169152 7674-06C7                            vfat    /boot/efi
+vdb       536870912                                              
+└─vdb1    534773760 65a6eff5-5529-489a-9dd2-3fedeaf9d7f7 ext4    /mnt/lima-engine-scratch
+vdc        19906560 2026-11-19-10-51-47-04               iso9660 /mnt/lima-cidata
++ chmod 700 adr05-dst-tests
++ printf '%s  adr05-dst-tests\n' 397eea5bdfc583e11625c433f969af8c203ef1249773e792cfca538e1d12688a
++ sha256sum -c -
+adr05-dst-tests: OK
++ sha256sum adr05-dst-tests
+397eea5bdfc583e11625c433f969af8c203ef1249773e792cfca538e1d12688a  adr05-dst-tests
++ ldd ./adr05-dst-tests
+	linux-vdso.so.1 (0x0000ffff80e57000)
+	libgcc_s.so.1 => /lib/aarch64-linux-gnu/libgcc_s.so.1 (0x0000ffff80aa0000)
+	libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff808e0000)
+	/lib/ld-linux-aarch64.so.1 (0x0000ffff80e10000)
++ scratch=/mnt/lima-engine-scratch/probe
+++ findmnt -nro SOURCE,FSTYPE -T /mnt/lima-engine-scratch/probe
++ test '/dev/vdb1 ext4' = '/dev/vdb1 ext4'
+++ mktemp -d /mnt/lima-engine-scratch/probe/dst-recovery.XXXXXX
++ TMPDIR=/mnt/lima-engine-scratch/probe/dst-recovery.CRp3DL
++ export TMPDIR
++ timeout -k 5s 20s ./adr05-dst-tests --exact tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data --nocapture
+
+running 1 test
+descriptor_slot=Green checkpoint_lsn=13 segment_0=PendingFree verified_lbas=8
+descriptor_slot=Blue checkpoint_lsn=14 segment_0=Free verified_lbas=8
+control=early-reuse lba=0 physical=18 detected=payload checksum mismatch
+test tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 189 filtered out; finished in 0.01s
+
++ rmdir /mnt/lima-engine-scratch/probe/dst-recovery.CRp3DL
