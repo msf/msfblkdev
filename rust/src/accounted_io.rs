@@ -2,8 +2,27 @@ use crate::io_accounting::{Operation, Writer};
 use io_uring::{IoUring, opcode, squeue};
 use std::io;
 
+#[cfg(test)]
+pub(crate) mod fault_plan;
+
+struct ExactIo {
+    ring: Option<IoUring>,
+    #[cfg(test)]
+    plan: Option<fault_plan::FaultPlan>,
+}
+
+impl ExactIo {
+    fn submit(&mut self, entry: squeue::Entry, tag: u64, expected: i32) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(action) = self.plan.as_mut().and_then(|plan| plan.hit(&entry)) {
+            return action.submit(&mut self.ring, entry, tag, expected);
+        }
+        super::submit_exact_raw(&mut self.ring, entry, tag, expected)
+    }
+}
+
 pub(super) struct BackingIo {
-    pub(super) ring: Option<IoUring>,
+    exact: ExactIo,
     accounting: Option<Writer>,
     pub(super) mapping_io: crate::format_v4::metrics::MappingIo,
     #[cfg(test)]
@@ -15,7 +34,11 @@ pub(super) struct BackingIo {
 impl BackingIo {
     pub(super) fn new(accounting: Option<Writer>) -> io::Result<Self> {
         Ok(Self {
-            ring: Some(IoUring::new(2)?),
+            exact: ExactIo {
+                ring: Some(IoUring::new(2)?),
+                #[cfg(test)]
+                plan: None,
+            },
             accounting,
             mapping_io: crate::format_v4::metrics::MappingIo::default(),
             #[cfg(test)]
@@ -32,18 +55,15 @@ pub(super) fn submit_exact(
     user_data: u64,
     expected_result: i32,
 ) -> io::Result<()> {
-    let BackingIo {
-        ring, accounting, ..
-    } = backing_io;
-    let Some(writer) = accounting.as_mut() else {
-        return super::submit_exact_raw(ring, entry, user_data, expected_result);
+    let Some(writer) = backing_io.accounting.as_mut() else {
+        return backing_io.exact.submit(entry, user_data, expected_result);
     };
     let operation = match classify_operation(&entry, expected_result) {
         Ok(operation) => operation,
         Err(error) => return reject_unclassified(writer, error),
     };
     let pending = writer.begin(operation)?;
-    let io_result = super::submit_exact_raw(ring, entry, user_data, expected_result);
+    let io_result = backing_io.exact.submit(entry, user_data, expected_result);
     let accounting_result = pending.finish(io_result.is_ok());
     match io_result {
         Err(error) => Err(error),
@@ -58,7 +78,7 @@ pub(super) fn submit_exact_unaccounted(
     user_data: u64,
     expected_result: i32,
 ) -> io::Result<()> {
-    super::submit_exact_raw(&mut backing_io.ring, entry, user_data, expected_result)
+    backing_io.exact.submit(entry, user_data, expected_result)
 }
 
 fn classify_operation(entry: &squeue::Entry, expected_result: i32) -> io::Result<Operation> {

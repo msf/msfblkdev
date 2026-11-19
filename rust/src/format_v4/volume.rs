@@ -73,9 +73,17 @@ pub(crate) fn open(
     options: VolumeOpenOptions,
     accounting: Option<io_accounting::Writer>,
 ) -> io::Result<Volume> {
+    open_with_io(path, options, || BackingIo::new(accounting))
+}
+
+pub(crate) fn open_with_io(
+    path: &Path,
+    options: VolumeOpenOptions,
+    make_io: impl FnOnce() -> io::Result<BackingIo>,
+) -> io::Result<Volume> {
     options.validate()?;
     let (backing, actual_backing_blocks) = storage::open_backing(path)?;
-    let mut backing_io = BackingIo::new(accounting)?;
+    let mut backing_io = make_io()?;
     let loaded = checkpoint_load::load(
         &mut backing_io,
         &backing,

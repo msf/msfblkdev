@@ -48,6 +48,18 @@ pub(crate) fn format(
     options: FormatOptions,
     accounting: Option<io_accounting::Writer>,
 ) -> io::Result<()> {
+    format_with_io(path, volume_bytes, options, random_volume_id, || {
+        BackingIo::new(accounting)
+    })
+}
+
+pub(crate) fn format_with_io(
+    path: &Path,
+    volume_bytes: u64,
+    options: FormatOptions,
+    volume_id: impl FnOnce() -> io::Result<u64>,
+    make_io: impl FnOnce() -> io::Result<BackingIo>,
+) -> io::Result<()> {
     if volume_bytes == 0
         || !volume_bytes.is_multiple_of(BLOCK_SIZE as u64)
         || volume_bytes / BLOCK_SIZE as u64 > MAX_VOLUME_BLOCKS
@@ -72,13 +84,13 @@ pub(crate) fn format(
             "a segment must hold every table page plus its link",
         ));
     }
-    let volume_id = random_volume_id()?;
+    let volume_id = volume_id()?;
     let mut segments = Segments::new(geometry, geometry.segment_count)?;
     let user = segments.allocate(HeadId::User)?;
     let relocation = segments.allocate(HeadId::Relocation)?;
     assert_eq!((user, relocation), (0, 1), "format opens segments 0 and 1");
     let mut head = Head::opened(HeadId::User, user, geometry)?;
-    let mut backing_io = BackingIo::new(accounting)?;
+    let mut backing_io = make_io()?;
     let mut block = AlignedBlock([0; BLOCK_SIZE]);
     let mut descriptor = CheckpointDescriptor {
         slot: CheckpointSlot::Green,
