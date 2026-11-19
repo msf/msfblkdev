@@ -1,0 +1,2 @@
+   Compiling block-storage v0.0.0 (/home/miguel.guest/src-campaign/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.86s

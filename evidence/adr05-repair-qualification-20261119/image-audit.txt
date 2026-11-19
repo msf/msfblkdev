@@ -1,0 +1,42 @@
++ sha256sum rust/target/debug/block-storage-ublk rust/target/debug/examples/adr05-engine tools/adr05-fault-lab/live/checkpoint_b.py tools/adr05-fault-lab/live/client.py tools/adr05-fault-lab/qsd.py
+0078abd3300302e2acbd35801b1afdb41a3ddcbf987018991ee635d69c3e2eb5  rust/target/debug/block-storage-ublk
+7ede4e7e93a26500cd1e297cb5b4296fddc3109d1161807870924e0128bd36be  rust/target/debug/examples/adr05-engine
+1335d9b0cc582e21a6df7aa51789d524bab7f72cc17e5e11488b668170fa7a8c  tools/adr05-fault-lab/live/checkpoint_b.py
+181ce621b4f58edca945de11247cf83c5b1a19dbc3bb596c7690c9fbb8270d26  tools/adr05-fault-lab/live/client.py
+aabde5f42ec4a986e75b42662b510eb811aeb8f6febc162989d4857b7ed0693c  tools/adr05-fault-lab/qsd.py
++ for case in write fsync
+++ awk -v c=write '$1=="case" && $2==c && $3=="fixture" {print $4}' /var/tmp/qualify-77fc16e/live-b.txt
++ f=/mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image
++ [[ /mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image == /mnt/lima-liveb-scratch/probe/live-b-*/* ]]
++ [[ -f /mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image ]]
++ [[ ! -L /mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image ]]
++ sha256sum /mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image
+26cd28a6f889f18efb61dcee3cd6a651aa503543b058c81ad66c2bab794d72b5  /mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image
++ gzip -cn /mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image
++ rc=0
++ timeout -k 3s 10s python3 -B tools/adr05-fault-lab/checker/check.py /mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image
+{"sha256": "26cd28a6f889f18efb61dcee3cd6a651aa503543b058c81ad66c2bab794d72b5", "roots": [{"slot": 0, "checkpoint_lsn": 1, "last_lsn": 129, "checkpoint_pages": 1, "replayed": 128, "mapped_lbas": 2, "visits": 4380}, {"slot": 1, "checkpoint_lsn": 128, "last_lsn": 129, "checkpoint_pages": 3, "replayed": 1, "mapped_lbas": 2, "visits": 74}]}
++ echo 'case=write checker_exit=0'
+case=write checker_exit=0
++ for case in write fsync
+++ awk -v c=fsync '$1=="case" && $2==c && $3=="fixture" {print $4}' /var/tmp/qualify-77fc16e/live-b.txt
++ f=/mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image
++ [[ /mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image == /mnt/lima-liveb-scratch/probe/live-b-*/* ]]
++ [[ -f /mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image ]]
++ [[ ! -L /mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image ]]
++ sha256sum /mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image
+cd8fd1b39f963570c839e68da74475859b5b7b4a99cfadb219d6efda731d36b5  /mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image
++ gzip -cn /mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image
++ rc=0
++ timeout -k 3s 10s python3 -B tools/adr05-fault-lab/checker/check.py /mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image
+{"sha256": "cd8fd1b39f963570c839e68da74475859b5b7b4a99cfadb219d6efda731d36b5", "roots": [{"slot": 0, "checkpoint_lsn": 129, "last_lsn": 129, "checkpoint_pages": 3, "replayed": 0, "mapped_lbas": 2, "visits": 41}, {"slot": 1, "checkpoint_lsn": 128, "last_lsn": 129, "checkpoint_pages": 3, "replayed": 1, "mapped_lbas": 2, "visits": 74}]}
++ echo 'case=fsync checker_exit=0'
+case=fsync checker_exit=0
+++ awk '-F[ =]' '/^fixtures=/ {print $2}' /var/tmp/qualify-77fc16e/fault.txt
++ f=/mnt/lima-liveb-scratch/probe/adr05-engine-cxbah5kt/descriptor-eio/image
++ [[ /mnt/lima-liveb-scratch/probe/adr05-engine-cxbah5kt/descriptor-eio/image == /mnt/lima-liveb-scratch/probe/adr05-engine-*/* ]]
++ [[ -f /mnt/lima-liveb-scratch/probe/adr05-engine-cxbah5kt/descriptor-eio/image ]]
++ [[ ! -L /mnt/lima-liveb-scratch/probe/adr05-engine-cxbah5kt/descriptor-eio/image ]]
++ sha256sum /mnt/lima-liveb-scratch/probe/adr05-engine-cxbah5kt/descriptor-eio/image
+b66fd57de22999241d287f95acd8e4bb024539cafa43c245d2dc662036863459  /mnt/lima-liveb-scratch/probe/adr05-engine-cxbah5kt/descriptor-eio/image
++ gzip -cn /mnt/lima-liveb-scratch/probe/adr05-engine-cxbah5kt/descriptor-eio/image

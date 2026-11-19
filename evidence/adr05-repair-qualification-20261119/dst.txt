@@ -1,0 +1,33 @@
+test_retained_format4_image_and_recovered_history (test_model.CapturedEngineCase.test_retained_format4_image_and_recovered_history) ... ok
+test_discarded_value_resurrection_on_reopen_lba0 (test_model.LogicalChecker.test_discarded_value_resurrection_on_reopen_lba0) ... ok
+test_oracle_rejects_invalid_inputs_and_overlarge_uncertainty (test_model.LogicalChecker.test_oracle_rejects_invalid_inputs_and_overlarge_uncertainty) ... ok
+test_per_lba_legal_but_skipped_record_on_reopen (test_model.LogicalChecker.test_per_lba_legal_but_skipped_record_on_reopen) ... ok
+test_planted_lying_sync_loses_flushed_lba1 (test_model.LogicalChecker.test_planted_lying_sync_loses_flushed_lba1) ... ok
+test_planted_wrong_lba_before_reopen (test_model.LogicalChecker.test_planted_wrong_lba_before_reopen) ... ok
+test_rejected_write_must_never_reappear_on_reopen_lba0 (test_model.LogicalChecker.test_rejected_write_must_never_reappear_on_reopen_lba0) ... ok
+test_uncertain_write_and_failed_flush_are_not_barriers (test_model.LogicalChecker.test_uncertain_write_and_failed_flush_are_not_barriers) ... ok
+test_all_four_payload_metadata_survival_cases (test_model.PhysicalCuts.test_all_four_payload_metadata_survival_cases) ... ok
+test_discard_obeys_barriers_and_preserves_other_bytes (test_model.PhysicalCuts.test_discard_obeys_barriers_and_preserves_other_bytes) ... ok
+test_exact_match_and_hit_counts (test_model.PhysicalCuts.test_exact_match_and_hit_counts) ... ok
+test_limits_and_malformed_plans (test_model.PhysicalCuts.test_limits_and_malformed_plans) ... ok
+test_misdirected_io_stale_read_and_disappearance (test_model.PhysicalCuts.test_misdirected_io_stale_read_and_disappearance) ... ok
+test_sync_floor_tear_and_out_of_order_overlapping_writes (test_model.PhysicalCuts.test_sync_floor_tear_and_out_of_order_overlapping_writes) ... ok
+test_uncertain_completion_and_short_read_write (test_model.PhysicalCuts.test_uncertain_completion_and_short_read_write) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.003s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+  Executable unittests src/lib.rs (target/debug/deps/block_storage-577f5c28ce4508c4)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (target/debug/deps/block_storage-577f5c28ce4508c4)
+
+running 1 test
+descriptor_slot=Green checkpoint_lsn=13 segment_0=PendingFree verified_lbas=8
+descriptor_slot=Blue checkpoint_lsn=14 segment_0=Free verified_lbas=8
+control=early-reuse lba=0 physical=18 detected=payload checksum mismatch
+test tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 197 filtered out; finished in 0.01s
+

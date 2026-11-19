@@ -1,0 +1,131 @@
+++ git rev-parse HEAD
++ test 77fc16ef00b24b3affdb0521522713746211ffa1 = 77fc16ef00b24b3affdb0521522713746211ffa1
+++ git status --porcelain=v1
++ test -z ''
+++ findmnt -nro SOURCE,UUID -T /mnt/lima-liveb-scratch/probe
++ test '/dev/vdb1 8490e987-f9af-45ed-b770-b793a94270cd' = '/dev/vdb1 8490e987-f9af-45ed-b770-b793a94270cd'
++ date -u
+Thu Nov 19 16:29:55 UTC 2026
++ uname -srmo
+Linux 6.12.117+deb13-arm64 aarch64 GNU/Linux
++ id
+uid=501(miguel) gid=1000(miguel) groups=1000(miguel),46(plugdev),999(systemd-journal)
++ rustc -vV
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: aarch64-unknown-linux-gnu
+release: 1.97.1
+LLVM version: 22.1.6
++ cargo -V
+cargo 1.97.1 (c980f4866 2026-06-30)
++ lsblk -bo NAME,MAJ:MIN,SIZE,FSTYPE,UUID,MOUNTPOINT
+NAME    MAJ:MIN        SIZE FSTYPE  UUID                                 MOUNTPOINT
+vda     254:0   21474836480                                              
+├─vda1  254:1   21340601856 ext4    050705a5-be90-410a-81b9-b6714a0b0569 /
+└─vda15 254:15    133169152 vfat    7674-06C7                            /boot/efi
+vdb     254:16    536870912                                              
+└─vdb1  254:17    534773760 ext4    8490e987-f9af-45ed-b770-b793a94270cd /mnt/lima-liveb-scratch
+vdc     254:32     19906560 iso9660 2026-11-19-16-17-01-34               /mnt/lima-cidata
++ git status --short --branch
+## adr05/resilience-campaign...origin/adr05/resilience-campaign [ahead 5]
++ df -h / /mnt/lima-liveb-scratch/probe /tmp
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1        20G  5.7G   14G  31% /
+/dev/vdb1       468M   31M  408M   7% /mnt/lima-liveb-scratch
+tmpfs           2.5G  4.0K  2.5G   1% /tmp
++ run lint-test 330s make lint test
++ local name=lint-test limit=330s start end rc
++ shift 2
+++ date +%s
++ start=1795105795
++ timeout -k 12s 330s make lint test
++ rc=0
+++ date +%s
++ end=1795105846
++ printf '%s\t%d\t%d\t%d\t%ds\n' lint-test 0 1795105795 1795105846 51
++ run dst 240s make test-dst
++ local name=dst limit=240s start end rc
++ shift 2
+++ date +%s
++ start=1795105846
++ timeout -k 12s 240s make test-dst
++ rc=0
+++ date +%s
++ end=1795105846
++ printf '%s\t%d\t%d\t%d\t%ds\n' dst 0 1795105846 1795105846 0
++ run fault 360s make test-fault
++ local name=fault limit=360s start end rc
++ shift 2
+++ date +%s
++ start=1795105846
++ timeout -k 12s 360s make test-fault
++ rc=0
+++ date +%s
++ end=1795105847
++ printf '%s\t%d\t%d\t%d\t%ds\n' fault 0 1795105846 1795105847 1
++ run live-build 240s cargo build --locked --manifest-path rust/Cargo.toml --features test-failpoints --example adr05-engine --bin block-storage-ublk
++ local name=live-build limit=240s start end rc
++ shift 2
+++ date +%s
++ start=1795105847
++ timeout -k 12s 240s cargo build --locked --manifest-path rust/Cargo.toml --features test-failpoints --example adr05-engine --bin block-storage-ublk
++ rc=0
+++ date +%s
++ end=1795105848
++ printf '%s\t%d\t%d\t%d\t%ds\n' live-build 0 1795105847 1795105848 1
++ grep -q '^live-build[[:space:]]0[[:space:]]' /var/tmp/qualify-77fc16e/results.tsv
++ run live-b 90s python3 -B -u tools/adr05-fault-lab/live/checkpoint_b.py /mnt/lima-liveb-scratch/probe /dev/vdb1 rust/target/debug /var/tmp/qualify-77fc16e/live
++ local name=live-b limit=90s start end rc
++ shift 2
+++ date +%s
++ start=1795105848
++ timeout -k 12s 90s python3 -B -u tools/adr05-fault-lab/live/checkpoint_b.py /mnt/lima-liveb-scratch/probe /dev/vdb1 rust/target/debug /var/tmp/qualify-77fc16e/live
++ rc=0
+++ date +%s
++ end=1795105848
++ printf '%s\t%d\t%d\t%d\t%ds\n' live-b 0 1795105848 1795105848 0
++ run acceptance 3900s make test-acceptance
++ local name=acceptance limit=3900s start end rc
++ shift 2
+++ date +%s
++ start=1795105848
++ timeout -k 12s 3900s make test-acceptance
++ rc=0
+++ date +%s
++ end=1795106027
++ printf '%s\t%d\t%d\t%d\t%ds\n' acceptance 0 1795105848 1795106027 179
++ run ublk-fio 700s make test-ublk-fio
++ local name=ublk-fio limit=700s start end rc
++ shift 2
+++ date +%s
++ start=1795106027
++ timeout -k 12s 700s make test-ublk-fio
++ rc=0
+++ date +%s
++ end=1795106126
++ printf '%s\t%d\t%d\t%d\t%ds\n' ublk-fio 0 1795106027 1795106126 99
++ pgrep -af 'block-storage|qemu-storage-daemon'
++ :
++ ls -l /sys/class/ublk-char '/dev/ublkb*'
+ls: cannot access '/dev/ublkb*': No such file or directory
+/sys/class/ublk-char:
+total 0
++ :
++ df -h / /mnt/lima-liveb-scratch/probe /tmp
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1        20G  5.9G   13G  32% /
+/dev/vdb1       468M   42M  398M  10% /mnt/lima-liveb-scratch
+tmpfs           2.5G  4.0K  2.5G   1% /tmp
++ git status --porcelain=v1
+?? tools/adr05-fault-lab/probe-io
++ cat /var/tmp/qualify-77fc16e/results.tsv
+lint-test	0	1795105795	1795105846	51s
+dst	0	1795105846	1795105846	0s
+fault	0	1795105846	1795105847	1s
+live-build	0	1795105847	1795105848	1s
+live-b	0	1795105848	1795105848	0s
+acceptance	0	1795105848	1795106027	179s
+ublk-fio	0	1795106027	1795106126	99s
++ touch /var/tmp/qualify-77fc16e/done

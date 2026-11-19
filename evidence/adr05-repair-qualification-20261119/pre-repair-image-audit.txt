@@ -1,0 +1,23 @@
+++ git rev-parse HEAD
++ test 77fc16ef00b24b3affdb0521522713746211ffa1 = 77fc16ef00b24b3affdb0521522713746211ffa1
++ R=evidence/adr05-live-b-20261119
++ for case in write fsync
++ gzip -dc evidence/adr05-live-b-20261119/write.img.gz
++ for case in write fsync
++ gzip -dc evidence/adr05-live-b-20261119/fsync.img.gz
++ cd /var/tmp/qualify-77fc16e/legacy-images
++ sha256sum -c /home/miguel.guest/src-campaign/evidence/adr05-live-b-20261119/originals.sha256
+write.img: OK
+fsync.img: OK
++ for case in write fsync
++ rc=0
++ timeout -k 3s 10s python3 -B tools/adr05-fault-lab/checker/check.py /var/tmp/qualify-77fc16e/legacy-images/write.img
+{"sha256": "28127b29be2ebc89be6c6158accee1a4bff3df77e404aa2583d6294b2b21c8e4", "roots": [{"slot": 0, "checkpoint_lsn": 1, "last_lsn": 129, "checkpoint_pages": 1, "replayed": 128, "mapped_lbas": 2, "visits": 4380}, {"slot": 1, "checkpoint_lsn": 128, "last_lsn": 129, "checkpoint_pages": 3, "replayed": 1, "mapped_lbas": 2, "visits": 74}]}
++ echo 'case=write checker_exit=0'
+case=write checker_exit=0
++ for case in write fsync
++ rc=0
++ timeout -k 3s 10s python3 -B tools/adr05-fault-lab/checker/check.py /var/tmp/qualify-77fc16e/legacy-images/fsync.img
+{"sha256": "1c716711d57644691835d8395f4a29f9904c3e9da891fbc4b0158f0d80907dd9", "roots": [{"slot": 0, "checkpoint_lsn": 129, "last_lsn": 129, "checkpoint_pages": 3, "replayed": 0, "mapped_lbas": 2, "visits": 41}, {"slot": 1, "checkpoint_lsn": 128, "last_lsn": 129, "checkpoint_pages": 3, "replayed": 1, "mapped_lbas": 2, "visits": 74}]}
++ echo 'case=fsync checker_exit=0'
+case=fsync checker_exit=0

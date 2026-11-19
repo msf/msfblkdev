@@ -1,0 +1,63 @@
++ date -u
+Thu Nov 19 16:36:07 UTC 2026
++ cd evidence/adr05-repair-qualification-20261119
++ shasum -a 256 -c SHA256SUMS
+lint-test.txt: OK
+dst.txt: OK
+fault.txt: OK
+live-build.txt: OK
+live-b.txt: OK
+pre-repair-image-audit.txt: OK
+image-audit.txt: OK
+live-traces.tar.gz: OK
+new-images/close-eio.img.gz: OK
+new-images/fsync.img.gz: OK
+new-images/write.img.gz: OK
+results.tsv: OK
+session.txt: OK
+acceptance.txt: OK
+ublk-fio.txt: OK
+engine-crash-lab.txt: OK
+ublk-fio-lab.txt: OK
+qualify.sh: OK
+postflight.txt: OK
++ test -f /Volumes/test-vol/liveb-DO78pN/boot.sh
++ test -d /Volumes/test-vol/liveb-DO78pN/lima/liveb
++ test -d /Volumes/test-vol/liveb-DO78pN/lima/_disks/liveb-scratch
+++ limactl list --format '{{.Name}} {{.Status}}'
++ test 'liveb Running' = 'liveb Running'
++ limactl disk list
+NAME             SIZE      FORMAT    DIR                                                         IN-USE-BY
+liveb-scratch    512MiB    raw       /Volumes/test-vol/liveb-DO78pN/lima/_disks/liveb-scratch    liveb
++ gtimeout 50 limactl stop liveb
+time="2026-11-19T16:36:07Z" level=info msg="Sending SIGINT to hostagent process 27635"
+time="2026-11-19T16:36:07Z" level=info msg="Waiting for the host agent and the driver processes to shut down"
+time="2026-11-19T16:36:07Z" level=info msg="[hostagent] Received SIGINT, shutting down the host agent"
+time="2026-11-19T16:36:07Z" level=info msg="[hostagent] Shutting down the host agent"
+time="2026-11-19T16:36:07Z" level=info msg="[hostagent] Unmounting disk `liveb-scratch`"
+time="2026-11-19T16:36:07Z" level=info msg="[hostagent] Shutting down VZ"
+time="2026-11-19T16:36:11Z" level=info msg="[hostagent] [VZ] - vm state change: stopped"
+time="2026-11-19T16:36:11Z" level=info msg="Waiting for the instance to shut down"
+time="2026-11-19T16:36:12Z" level=info msg="The instance liveb has shut down"
+++ limactl list --format '{{.Name}} {{.Status}}'
++ test 'liveb Stopped' = 'liveb Stopped'
++ limactl disk list
+NAME             SIZE      FORMAT    DIR                                                         IN-USE-BY
+liveb-scratch    512MiB    raw       /Volumes/test-vol/liveb-DO78pN/lima/_disks/liveb-scratch    
++ gtimeout 20 limactl delete liveb
+time="2026-11-19T16:36:12Z" level=info msg="The vz driver process seems already stopped"
+time="2026-11-19T16:36:12Z" level=warning msg="Failed to unlock disk `liveb-scratch`. To use, run `limactl disk unlock liveb-scratch`"
+time="2026-11-19T16:36:12Z" level=info msg="The host agent process seems already stopped"
+time="2026-11-19T16:36:12Z" level=info msg="Removing *.pid *.sock *.tmp under `/Volumes/test-vol/liveb-DO78pN/lima/liveb`"
+time="2026-11-19T16:36:12Z" level=info msg="Deleted `liveb` (`/Volumes/test-vol/liveb-DO78pN/lima/liveb`)"
++ gtimeout 20 limactl disk delete liveb-scratch
+time="2026-11-19T16:36:12Z" level=info msg="Deleted `liveb-scratch` (`/Volumes/test-vol/liveb-DO78pN/lima/_disks/liveb-scratch`)"
++ test '!' -e /Volumes/test-vol/liveb-DO78pN/lima/liveb
++ test '!' -e /Volumes/test-vol/liveb-DO78pN/lima/_disks/liveb-scratch
++ limactl list
+time="2026-11-19T16:36:12Z" level=warning msg="No instance found. Run `limactl create` to create an instance."
++ limactl disk list
+time="2026-11-19T16:36:12Z" level=warning msg="No disk found. Run `limactl disk create DISK --size SIZE` to create a disk."
+NAME    SIZE    FORMAT    DIR    IN-USE-BY
++ date -u
+Thu Nov 19 16:36:12 UTC 2026

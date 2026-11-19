@@ -1,0 +1,57 @@
+case control fixture /mnt/lima-liveb-scratch/probe/live-b-control-1m72iv4i evidence /var/tmp/qualify-77fc16e/live/control
+exec ['qemu-storage-daemon', '--trace', 'enable=blk_co_pwritev', '--chardev', 'socket,id=c,path=/var/tmp/qualify-77fc16e/live/control/qmp,server=on,wait=off', '--monitor', 'chardev=c', '--blockdev', '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/live-b-control-1m72iv4i/image", "cache": {"direct": true, "no-flush": false}, "discard": "unmap"}', '--blockdev', 'driver=raw,node-name=raw,file=base,discard=unmap', '--export', '{"type": "fuse", "id": "e", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/live-b-control-1m72iv4i/export"}']
+exec [PosixPath('/home/miguel.guest/src-campaign/rust/target/debug/block-storage-ublk'), 'serve', PosixPath('/mnt/lima-liveb-scratch/probe/live-b-control-1m72iv4i/export'), '-1', '--write-buffer-bytes', '4096', '--idle-wait-us', '30000000', '--max-maintenance-interval-ms', '30000']
+exec ['/usr/bin/python3', '-u', PosixPath('/home/miguel.guest/src-campaign/tools/adr05-fault-lab/live/client.py'), PosixPath('/dev/ublkb0'), PosixPath('/var/tmp/qualify-77fc16e/live/control/armed'), 'control']
+gate ['slot=0 lsn=129', 'victim=2', 'victim=3', 'victim=4', 'victim=5', 'victim=6', 'victim=7'] victims_before {2: ('b938ada8059ca542ad3ca63d3833bd4305cbe3c63fa1cdf25ece7b3a0ae4ed07', '11111111111111111111111111111110'), 3: ('f6197ae0fab6f04793b4c659e229cbc76f2a60cedfaf62652e2867503864b215', '11111111111111111111111111111110'), 4: ('0ddb7577caffb3c48f101669f6cf5c0ab60fda1f7031e5ab155a73eae3defb55', '11111111111111111111111111111110'), 5: ('39fbcf8f54efacb7c593560a1e2edd211b6faa7cd688b6de5ff51f2cdbef6969', '11111111111111111111111111111110'), 6: ('8cb1a43d3ed62f946d259b0e4f203cbdb66f2b43c2b38b936f0a139486570541', '11111111111111111111111111111110'), 7: ('34a003a0dd940c0401dbd3820db3b97bb9f21528d32471284880a0ad1e4380cf', '11111111111111111111111111111110')}
+QMP qmp_capabilities {} {'return': {}}
+QMP blockdev-add {'driver': 'blkdebug', 'node-name': 'armed', 'image': 'base', 'discard': 'unmap'} {'return': {}}
+QMP blockdev-reopen {'options': [{'driver': 'raw', 'node-name': 'raw', 'discard': 'unmap', 'file': 'armed'}]} {'return': {}}
+post_gate_write_count=11 first_write=0 freed=['6'] discards=['4']
+victims_after {2: ('a8ae71deb1c37f6aab11e3e46e7d51f57f1dd5b813fc66d2f5153a95e2bd816a', '11000000000000000000000000000000'), 3: ('fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471', '00000000000000000000000000000000'), 4: ('fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471', '00000000000000000000000000000000'), 5: ('fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471', '00000000000000000000000000000000'), 6: ('8cb1a43d3ed62f946d259b0e4f203cbdb66f2b43c2b38b936f0a139486570541', '11111111111111111111111111111110'), 7: ('34a003a0dd940c0401dbd3820db3b97bb9f21528d32471284880a0ad1e4380cf', '11111111111111111111111111111110')}
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+op=read_block lba=1 byte=0xab bytes=4096 match=true
+op=read_block lba=2 byte=0x00 bytes=4096 match=true
+op=read_block lba=3 byte=0x00 bytes=4096 match=true
+op=read_block lba=4 byte=0x00 bytes=4096 match=true
+op=read_block lba=5 byte=0x53 bytes=4096 match=true
+op=read_block lba=6 byte=0x00 bytes=4096 match=true
+op=read_block lba=7 byte=0x00 bytes=4096 match=true
+case control PASS
+case write fixture /mnt/lima-liveb-scratch/probe/live-b-write-1yilgung evidence /var/tmp/qualify-77fc16e/live/write
+exec ['qemu-storage-daemon', '--trace', 'enable=blk_co_pwritev', '--chardev', 'socket,id=c,path=/var/tmp/qualify-77fc16e/live/write/qmp,server=on,wait=off', '--monitor', 'chardev=c', '--blockdev', '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/image", "cache": {"direct": true, "no-flush": false}, "discard": "unmap"}', '--blockdev', 'driver=raw,node-name=raw,file=base,discard=unmap', '--export', '{"type": "fuse", "id": "e", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/export"}']
+exec [PosixPath('/home/miguel.guest/src-campaign/rust/target/debug/block-storage-ublk'), 'serve', PosixPath('/mnt/lima-liveb-scratch/probe/live-b-write-1yilgung/export'), '-1', '--write-buffer-bytes', '4096', '--idle-wait-us', '30000000', '--max-maintenance-interval-ms', '30000']
+exec ['/usr/bin/python3', '-u', PosixPath('/home/miguel.guest/src-campaign/tools/adr05-fault-lab/live/client.py'), PosixPath('/dev/ublkb0'), PosixPath('/var/tmp/qualify-77fc16e/live/write/armed'), 'write']
+gate ['slot=0 lsn=129', 'victim=2', 'victim=3', 'victim=4', 'victim=5', 'victim=6', 'victim=7'] victims_before {2: ('477488d01191820580783d685216f77901c086eb10b0a0fad4df95779d98de27', '11111111111111111111111111111110'), 3: ('c3f76a3e63d877e91538ce7d95ac443c526a830d051add2a00da92ec3f6e5027', '11111111111111111111111111111110'), 4: ('aee72db2325ad810db126a76f8fa43956d018248b123ba9be6a32f861370523e', '11111111111111111111111111111110'), 5: ('b25d8bc71c67f08363ce3dadf90915382e8742f73bb934f9d0c91800f92dce1b', '11111111111111111111111111111110'), 6: ('f3ce62c9611fb53b546a9ee9bbd458c55323d209f812268bf8c183273911520a', '11111111111111111111111111111110'), 7: ('5c5d0e4c06c121c780d778f9d15054af91fc75ae7110e33a530d11cc42a21ba5', '11111111111111111111111111111110')}
+QMP qmp_capabilities {} {'return': {}}
+QMP blockdev-add {'driver': 'blkdebug', 'node-name': 'armed', 'image': 'base', 'discard': 'unmap', 'inject-error': [{'once': True, 'errno': 5, 'event': 'write_aio', 'iotype': 'write', 'sector': 0}]} {'return': {}}
+QMP blockdev-reopen {'options': [{'driver': 'raw', 'node-name': 'raw', 'discard': 'unmap', 'file': 'armed'}]} {'return': {}}
+post_gate_write_count=1 first_write=0 freed=['0'] discards=['0']
+victims_after {2: ('477488d01191820580783d685216f77901c086eb10b0a0fad4df95779d98de27', '11111111111111111111111111111110'), 3: ('c3f76a3e63d877e91538ce7d95ac443c526a830d051add2a00da92ec3f6e5027', '11111111111111111111111111111110'), 4: ('aee72db2325ad810db126a76f8fa43956d018248b123ba9be6a32f861370523e', '11111111111111111111111111111110'), 5: ('b25d8bc71c67f08363ce3dadf90915382e8742f73bb934f9d0c91800f92dce1b', '11111111111111111111111111111110'), 6: ('f3ce62c9611fb53b546a9ee9bbd458c55323d209f812268bf8c183273911520a', '11111111111111111111111111111110'), 7: ('5c5d0e4c06c121c780d778f9d15054af91fc75ae7110e33a530d11cc42a21ba5', '11111111111111111111111111111110')}
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+op=read_block lba=1 byte=0xab bytes=4096 match=true
+op=read_block lba=2 byte=0x00 bytes=4096 match=true
+op=read_block lba=3 byte=0x00 bytes=4096 match=true
+op=read_block lba=4 byte=0x00 bytes=4096 match=true
+op=read_block lba=5 byte=0x53 bytes=4096 match=true
+op=read_block lba=6 byte=0x00 bytes=4096 match=true
+op=read_block lba=7 byte=0x00 bytes=4096 match=true
+case write PASS
+case fsync fixture /mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o evidence /var/tmp/qualify-77fc16e/live/fsync
+exec ['qemu-storage-daemon', '--trace', 'enable=blk_co_pwritev', '--chardev', 'socket,id=c,path=/var/tmp/qualify-77fc16e/live/fsync/qmp,server=on,wait=off', '--monitor', 'chardev=c', '--blockdev', '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/image", "cache": {"direct": true, "no-flush": false}, "discard": "unmap"}', '--blockdev', 'driver=raw,node-name=raw,file=base,discard=unmap', '--export', '{"type": "fuse", "id": "e", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/export"}']
+exec [PosixPath('/home/miguel.guest/src-campaign/rust/target/debug/block-storage-ublk'), 'serve', PosixPath('/mnt/lima-liveb-scratch/probe/live-b-fsync-kjbl4x2o/export'), '-1', '--write-buffer-bytes', '4096', '--idle-wait-us', '30000000', '--max-maintenance-interval-ms', '30000']
+exec ['/usr/bin/python3', '-u', PosixPath('/home/miguel.guest/src-campaign/tools/adr05-fault-lab/live/client.py'), PosixPath('/dev/ublkb0'), PosixPath('/var/tmp/qualify-77fc16e/live/fsync/armed'), 'fsync']
+gate ['slot=0 lsn=129', 'victim=2', 'victim=3', 'victim=4', 'victim=5', 'victim=6', 'victim=7'] victims_before {2: ('5963b47d68af8e6f20d3b77f6a94f67af3d0da5bec74dd7cd10a4c5cfdaa56d3', '11111111111111111111111111111110'), 3: ('28443f4e70db5caf3d0c88302b46133b91caf91dd5fba807faed929fb9ea2dc0', '11111111111111111111111111111110'), 4: ('ba277059c2dd3c32366ae9eb88911cbfdd1c488d8de9a8ef305884ab7429871c', '11111111111111111111111111111110'), 5: ('c00a759b6b202fad36ac94e34d5a8a798b55c3eef36a54b23e42594eebdc52e4', '11111111111111111111111111111110'), 6: ('dc93ec1367f0f85b3b1a5595c79c230993fee7ac3bf04bc0a9b7efaf1be7db88', '11111111111111111111111111111110'), 7: ('e22807d17baddcb3e4e50c5af6cc6ae959e0a5b9a5b7875a5caeaf03e17fd331', '11111111111111111111111111111110')}
+QMP qmp_capabilities {} {'return': {}}
+QMP blockdev-add {'driver': 'blkdebug', 'node-name': 'armed', 'image': 'base', 'discard': 'unmap', 'inject-error': [{'once': True, 'errno': 5, 'event': 'flush_to_disk', 'iotype': 'flush'}]} {'return': {}}
+QMP blockdev-reopen {'options': [{'driver': 'raw', 'node-name': 'raw', 'discard': 'unmap', 'file': 'armed'}]} {'return': {}}
+post_gate_write_count=1 first_write=0 freed=['0'] discards=['0']
+victims_after {2: ('5963b47d68af8e6f20d3b77f6a94f67af3d0da5bec74dd7cd10a4c5cfdaa56d3', '11111111111111111111111111111110'), 3: ('28443f4e70db5caf3d0c88302b46133b91caf91dd5fba807faed929fb9ea2dc0', '11111111111111111111111111111110'), 4: ('ba277059c2dd3c32366ae9eb88911cbfdd1c488d8de9a8ef305884ab7429871c', '11111111111111111111111111111110'), 5: ('c00a759b6b202fad36ac94e34d5a8a798b55c3eef36a54b23e42594eebdc52e4', '11111111111111111111111111111110'), 6: ('dc93ec1367f0f85b3b1a5595c79c230993fee7ac3bf04bc0a9b7efaf1be7db88', '11111111111111111111111111111110'), 7: ('e22807d17baddcb3e4e50c5af6cc6ae959e0a5b9a5b7875a5caeaf03e17fd331', '11111111111111111111111111111110')}
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+op=read_block lba=1 byte=0xab bytes=4096 match=true
+op=read_block lba=2 byte=0x00 bytes=4096 match=true
+op=read_block lba=3 byte=0x00 bytes=4096 match=true
+op=read_block lba=4 byte=0x00 bytes=4096 match=true
+op=read_block lba=5 byte=0x53 bytes=4096 match=true
+op=read_block lba=6 byte=0x00 bytes=4096 match=true
+op=read_block lba=7 byte=0x00 bytes=4096 match=true
+case fsync PASS
