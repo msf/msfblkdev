@@ -22,8 +22,11 @@ test-compaction-small:
 		cargo test --locked --release --test compaction_small -- --ignored --nocapture
 
 # Focused format-4 recovery test. No QEMU, ublk or second disk required.
-.PHONY: test-dst test-fault
-test-dst:
+.PHONY: test-fault-model test-dst test-fault
+test-fault-model:
+	@python3 -B -m unittest discover -v -s tools/adr05-fault-lab/model
+
+test-dst: test-fault-model
 	@cd rust && cargo test --locked --lib descriptor_survival --no-run
 	@cd rust && timeout -k 5s 60s cargo test --locked --lib descriptor_survival -- --nocapture
 

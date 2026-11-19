@@ -42,7 +42,7 @@ The guest kernel must support `io_uring`, `ublk_drv` and FUSE. The test user nee
 
 ## Which command goes in the dev loop?
 
-Run `make test-dst` on Linux to exercise both descriptor-survival outcomes against format-4 recovery. It uses temporary regular files and needs `io_uring` and direct I/O, but no QEMU or ublk device. To test the real backing-error path in a provisioned guest, set `SCRATCH` and `DEVICE` as described below, then run `make test-fault`. The target builds the probe and example and stops at the first failure. Redirect its output to a new log on the guest OS disk for evidence. Neither target qualifies the full [ADR-05 campaign](../../docs/ADR05-CAMPAIGN.md).
+Run `make test-fault-model` on Linux or macOS to check the bounded medium and logical history without starting an engine. Run `make test-dst` on Linux to run those controls and exercise both descriptor-survival outcomes against format-4 recovery. It uses temporary regular files and needs `io_uring` and direct I/O, but no QEMU or ublk device. To test the real backing-error path in a provisioned guest, set `SCRATCH` and `DEVICE` as described below, then run `make test-fault`. The target builds the probe and example and stops at the first failure. Redirect its output to a new log on the guest OS disk for evidence. Neither target qualifies the full [ADR-05 campaign](../../docs/ADR05-CAMPAIGN.md).
 
 ## Run the injector probe
 
