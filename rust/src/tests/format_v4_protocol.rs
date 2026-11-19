@@ -420,6 +420,51 @@ fn recovery_merges_both_heads_by_global_lsn_and_follows_durable_links() -> io::R
 }
 
 #[test]
+fn replay_cursor_skips_intact_old_metadata_but_not_damaged_framing() -> io::Result<()> {
+    use crate::format_v4::{small_records::LbaDiscard, tail::probe_next};
+
+    let mut fixture = Fixture::new()?;
+    let log = fixture.load()?.log;
+    let mut head = log.head(HeadId::User);
+    // Both incarnations can have the same physical predecessor. Only the LSN
+    // distinguishes the older discard from a successor of the current cursor.
+    head.last_lsn = 83;
+    let header = head.header(RecordKind::LbaDiscard, log.volume_id, 3, 0);
+    let mut discard = LbaDiscard::empty(header);
+    assert!(discard.push(0, 1));
+    let mut block = [0; BLOCK_SIZE];
+    discard.encode(log.geometry, &mut block)?;
+    let offset = u64::from(head.next_block) * BLOCK_SIZE as u64;
+    fixture.raw()?.write_all_at(&block, offset)?;
+    let probe = |fixture: &mut Fixture| {
+        probe_next(
+            &mut fixture.io,
+            &fixture.file,
+            log.geometry,
+            log.volume_id,
+            head,
+            84,
+        )
+    };
+    assert!(probe(&mut fixture)?.is_none());
+
+    // A damaged header or body isn't evidence for the stale case.
+    for byte in [16, 4088] {
+        let mut damaged = block;
+        damaged[byte] ^= 1;
+        fixture.raw()?.write_all_at(&damaged, offset)?;
+        assert!(matches!(probe(&mut fixture), Err(e) if e.kind() == io::ErrorKind::InvalidData));
+    }
+    // A valid older checksum at the wrong physical address isn't a stale record here.
+    discard.header.previous_boundary = head.next_block;
+    discard.header.boundary = head.next_block + 1;
+    discard.encode(log.geometry, &mut block)?;
+    fixture.raw()?.write_all_at(&block, offset)?;
+    assert!(matches!(probe(&mut fixture), Err(e) if e.kind() == io::ErrorKind::InvalidData));
+    Ok(())
+}
+
+#[test]
 fn torn_data_footer_ends_the_prefix_but_torn_metadata_fails_closed() -> io::Result<()> {
     let mut fixture = Fixture::new()?;
     let loaded = fixture.load()?;

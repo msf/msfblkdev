@@ -1,7 +1,7 @@
 //! Locating the next record on one head's chain inside its open segment.
 use super::{
     Geometry, RecordHeader, RecordKind, data_record::DataRecord, decode_metadata_framing,
-    heads::Head, looks_like_record, unsupported_record,
+    decode_metadata_record, heads::Head, looks_like_record, unsupported_record,
 };
 use crate::{
     AlignedBlock, BLOCK_SIZE, MAXIMUM_PAYLOAD_BLOCKS, accounted_io::BackingIo, invalid_data,
@@ -64,6 +64,13 @@ pub(crate) fn probe_next(
                 {
                     return Ok(Some(Probe::Metadata { header, block }));
                 }
+                // Reuse needn't erase a segment. An intact record at its own address
+                // that predates this head cannot extend the current chain. Still scan
+                // for a data footer: these bytes could also be a client payload.
+                Ok(header)
+                    if header.boundary == head.next_block
+                        && header.lsn < head.last_lsn
+                        && decode_metadata_record(&block.0, geometry, volume_id).is_ok() => {}
                 _ => suspect = true,
             }
         }
