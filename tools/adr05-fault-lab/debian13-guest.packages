@@ -1,0 +1,10 @@
+coreutils
+e2fsprogs
+fio
+fuse3
+kmod
+liburing2
+python3
+qemu-utils
+udev
+util-linux

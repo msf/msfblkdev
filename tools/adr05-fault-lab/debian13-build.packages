@@ -1,0 +1,11 @@
+autoconf
+automake
+build-essential
+ca-certificates
+clang
+curl
+git
+libclang-dev
+libtool
+liburing-dev
+pkg-config
