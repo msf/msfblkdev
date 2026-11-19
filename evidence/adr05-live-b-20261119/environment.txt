@@ -1,0 +1,40 @@
+Thu Nov 19 16:24:33 UTC 2026
+Linux lima-liveb 6.12.117+deb13-arm64 #1 SMP Debian 6.12.117-1 (2026-11-12) aarch64 GNU/Linux
+uid=501(miguel) gid=1000(miguel) groups=1000(miguel),46(plugdev),999(systemd-journal)
+NAME    MAJ:MIN        SIZE FSTYPE  UUID                                 MOUNTPOINT
+vda     254:0   21474836480                                              
+├─vda1  254:1   21340601856 ext4    050705a5-be90-410a-81b9-b6714a0b0569 /
+└─vda15 254:15    133169152 vfat    7674-06C7                            /boot/efi
+vdb     254:16    536870912                                              
+└─vdb1  254:17    534773760 ext4    8490e987-f9af-45ed-b770-b793a94270cd /mnt/lima-liveb-scratch
+vdc     254:32     19906560 iso9660 2026-11-19-16-17-01-34               /mnt/lima-cidata
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: aarch64-unknown-linux-gnu
+release: 1.97.1
+LLVM version: 22.1.6
+qemu-storage-daemon version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)
+Copyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers
+fuse3	3.17.2-3
+linux-image-arm64	6.12.117-1
+e460242c0dbdefd536abed248bbd494220754f5985b81fa804c1c378e3542ed7  rust/target/debug/block-storage-ublk
+dbc59a524d2155ee4d5da4e537a4a915a280be292a872c2c60bb9ebc4064fe13  rust/target/debug/examples/adr05-engine
+9221629f57aa9c3dee62ec17afaddeef93e6a726dc413bd94aef269eb7cfc528  rust/src/format_v4/checkpoint_publish.rs
+9f67c816598b0aad2eaff1cd91098f0c65f5d899090345d06426e59a4470e48e  rust/src/format_v4/checkpoint_publish/live_gate.rs
+1335d9b0cc582e21a6df7aa51789d524bab7f72cc17e5e11488b668170fa7a8c  tools/adr05-fault-lab/live/checkpoint_b.py
+181ce621b4f58edca945de11247cf83c5b1a19dbc3bb596c7690c9fbb8270d26  tools/adr05-fault-lab/live/client.py
+crw-rw-rw- 1 root root    10, 229 Nov 19 16:17 /dev/fuse
+crw-rw---- 1 root plugdev 10, 261 Nov 19 16:19 /dev/ublk-control
+Source (git archive + four files fingerprinted above): ad30a544cd1369e76a63a9dfd6c672800df187ce
+Darwin liskov 25.6.0 Darwin Kernel Version 25.6.0: Mon Oct 12 00:41:41 PDT 2026; root:xnu-12377.161.15.701.48~2/RELEASE_ARM64_T6050 arm64 arm Darwin
+ProductName:		macOS
+ProductVersion:		26.7.3
+BuildVersion:		25G342
+limactl version 2.2.0
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/disk3s8    187G  5.9M  187G   1% /Volumes/test-vol
+https://cloud.debian.org/images/cloud/trixie/20261116-2664/debian-13-generic-arm64-20261116-2664.qcow2
+3d4655799e64ca93f51832da31101188f28e01cb14fec2164ac9a7a5f70f303b80f72e9632498dd9cb0099ad04b12c186bffe4f0cd50c5e739faa3ee85007eb0  debian-13-generic-arm64-20261116-2664.qcow2
+debian-13-generic-arm64-20261116-2664.qcow2: OK

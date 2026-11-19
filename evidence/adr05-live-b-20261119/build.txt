@@ -1,0 +1,9 @@
++ . /home/miguel.guest/.cargo/env
+++ case ":${PATH}:" in
++ cargo +1.97.1 fmt -- --check
++ cargo +1.97.1 build --locked --features test-failpoints --bin block-storage-ublk --example adr05-engine
+   Compiling block-storage v0.0.0 (/home/miguel.guest/live-src-clean/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.41s
++ cargo +1.97.1 clippy --locked --bin block-storage-ublk --features test-failpoints -- -D warnings
+    Checking block-storage v0.0.0 (/home/miguel.guest/live-src-clean/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.46s

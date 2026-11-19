@@ -1,0 +1,38 @@
++ timeout -k 5s 45s python3 -u tools/adr05-fault-lab/live/checkpoint_b.py /mnt/lima-liveb-scratch/probe /dev/vdb1 rust/target/debug /var/tmp/liveb-miss --case miss
+case miss fixture /mnt/lima-liveb-scratch/probe/live-b-miss-wlbmkslh evidence /var/tmp/liveb-miss/miss
+exec ['qemu-storage-daemon', '--trace', 'enable=blk_co_pwritev', '--chardev', 'socket,id=c,path=/var/tmp/liveb-miss/miss/qmp,server=on,wait=off', '--monitor', 'chardev=c', '--blockdev', '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/live-b-miss-wlbmkslh/image", "cache": {"direct": true, "no-flush": false}, "discard": "unmap"}', '--blockdev', 'driver=raw,node-name=raw,file=base,discard=unmap', '--export', '{"type": "fuse", "id": "e", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/live-b-miss-wlbmkslh/export"}']
+exec [PosixPath('/home/miguel.guest/live-src-clean/rust/target/debug/block-storage-ublk'), 'serve', PosixPath('/mnt/lima-liveb-scratch/probe/live-b-miss-wlbmkslh/export'), '-1', '--write-buffer-bytes', '4096', '--idle-wait-us', '30000000', '--max-maintenance-interval-ms', '30000']
+exec ['/usr/bin/python3', '-u', PosixPath('/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/client.py'), PosixPath('/dev/ublkb0'), PosixPath('/var/tmp/liveb-miss/miss/armed'), 'miss']
+gate ['slot=0 lsn=129', 'victim=2', 'victim=3', 'victim=4', 'victim=5', 'victim=6', 'victim=7'] victims_before {2: ('3fa004cd7dd0044c8b2c6cbb00f25c33edefa9e49cec2f9a56362c72eadaf3c2', '11111111111111111111111111111110'), 3: ('071f3d5fc73e206d1ca96e92115493050d62ecd105ae8fc07e1cc80503c21871', '11111111111111111111111111111110'), 4: ('0ee19d8bd4ee7877fc8d3763aa18837d8f4ae9907e1f29d503a17b91f053512b', '11111111111111111111111111111110'), 5: ('03bc1f84b566b20af4c4a84aa7ef6a2ff1fe44040c9525e2b76c313838227456', '11111111111111111111111111111110'), 6: ('6817f1b8268cd34a1daf89fb7b1a696dded2140000087f8ddb99c44cffbcb14b', '11111111111111111111111111111110'), 7: ('579168f1b4c67f8a5f389689898a137c88ef574ad0fa93637fa00fbf6eecc654', '11111111111111111111111111111110')}
+QMP qmp_capabilities {} {'return': {}}
+QMP blockdev-add {'driver': 'blkdebug', 'node-name': 'armed', 'image': 'base', 'discard': 'unmap', 'inject-error': [{'once': True, 'errno': 5, 'event': 'write_aio', 'iotype': 'write', 'sector': 2147483648}]} {'return': {}}
+QMP blockdev-reopen {'options': [{'driver': 'raw', 'node-name': 'raw', 'discard': 'unmap', 'file': 'armed'}]} {'return': {}}
+Traceback (most recent call last):
+  File "/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/checkpoint_b.py", line 228, in <module>
+    main()
+    ~~~~^^
+  File "/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/checkpoint_b.py", line 224, in main
+    run_case(scratch, save/case, case, args.binaries.resolve(strict=True))
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/checkpoint_b.py", line 199, in run_case
+    victims = run_daemon(work, save, image, case, qmp, daemon, gate)
+  File "/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/checkpoint_b.py", line 165, in run_daemon
+    require(client.wait(8) == 0, 'unexpected live client result')
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/checkpoint_b.py", line 28, in require
+    raise RuntimeError(message)
+RuntimeError: unexpected live client result
+pwrite lba=1 byte=0x17 ok
+pwrite lba=5 byte=0x53 ok
+pwrite lba=1 byte=0xab ok
+client fsync ok; history: LBA1=ab LBA5=53 others=00
+Traceback (most recent call last):
+  File "/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/client.py", line 60, in <module>
+    main(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/client.py", line 54, in main
+    exercise(fd, armed, case != 'control')
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miguel.guest/live-src-clean/tools/adr05-fault-lab/live/client.py", line 37, in exercise
+    raise ValueError("expected EIO from the in-flight ublk write")
+ValueError: expected EIO from the in-flight ublk write
