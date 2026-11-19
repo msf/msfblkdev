@@ -1,0 +1,72 @@
++ cd /dev/shm/adr05-seam.hoNScE/clean/rust
++ export TMPDIR=/var/tmp CARGO_TARGET_DIR=/dev/shm/adr05-seam.hoNScE/rust/target CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
++ TMPDIR=/var/tmp
++ CARGO_TARGET_DIR=/dev/shm/adr05-seam.hoNScE/rust/target
++ CARGO_PROFILE_TEST_DEBUG=0
++ CARGO_INCREMENTAL=0
++ uname -smr
+Linux 7.2.12-orbstack-00394-gbecdd6130068 aarch64
++ rustc +1.97.1 -vV
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: aarch64-unknown-linux-gnu
+release: 1.97.1
+LLVM version: 22.1.6
++ date -u
+Thu Nov 19 04:23:35 PM UTC 2026
++ cargo +1.97.1 fmt --check
++ timeout 90 cargo +1.97.1 test --offline --locked --lib adr05_seam -- --nocapture
+   Compiling block-storage v0.0.0 (/dev/shm/adr05-seam.hoNScE/clean/rust)
+    Finished `test` profile [unoptimized] target(s) in 0.97s
+     Running unittests src/lib.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 6 tests
+test accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch ... ignored, ADR05 pre-fix reproducer: backing ENOSPC during maintenance must latch
+second open read: Reject(5) hits=1 no writes; Input/output error (os error 5)
+second open read: ShortZero hits=1 no writes; short io_uring operation
+test accounted_io::fault_plan::adr05_seam::open_io_and_zero_byte_read_fail_without_image_changes ... ok
+capacity ENOSPC: backing write hits=0 image unchanged; subsequent flush ok
+test accounted_io::fault_plan::adr05_seam::pre_io_capacity_enospc_keeps_volume_usable ... ok
+format: native == no-hit; second write ENOSPC hits=1 roots unpublished
+test accounted_io::fault_plan::adr05_seam::format_no_hit_is_byte_identical_and_enospc_stops_before_first_root ... ok
+short writev: hits=1 ledger errors +1, pending=0, durable overwrite unchanged
+test accounted_io::fault_plan::adr05_seam::writev_short_releases_no_bytes_and_charges_existing_failure_path ... ok
+second fsync: completed then reported EIO hits=1; recovered latest write
+test accounted_io::fault_plan::adr05_seam::completed_fsync_can_report_uncertain_completion_and_latch_volume ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 191 filtered out; finished in 0.02s
+
++ timeout 90 cargo +1.97.1 test --offline --locked --lib tests::accounting_integration
+    Finished `test` profile [unoptimized] target(s) in 0.01s
+     Running unittests src/lib.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 10 tests
+test tests::accounting_integration::unknown_accounted_opcode_is_rejected_and_marks_totals_incomplete ... ok
+test tests::accounting_integration::format_accounts_table_page_descriptors_and_barriers ... ok
+test tests::accounting_integration::checkpoint_load_accounts_reads_and_skips_unmapped_pages ... ok
+test tests::accounting_integration::record_io_failure_latches_before_mapping_publication ... ok
+test tests::accounting_integration::failed_pressure_publication_counts_completed_io_without_counting_publication ... ok
+test tests::accounting_integration::actual_short_backing_read_marks_accounting_incomplete ... ok
+test tests::accounting_integration::open_write_read_and_close_account_exact_deltas ... ok
+test tests::accounting_integration::exact_budget_exhaustion_rejects_write_before_backing_modification ... ok
+test tests::accounting_integration::checkpoint_publish_preserves_the_old_root_until_all_writes_succeed ... ok
+test tests::accounting_integration::public_accounting_apis_count_format_open_write_checkpoint_and_close ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 187 filtered out; finished in 0.06s
+
++ timeout 90 cargo +1.97.1 test --offline --locked --lib tests::io_uring
+    Finished `test` profile [unoptimized] target(s) in 0.01s
+     Running unittests src/lib.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 3 tests
+test tests::io_uring::destroys_ring_before_returning_permanent_wait_error ... ok
+test tests::io_uring::waits_when_submission_succeeds_before_completion_exists ... ok
+test tests::io_uring::direct_io_uring_write_survives_fsync_and_reopen ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 0.00s
+
++ timeout 90 cargo +1.97.1 clippy --offline --locked --lib --tests -- -D warnings
+    Checking block-storage v0.0.0 (/dev/shm/adr05-seam.hoNScE/clean/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.96s

@@ -1,0 +1,28 @@
++ cd /dev/shm/adr05-seam.hoNScE/clean/rust
++ export TMPDIR=/var/tmp CARGO_TARGET_DIR=/dev/shm/adr05-seam.hoNScE/rust/target CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
++ TMPDIR=/var/tmp
++ CARGO_TARGET_DIR=/dev/shm/adr05-seam.hoNScE/rust/target
++ CARGO_PROFILE_TEST_DEBUG=0
++ CARGO_INCREMENTAL=0
++ timeout 30 cargo +1.97.1 test --offline --locked --lib backing_enospc_at_checkpoint_b_final_fsync_must_latch -- --ignored --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.02s
+     Running unittests src/lib.rs (/dev/shm/adr05-seam.hoNScE/rust/target/debug/deps/block_storage-0092e8180c316dad)
+
+running 1 test
+checkpoint B final fsync: No space left on device (os error 28), hits=1 failed=false subsequent_flush=Ok(())
+
+thread 'accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch' (2408539) panicked at src/accounted_io/fault_plan/adr05_seam.rs:276:5:
+a backing failure must not bypass the volume latch
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+failed fixture: /var/tmp/adr05-seam-2408538-0
+test accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch ... FAILED
+
+failures:
+
+failures:
+    accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 196 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`
+exit=101

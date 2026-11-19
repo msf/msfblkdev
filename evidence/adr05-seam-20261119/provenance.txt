@@ -1,0 +1,8 @@
+baseline=ad30a544cd1369e76a63a9dfd6c672800df187ce plus five source files:
+af8cdd5e2b7c6e57d971d7b052235840f8199dcdee3487dad3452bf77d3f8bd8  rust/src/accounted_io.rs
+d21ab6139c95b87c86547cb15c0a8be7b6bd94e6bfaf640be36f93d7291d0dc9  rust/src/accounted_io/fault_plan.rs
+69b89d1a9502cabab633ad9a447da679a39925c70eebbc18c19986b66b06e517  rust/src/accounted_io/fault_plan/adr05_seam.rs
+fa639d79a496efae94d55dcd4fa1f0ed6298e9c38bf34760fc0953bf7f6cf69d  rust/src/format_v4/storage.rs
+e1e685cac6a8d629617227c3289bb6ad0453a998a8b4ce57ce281dd10e20e0fc  rust/src/format_v4/volume.rs
+original d7eda85cc464876fe0f2f3cb20be07d5cee5a0b116cbee0d5ff041d8ed0d2d44  /var/tmp/adr05-seam-2408538-0/before-next-flush
+unpacked d7eda85cc464876fe0f2f3cb20be07d5cee5a0b116cbee0d5ff041d8ed0d2d44  -

@@ -1,0 +1,8 @@
+lose-discard detected=['logical', 'kill', 336] reduced_epochs=[['w336:17', 'd336', 'f', 'kill']]
+misdirect-write detected=['logical', 'kill', 336] reduced_epochs=[['w336:17', 'f', 'kill']]
+seed-19-small detected=['reopen', 'close', 'Error: Custom { kind: InvalidData, error: "invalid metadata framing in replay tail" }'] reduced_epochs=[['w0:201', 'd337', 'd1', 'w0:159', 'w1:236', 'w679:100', 'w1:107', 'd679', 'w336:199', 'f', 'kill'], ['w335:161', 'w679:110', 'w0:63', 'w679:97', 'd335', 'w337:174', 'close'], ['g', 'w1:33', 'w1:167', 'd0', 'd0', 'd337', 'd0', 'd336', 'd671', 'd337', 'f', 'kill'], ['w1:132', 'w671:95', 'd679', 'd672', 'd1', 'd679', 'd0', 'w0:175', 'close']]
+seed-19-wide profile=wide epochs=4 verified_lbas_per_epoch=680 PASS
+seed-701-small detected=['reopen', 'close', 'Error: Custom { kind: InvalidData, error: "invalid metadata framing in replay tail" }'] reduced_epochs=[['w337:128', 'w679:138', 'w337:46', 'w335:144', 'w337:240', 'w337:41', 'w336:236', 'w679:192', 'f', 'kill'], ['w679:105', 'd337', 'w337:56', 'w0:62', 'w337:247', 'w335:10', 'd336', 'd337', 'd0', 'w335:82', 'close'], ['g', 'w335:130', 'w1:178', 'w0:87', 'w679:184', 'd672', 'w1:117', 'd1', 'd337', 'd336', 'w1:156', 'f', 'kill'], ['w335:141', 'w679:207', 'w679:242', 'w336:241', 'w335:246', 'd679', 'd679', 'w336:245', 'w337:152', 'd336', 'w1:245', 'close']]
+seed-701-wide profile=wide epochs=4 verified_lbas_per_epoch=680 PASS
+seed-20261119-small profile=small epochs=4 verified_lbas_per_epoch=680 PASS
+seed-20261119-wide profile=wide epochs=4 verified_lbas_per_epoch=680 PASS

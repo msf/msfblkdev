@@ -1,0 +1,30 @@
++ date -u
+Thu Nov 19 16:22:06 UTC 2026
++ uname -srm
+Darwin 25.6.0 arm64
++ python3 --version
+Python 3.15.2
++ shasum -a 256 /nix/store/5wks2kgfvrabp2kvbibwai75mvqvw4hi-xxhash-0.8.3/lib/libxxhash.dylib tools/adr05-fault-lab/checker/check.py tools/adr05-fault-lab/checker/test_check.py
+0f6a974bde45ad2ce1cfa8db6daa59690b27f0b651ae97b7b8f52ae7f1968cd6  /nix/store/5wks2kgfvrabp2kvbibwai75mvqvw4hi-xxhash-0.8.3/lib/libxxhash.dylib
+465a509d985c7e8591335d60a60b8059d909006900216d36307e7556c235b344  tools/adr05-fault-lab/checker/check.py
+22a25e56f517fcafcef43854122f1d6719d3e10f844be62946596bdd6e89ffa8  tools/adr05-fault-lab/checker/test_check.py
++ shasum -a 256 evidence/adr05-engine-arm64-20261119/failed-descriptor.img.gz /tmp/ado-check.mSSV9Z/fixture
+d07b5f969a663cb7f99e624d5ecdc607af957e05199121c7c9785c342c1897ff  evidence/adr05-engine-arm64-20261119/failed-descriptor.img.gz
+47496271bbe7f481c9c14cb4dda40f34b3c3a769660a0ef2fb176db1a2990fbf  /tmp/ado-check.mSSV9Z/fixture
++ gtimeout 20s python3 -B tools/adr05-fault-lab/checker/check.py /tmp/ado-check.mSSV9Z/fixture
+{"sha256": "47496271bbe7f481c9c14cb4dda40f34b3c3a769660a0ef2fb176db1a2990fbf", "roots": [{"slot": 0, "checkpoint_lsn": 1, "last_lsn": 6, "checkpoint_pages": 1, "replayed": 5, "mapped_lbas": 2, "visits": 226}, {"slot": 1, "checkpoint_lsn": 1, "last_lsn": 6, "checkpoint_pages": 1, "replayed": 5, "mapped_lbas": 2, "visits": 226}]}
++ shasum -a 256 /tmp/ado-check.mSSV9Z/fixture
+47496271bbe7f481c9c14cb4dda40f34b3c3a769660a0ef2fb176db1a2990fbf  /tmp/ado-check.mSSV9Z/fixture
++ cd tools/adr05-fault-lab/checker
++ gtimeout 20s python3 -B -m unittest -v
+test_both_heads_link_discard_growth (test_check.Checker.test_both_heads_link_discard_growth) ... ok
+test_damage_metadata (test_check.Checker.test_damage_metadata) ... ok
+test_input_size_bound (test_check.Checker.test_input_size_bound) ... ok
+test_new_root_frees_segment_still_referenced_by_old_root (test_check.Checker.test_new_root_frees_segment_still_referenced_by_old_root) ... ok
+test_overwrite_old_payload (test_check.Checker.test_overwrite_old_payload) ... ok
+test_two_distinct_roots_and_unreferenced_damage (test_check.Checker.test_two_distinct_roots_and_unreferenced_damage) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.006s
+
+OK
