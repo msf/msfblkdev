@@ -1,0 +1,29 @@
+Standalone ADR-05 medium and ordered-prefix checker tests. No new engine execution.
+base=19d6c8807ed889dafe298b1249943cea2051c2d0 (model sources uncommitted; hashes below)
+Thu Nov 19 16:20:39 UTC 2026
+Darwin arm64
+Python 3.15.2
+53bdc29fc9c0d6cc0b3798c0974f96137b8c54b00502b5a7e65a0b66d8caf647  tools/adr05-fault-lab/model/history.py
+d74a9842374f4198c85a60d228e3a105f66b3b539b5bafc1475c4dc474ca5b53  tools/adr05-fault-lab/model/medium.py
+3613996602f3d77dab1de5c8341f22a2c8f3c5df133c76e19627d028e8011ca7  tools/adr05-fault-lab/model/test_model.py
+python3 -B -m unittest discover -v -s tools/adr05-fault-lab/model
+test_retained_format4_image_and_recovered_history (test_model.CapturedEngineCase.test_retained_format4_image_and_recovered_history) ... ok
+test_discarded_value_resurrection_on_reopen_lba0 (test_model.LogicalChecker.test_discarded_value_resurrection_on_reopen_lba0) ... ok
+test_oracle_rejects_invalid_inputs_and_overlarge_uncertainty (test_model.LogicalChecker.test_oracle_rejects_invalid_inputs_and_overlarge_uncertainty) ... ok
+test_per_lba_legal_but_skipped_record_on_reopen (test_model.LogicalChecker.test_per_lba_legal_but_skipped_record_on_reopen) ... ok
+test_planted_lying_sync_loses_flushed_lba1 (test_model.LogicalChecker.test_planted_lying_sync_loses_flushed_lba1) ... ok
+test_planted_wrong_lba_before_reopen (test_model.LogicalChecker.test_planted_wrong_lba_before_reopen) ... ok
+test_rejected_write_must_never_reappear_on_reopen_lba0 (test_model.LogicalChecker.test_rejected_write_must_never_reappear_on_reopen_lba0) ... ok
+test_uncertain_write_and_failed_flush_are_not_barriers (test_model.LogicalChecker.test_uncertain_write_and_failed_flush_are_not_barriers) ... ok
+test_all_four_payload_metadata_survival_cases (test_model.PhysicalCuts.test_all_four_payload_metadata_survival_cases) ... ok
+test_discard_obeys_barriers_and_preserves_other_bytes (test_model.PhysicalCuts.test_discard_obeys_barriers_and_preserves_other_bytes) ... ok
+test_exact_match_and_hit_counts (test_model.PhysicalCuts.test_exact_match_and_hit_counts) ... ok
+test_limits_and_malformed_plans (test_model.PhysicalCuts.test_limits_and_malformed_plans) ... ok
+test_misdirected_io_stale_read_and_disappearance (test_model.PhysicalCuts.test_misdirected_io_stale_read_and_disappearance) ... ok
+test_sync_floor_tear_and_out_of_order_overlapping_writes (test_model.PhysicalCuts.test_sync_floor_tear_and_out_of_order_overlapping_writes) ... ok
+test_uncertain_completion_and_short_read_write (test_model.PhysicalCuts.test_uncertain_completion_and_short_read_write) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.003s
+
+OK
