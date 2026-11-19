@@ -40,6 +40,10 @@ The injector probe needs Python 3, a Linux C compiler and `liburing-dev`. It doe
 
 The guest kernel must support `io_uring`, `ublk_drv` and FUSE. The test user needs access to `/dev/ublk-control`, its own ublk nodes and `/dev/fuse`. The guest scratch filesystem must support direct I/O. `qemu-storage-daemon` must support `raw`, `file`, `blkdebug` and a FUSE export. Package installation alone does not prove those capabilities: require the no-fault and one-shot write/flush probes in the topology plan before accepting results. Save resolved package versions (`dpkg-query -W`) with the evidence. Nested KVM, Docker, LVM, ZFS, and the ADR-10 benchmark VM are not dependencies for this first gate.
 
+## Which command goes in the dev loop?
+
+Run `make test-dst` on Linux to exercise both descriptor-survival outcomes against format-4 recovery. It uses temporary regular files and needs `io_uring` and direct I/O, but no QEMU or ublk device. To test the real backing-error path in a provisioned guest, set `SCRATCH` and `DEVICE` as described below, then run `make test-fault`. The target builds the probe and example and stops at the first failure. Redirect its output to a new log on the guest OS disk for evidence. Neither target qualifies the full [ADR-05 campaign](../../docs/ADR05-CAMPAIGN.md).
+
 ## Run the injector probe
 
 Inside the disposable VM, identify the ext4 filesystem on the **second** virtual disk with `lsblk -f`. Use a writable directory on that filesystem for `SCRATCH`, and its device or `/dev/disk/by-uuid/…` path for `DEVICE`. The runner checks the device identity but never opens the device for I/O. Keep the source and output log on the guest OS disk.

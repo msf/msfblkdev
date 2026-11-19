@@ -21,6 +21,20 @@ test-compaction-small:
 		cd rust && BLOCK_STORAGE_SMALL_FIXTURE="$$dir" timeout --kill-after=5s 120s \
 		cargo test --locked --release --test compaction_small -- --ignored --nocapture
 
+# Focused format-4 recovery test. No QEMU, ublk or second disk required.
+.PHONY: test-dst test-fault
+test-dst:
+	@cd rust && cargo test --locked --lib descriptor_survival --no-run
+	@cd rust && timeout -k 5s 60s cargo test --locked --lib descriptor_survival -- --nocapture
+
+# Guest only: never choose a scratch filesystem on behalf of the operator.
+test-fault:
+	@: "$${SCRATCH:?set SCRATCH to the writable disposable guest directory}" "$${DEVICE:?set DEVICE to its ext4 device}"
+	@cd tools/adr05-fault-lab && $(CC) -std=c11 -Wall -Wextra -Werror -O2 -o probe-io probe-io.c -luring
+	@timeout -k 5s 90s python3 -B -u tools/adr05-fault-lab/guest-probe.py "$$SCRATCH" "$$DEVICE"
+	@cargo build --locked --manifest-path rust/Cargo.toml --target-dir rust/target --example adr05-engine
+	@timeout -k 5s 90s python3 -B -u tools/adr05-fault-lab/engine-checkpoint.py "$$SCRATCH" "$$DEVICE" rust/target/debug/examples/adr05-engine
+
 test-acceptance:
 	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- engine-crash
 
