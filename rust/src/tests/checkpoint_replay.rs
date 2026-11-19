@@ -91,6 +91,52 @@ fn clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum() -> io::Result
     Ok(())
 }
 
+/// Later medium damage is outside the successful-fsync guarantee. Both paths must
+/// recover the mapping, reject only the damaged read, and accept a later overwrite.
+#[test]
+fn payload_damage_after_flush_is_local_to_the_mapped_version() -> io::Result<()> {
+    for publish in [false, true] {
+        let backing = small_volume(2)?;
+        let mut volume = open(&backing.0)?;
+        volume.write_block(0, &[0xb7; BLOCK_SIZE])?;
+        volume.write_block(1, &[0x31; BLOCK_SIZE])?;
+        volume.flush()?;
+        if publish {
+            volume.close()?;
+        } else {
+            drop(volume); // Recover from the flushed log without a close-time checkpoint.
+        }
+        let original = std::fs::read(&backing.0)?;
+        let mut copies = original
+            .chunks_exact(BLOCK_SIZE)
+            .enumerate()
+            .filter(|(_, block)| *block == [0xb7; BLOCK_SIZE]);
+        let (physical, _) = copies
+            .next()
+            .expect("fixture must contain the flushed payload");
+        assert!(copies.next().is_none(), "damage exactly one mapped copy");
+        let damaged = TemporaryBacking::new()?;
+        damaged.create_sized(0)?;
+        std::fs::copy(&backing.0, &damaged.0)?;
+        corrupt_byte(&damaged, (physical * BLOCK_SIZE) as u64)?;
+        let mut reopened = open(&damaged.0)?;
+        let mut out = [0xd2; BLOCK_SIZE];
+        assert_eq!(
+            reopened.read_block(0, &mut out).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(out, [0xd2; BLOCK_SIZE]);
+        reopened.read_block(1, &mut out)?;
+        assert_eq!(out, [0x31; BLOCK_SIZE]);
+        reopened.write_block(0, &[0x96; BLOCK_SIZE])?;
+        reopened.close()?;
+        let mut replaced = open(&damaged.0)?;
+        replaced.read_block(0, &mut out)?;
+        assert_eq!(out, [0x96; BLOCK_SIZE]);
+    }
+    Ok(())
+}
+
 struct CheckpointFallbackFixture {
     backing: TemporaryBacking,
     newest: CheckpointDescriptor,
