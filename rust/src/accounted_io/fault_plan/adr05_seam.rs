@@ -227,7 +227,6 @@ fn pre_io_capacity_enospc_keeps_volume_usable() -> io::Result<()> {
 }
 
 #[test]
-#[ignore = "ADR05 pre-fix reproducer: backing ENOSPC during maintenance must latch"]
 fn backing_enospc_at_checkpoint_b_final_fsync_must_latch() -> io::Result<()> {
     use crate::{MaintenanceStep, SelectionMode::Pressure};
     let dir = Fixture::new()?;

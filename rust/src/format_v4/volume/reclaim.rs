@@ -37,6 +37,20 @@ pub enum MaintenanceStep {
     Idle,
 }
 
+// Only this preflight refusal is recoverable. A backing operation can return the
+// same errno after a partial publication, when the writer must not continue.
+#[derive(Debug)]
+enum MaintenanceError {
+    NoPublicationRoom,
+    Failed(io::Error),
+}
+
+impl From<io::Error> for MaintenanceError {
+    fn from(error: io::Error) -> Self {
+        Self::Failed(error)
+    }
+}
+
 /// Where the current victim's scan stands on the writer's side.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ScanState {
@@ -137,13 +151,21 @@ impl Volume {
     }
 
     /// Runs one bounded maintenance step without blocking. Under `Pressure` the writer
-    /// prefers the emptiest victim; `Idle` prefers old, mostly dead segments. Running out of
-    /// space during maintenance is reported as `ENOSPC` without failing the volume.
+    /// prefers the emptiest victim; `Idle` prefers old, mostly dead segments. A publication
+    /// that won't fit returns `ENOSPC` before writing. A backing `ENOSPC` fails the volume.
     pub fn maintain(&mut self, mode: SelectionMode) -> io::Result<MaintenanceStep> {
         self.check_operational()?;
-        match self.maintain_step(mode) {
-            Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => Err(error),
-            result => self.latch(result),
+        let result = self.maintain_step(mode);
+        self.finish_maintenance(result)
+    }
+
+    fn finish_maintenance<T>(&mut self, result: Result<T, MaintenanceError>) -> io::Result<T> {
+        match result {
+            Ok(value) => Ok(value),
+            Err(MaintenanceError::NoPublicationRoom) => {
+                Err(io::Error::from_raw_os_error(libc::ENOSPC))
+            }
+            Err(MaintenanceError::Failed(error)) => self.latch(Err(error)),
         }
     }
 
@@ -302,7 +324,7 @@ impl Volume {
         self.maintenance_fits(copies, 2, keep)
     }
 
-    fn maintain_step(&mut self, mode: SelectionMode) -> io::Result<MaintenanceStep> {
+    fn maintain_step(&mut self, mode: SelectionMode) -> Result<MaintenanceStep, MaintenanceError> {
         self.poll_cleaner()?;
         // Ask for the next window before applying the last one, so the cleaner reads while
         // the writer copies.
@@ -447,9 +469,9 @@ impl Volume {
     }
 
     /// Publishes so that pending victims move one barrier step and refreshes the view.
-    fn barrier_publication(&mut self) -> io::Result<MaintenanceStep> {
+    fn barrier_publication(&mut self) -> Result<MaintenanceStep, MaintenanceError> {
         if !self.publication_fits() {
-            return Err(io::Error::from_raw_os_error(libc::ENOSPC));
+            return Err(MaintenanceError::NoPublicationRoom);
         }
         // Segments pending in the active root become free when this descriptor is durable.
         let freed = self.log.segments.published_free_transitions();
@@ -837,7 +859,7 @@ impl Volume {
             let mut step = self.maintain(SelectionMode::Pressure)?;
             if step == MaintenanceStep::Idle && self.write_buffer.len() == 0 {
                 let published = self.release_pinned_metadata();
-                if self.latch(published)? {
+                if self.finish_maintenance(published)? {
                     step = MaintenanceStep::Published { freed: 1 };
                 }
             }
@@ -880,7 +902,7 @@ impl Volume {
     /// A scan may have copied the last live payload and dirtied the victim's last current
     /// snapshot, index or table page. Another scan cannot help. Publish the dirty metadata,
     /// then record PendingFree and Free. No foreground I/O interleaves with these checkpoints.
-    fn release_pinned_metadata(&mut self) -> io::Result<bool> {
+    fn release_pinned_metadata(&mut self) -> Result<bool, MaintenanceError> {
         use crate::format_v4::segment_table::SegmentState;
         if self.reclaim.scan != ScanState::None || !self.reclaim.queue.is_empty() {
             return Ok(false);

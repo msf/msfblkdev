@@ -722,7 +722,7 @@ fn handle_request(
             };
         }
     };
-    match request {
+    let mut outcome = match request {
         Request::Read { lba, blocks } => transfer_blocks(buffer, blocks, |index, block| {
             volume.read_block(lba + index, block)
         }),
@@ -746,10 +746,14 @@ fn handle_request(
                 outcome
             }
         }
-    }
+    };
+    // Preserve ENOSPC in the completion. Only capacity exhaustion in an otherwise
+    // healthy engine is nonfatal; an uncertain backing operation latches the volume.
+    outcome.fatal |= volume.is_failed();
+    outcome
 }
 
-/// Discards carry no data: success completes with zero, `ENOSPC` is not fatal.
+/// Discards carry no data: success completes with zero.
 fn complete_unmap(result: io::Result<()>) -> RequestOutcome {
     match result {
         Ok(()) => RequestOutcome {
@@ -1077,7 +1081,9 @@ impl Maintenance {
                 Ok(())
             }
             // Space that maintenance cannot free is reported by the next write, not here.
-            Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => Ok(()),
+            Err(error) if !volume.is_failed() && error.raw_os_error() == Some(libc::ENOSPC) => {
+                Ok(())
+            }
             Err(error) => Err(error),
         }
     }
@@ -2674,6 +2680,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(post_failure, (0, vec![SHUTDOWN_COMPLETION]));
+        Ok(())
+    }
+
+    #[test]
+    fn latched_enospc_preserves_errno_and_fails_the_queue() -> io::Result<()> {
+        let backing = TemporaryBacking::formatted(8)?;
+        let ledger = TemporaryPath::new()?;
+        // Recovery sanitizes 31 + 32 blocks on this fresh two-head fixture. Leave
+        // no accounting budget for the first foreground record.
+        let limit = 63 * u64::from(LOGICAL_BLOCK_BYTES);
+        // SAFETY: this test owns the ledger; it isn't truncated or mutated outside the API.
+        let reader = unsafe { block_storage::io_accounting::Reader::create(&ledger.0, limit)? };
+        let writer = io_ledger::open_optional(Some(ledger.0.as_os_str()))?.unwrap();
+        let mut volume =
+            block_storage::open_with_accounting(&backing.0, Default::default(), writer)?;
+        assert_eq!(reader.snapshot()?.write_reserved_bytes, limit);
+        let drain = DrainState::new();
+        let mut queue_error = None;
+        let completion = handle_queue_request(
+            &mut volume,
+            &descriptor(UBLK_IO_OP_WRITE, 0, 8),
+            &mut [1; LOGICAL_BLOCK_USIZE],
+            &drain,
+            &mut queue_error,
+        );
+        assert_eq!(completion, -libc::ENOSPC);
+        assert!(volume.is_failed());
+        assert!(drain.queue_failed.load(Ordering::Acquire));
+        assert!(queue_error.is_some());
         Ok(())
     }
 
