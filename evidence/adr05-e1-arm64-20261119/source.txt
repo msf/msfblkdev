@@ -1,0 +1,4 @@
+Native Lima/VZ Debian arm64. make targets: 0d89075ce2360817a779b83fe7719ff77e70793a
+Checkpoint recovery rerun: 762e7c13018cdf2c62699994bde8e13ebb179acf
+First run: make test-fault, make test-dst, then cargo test --locked --lib tests::checkpoint_replay:: -- --nocapture
+Second run adds one payload-damage test, same checkpoint_replay filter. Both builds used CARGO_INCREMENTAL=0.

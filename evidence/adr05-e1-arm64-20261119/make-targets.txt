@@ -1,0 +1,229 @@
++ cd /home/miguel.guest/src-qa
++ source /home/miguel.guest/.cargo/env
+++ case ":${PATH}:" in
++ export CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
++ CARGO_INCREMENTAL=0
++ CARGO_BUILD_JOBS=2
++ uname -srmo
+Linux 6.12.117+deb13-arm64 aarch64 GNU/Linux
++ rustc -Vv
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: aarch64-unknown-linux-gnu
+release: 1.97.1
+LLVM version: 22.1.6
++ id
+uid=501(miguel) gid=46(plugdev) groups=46(plugdev),999(systemd-journal),1000(miguel)
++ make test-fault DEVICE=/dev/disk/by-uuid/8490e987-f9af-45ed-b770-b793a94270cd SCRATCH=/mnt/lima-liveb-scratch/probe
+qemu-storage-daemon version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)
+Copyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers
+preflight=ok uid=501 scratch=/mnt/lima-liveb-scratch/probe device=/dev/disk/by-uuid/8490e987-f9af-45ed-b770-b793a94270cd fstype=ext4 image_bytes=4096 max_pwrite_bytes=20480
+case=normal fixture=/mnt/lima-liveb-scratch/probe/adr05-normal-cmkbliy6
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/adr05-normal-cmkbliy6/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base"}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/adr05-normal-cmkbliy6/export"}'
+op=pwrite result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0xa5
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=normal base_match=1 elapsed_s=0.063 result=PASS
+case=write fixture=/mnt/lima-liveb-scratch/probe/adr05-write-dwsnro2l
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/adr05-write-dwsnro2l/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "write_aio", "iotype": "write", "errno": 5, "once": true}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/adr05-write-dwsnro2l/export"}'
+op=pwrite result=-1 errno=5 expected=-1 expected_errno=5
+op=pwrite.retry result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0xa5
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=write base_match=1 elapsed_s=0.058 result=PASS
+case=fsync fixture=/mnt/lima-liveb-scratch/probe/adr05-fsync-_a1miu_a
+qemu-storage-daemon --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/adr05-fsync-_a1miu_a/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "flush_to_disk", "iotype": "flush", "errno": 5, "once": true}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/adr05-fsync-_a1miu_a/export"}'
+op=pwrite result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync result=-1 errno=5 expected=-1 expected_errno=5
+op=pwrite.after-fsync result=4096 errno=0 expected=4096 expected_errno=0
+op=fsync.retry result=0 errno=0 expected=0 expected_errno=0
+op=pread result=4096 errno=0 expected=4096 expected_errno=0
+readback_match=1 offset=0 bytes=4096 byte=0x5a
+op=close result=0 errno=0 expected=0 expected_errno=0
+case=fsync base_match=1 elapsed_s=0.058 result=PASS
+injector=PASS
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling bitflags v2.13.2
+   Compiling parking v2.2.1
+   Compiling pin-project-lite v0.2.17
+   Compiling cfg-if v1.0.5
+   Compiling crossbeam-utils v0.8.23
+   Compiling syn v2.0.119
+   Compiling fastrand v2.5.0
+   Compiling futures-io v0.3.34
+   Compiling futures-core v0.3.34
+   Compiling memchr v2.8.3
+   Compiling concurrent-queue v2.5.0
+   Compiling libc v0.2.191
+   Compiling futures-lite v2.6.1
+   Compiling event-listener v5.4.2
+   Compiling glob v0.3.4
+   Compiling rustix v1.1.6
+   Compiling clang-sys v1.9.1
+   Compiling event-listener-strategy v0.5.4
+   Compiling prettyplease v0.2.37
+   Compiling linux-raw-sys v0.12.1
+   Compiling autocfg v1.5.1
+   Compiling rustix v0.38.44
+   Compiling async-io v2.6.0
+   Compiling aho-corasick v1.1.5
+   Compiling either v1.19.0
+   Compiling minimal-lexical v0.2.1
+   Compiling linux-raw-sys v0.4.15
+   Compiling async-task v4.7.1
+   Compiling slab v0.4.12
+   Compiling regex-syntax v0.8.12
+   Compiling regex-automata v0.4.19
+   Compiling polling v3.11.0
+   Compiling nom v7.1.3
+   Compiling async-channel v2.5.0
+   Compiling libloading v0.8.9
+   Compiling bindgen v0.69.5
+   Compiling serde_core v1.0.229
+   Compiling home v0.5.12
+   Compiling anyhow v1.0.104
+   Compiling atomic-waker v1.1.2
+   Compiling piper v0.2.5
+   Compiling which v4.4.2
+   Compiling cexpr v0.6.0
+   Compiling regex v1.13.2
+   Compiling itertools v0.12.1
+   Compiling errno v0.3.15
+   Compiling fnv v1.0.7
+   Compiling shlex v1.3.0
+   Compiling ident_case v1.0.1
+   Compiling lazy_static v1.5.1
+   Compiling log v0.4.35
+   Compiling strsim v0.11.1
+   Compiling rustc-hash v1.1.0
+   Compiling lazycell v1.3.0
+   Compiling darling_core v0.21.3
+   Compiling signal-hook-registry v1.4.8
+   Compiling blocking v1.7.0
+   Compiling async-lock v3.5.0
+   Compiling syn v3.0.10
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling libublk-rs-sys v0.1.2
+   Compiling serde_derive v1.0.229
+   Compiling async-signal v0.2.14
+   Compiling darling_macro v0.21.3
+   Compiling serde_json v1.0.154
+   Compiling io-uring v0.7.16
+   Compiling thiserror v1.0.69
+   Compiling darling v0.21.3
+   Compiling async-process v2.5.0
+   Compiling async-fs v2.2.0
+   Compiling async-net v2.0.0
+   Compiling async-executor v1.14.1
+   Compiling thiserror-impl v1.0.69
+   Compiling itoa v1.0.19
+   Compiling smol v2.0.2
+   Compiling derive_setters v0.1.9
+   Compiling futures-timer v3.0.4
+   Compiling bitmaps v3.2.1
+   Compiling hashbrown v0.17.1
+   Compiling libublk v0.4.8
+   Compiling xxhash-rust v0.8.21
+   Compiling block-storage v0.0.0 (/home/miguel.guest/src-qa/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.84s
+fixtures=/mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu device=/dev/disk/by-uuid/8490e987-f9af-45ed-b770-b793a94270cd client=/home/miguel.guest/src-qa/rust/target/debug/examples/adr05-engine
+/home/miguel.guest/src-qa/rust/target/debug/examples/adr05-engine format-new /mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/control/image
+qemu-storage-daemon --trace enable=blk_co_pwritev --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/control/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base"}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/control/export"}'
+/home/miguel.guest/src-qa/rust/target/debug/examples/adr05-engine control /mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/control/export
+blk_co_pwritev blk 0xaaaab8b00010 bs 0xaaaab8b07fd0 offset 12288 bytes 126976 flags 0x0
+blk_co_pwritev blk 0xaaaab8b00010 bs 0xaaaab8b07fd0 offset 139264 bytes 131072 flags 0x0
+blk_co_pwritev blk 0xaaaab8b00010 bs 0xaaaab8b07fd0 offset 12288 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0x17 result=ok
+blk_co_pwritev blk 0xaaaab8b00010 bs 0xaaaab8b07fd0 offset 20480 bytes 8192 flags 0x0
+op=write_block lba=5 byte=0x53 result=ok
+blk_co_pwritev blk 0xaaaab8b00010 bs 0xaaaab8b07fd0 offset 28672 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0xab result=ok
+op=flush result=ok
+blk_co_pwritev blk 0xaaaab8b00010 bs 0xaaaab8b07fd0 offset 36864 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaab8b00010 bs 0xaaaab8b07fd0 offset 40960 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaab8b00010 bs 0xaaaab8b07fd0 offset 4096 bytes 4096 flags 0x0
+op=close result=ok
+case=control roots_before=['f605c9e307d76da7043fb4d53b8ba7abb92a34aaa75c8a0202ccea082708eb03', 'a574e39d43987f4a3c495ac60572b5154ec2eb55a9ebbaa2e140116a53fe004c'] roots_after=['f605c9e307d76da7043fb4d53b8ba7abb92a34aaa75c8a0202ccea082708eb03', '23e6bba8e4d3f47ceaf9bf2b698f0dca95b0c36a824a1563c30d1b3e59edee59']
+/home/miguel.guest/src-qa/rust/target/debug/examples/adr05-engine verify-copy /mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/control/recovery-copy
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+op=read_block lba=1 byte=0xab bytes=4096 match=true
+op=read_block lba=2 byte=0x00 bytes=4096 match=true
+op=read_block lba=3 byte=0x00 bytes=4096 match=true
+op=read_block lba=4 byte=0x00 bytes=4096 match=true
+op=read_block lba=5 byte=0x53 bytes=4096 match=true
+op=read_block lba=6 byte=0x00 bytes=4096 match=true
+op=read_block lba=7 byte=0x00 bytes=4096 match=true
+case=control result=PASS elapsed_s=0.075
+/home/miguel.guest/src-qa/rust/target/debug/examples/adr05-engine format-new /mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/descriptor-eio/image
+qemu-storage-daemon --trace enable=blk_co_pwritev --blockdev '{"driver": "file", "node-name": "base", "filename": "/mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/descriptor-eio/image", "cache": {"direct": true, "no-flush": false}}' --blockdev '{"driver": "blkdebug", "node-name": "debug", "image": "base", "inject-error": [{"event": "write_aio", "iotype": "write", "sector": 8, "once": true, "errno": 5}]}' --blockdev '{"driver": "raw", "node-name": "raw", "file": "debug"}' --export '{"type": "fuse", "id": "probe", "node-name": "raw", "writable": true, "allow-other": "off", "mountpoint": "/mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/descriptor-eio/export"}'
+/home/miguel.guest/src-qa/rust/target/debug/examples/adr05-engine descriptor-eio /mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/descriptor-eio/export
+blk_co_pwritev blk 0xaaaaf10932f0 bs 0xaaaaf108cfa0 offset 12288 bytes 126976 flags 0x0
+blk_co_pwritev blk 0xaaaaf10932f0 bs 0xaaaaf108cfa0 offset 139264 bytes 131072 flags 0x0
+blk_co_pwritev blk 0xaaaaf10932f0 bs 0xaaaaf108cfa0 offset 12288 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0x17 result=ok
+blk_co_pwritev blk 0xaaaaf10932f0 bs 0xaaaaf108cfa0 offset 20480 bytes 8192 flags 0x0
+op=write_block lba=5 byte=0x53 result=ok
+blk_co_pwritev blk 0xaaaaf10932f0 bs 0xaaaaf108cfa0 offset 28672 bytes 8192 flags 0x0
+op=write_block lba=1 byte=0xab result=ok
+op=flush result=ok
+blk_co_pwritev blk 0xaaaaf10932f0 bs 0xaaaaf108cfa0 offset 36864 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaaf10932f0 bs 0xaaaaf108cfa0 offset 40960 bytes 4096 flags 0x0
+blk_co_pwritev blk 0xaaaaf10932f0 bs 0xaaaaf108cfa0 offset 4096 bytes 4096 flags 0x0
+op=close errno=5 result=expected_eio
+case=descriptor-eio roots_before=['2b7982d7d21f7e91a3fb09770d54ba8be7cfe6a5228a945c661fd959f92b110c', '82871084e4284b603393c4d8e2b378cf6e1dc33f26ab2e90dc41e2756bf4f55f'] roots_after=['2b7982d7d21f7e91a3fb09770d54ba8be7cfe6a5228a945c661fd959f92b110c', '82871084e4284b603393c4d8e2b378cf6e1dc33f26ab2e90dc41e2756bf4f55f']
+/home/miguel.guest/src-qa/rust/target/debug/examples/adr05-engine verify-copy /mnt/lima-liveb-scratch/probe/adr05-engine-r2gzoonu/descriptor-eio/recovery-copy
+op=read_block lba=0 byte=0x00 bytes=4096 match=true
+op=read_block lba=1 byte=0xab bytes=4096 match=true
+op=read_block lba=2 byte=0x00 bytes=4096 match=true
+op=read_block lba=3 byte=0x00 bytes=4096 match=true
+op=read_block lba=4 byte=0x00 bytes=4096 match=true
+op=read_block lba=5 byte=0x53 bytes=4096 match=true
+op=read_block lba=6 byte=0x00 bytes=4096 match=true
+op=read_block lba=7 byte=0x00 bytes=4096 match=true
+case=descriptor-eio result=PASS elapsed_s=0.103
+engine_checkpoint=PASS
++ make test-dst
+   Compiling block-storage v0.0.0 (/home/miguel.guest/src-qa/rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.31s
+  Executable unittests src/lib.rs (target/debug/deps/block_storage-577f5c28ce4508c4)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/block_storage-577f5c28ce4508c4)
+
+running 1 test
+descriptor_slot=Green checkpoint_lsn=13 segment_0=PendingFree verified_lbas=8
+descriptor_slot=Blue checkpoint_lsn=14 segment_0=Free verified_lbas=8
+control=early-reuse lba=0 physical=18 detected=payload checksum mismatch
+test tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 189 filtered out; finished in 0.01s
+
++ cd rust
++ cargo test --locked --lib tests::checkpoint_replay:: -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/block_storage-577f5c28ce4508c4)
+
+running 12 tests
+test tests::checkpoint_replay::clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum ... ok
+test tests::checkpoint_replay::close_persists_snapshot_index_page_and_descriptor ... ok
+test tests::checkpoint_replay::close_without_mapping_changes_does_not_publish_checkpoint ... ok
+test tests::checkpoint_replay::equal_lsn_checkpoints_must_describe_one_checkpoint ... ok
+test tests::checkpoint_replay::flush_persists_data_without_advancing_checkpoint ... ok
+test tests::checkpoint_replay::log_full_write_does_not_publish_live_checkpoint ... ok
+test tests::checkpoint_replay::falls_back_from_corrupted_newest_index_page_and_replays_tail ... ok
+test tests::checkpoint_replay::falls_back_from_corrupted_newest_descriptor_and_replays_tail ... ok
+test tests::checkpoint_replay::reconstructs_every_recovery_cursor_from_replayed_state ... ok
+test tests::checkpoint_replay::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation ... ok
+test tests::checkpoint_replay::rejects_invalid_checkpoint_after_bytes_before_touching_backing ... ok
+test tests::checkpoint_replay::checkpoints_before_buffered_group_exceeding_replay_bound ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 0.02s
+

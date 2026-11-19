@@ -1,0 +1,21 @@
+   Compiling block-storage v0.0.0 (/home/miguel.guest/src-qa/rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.17s
+     Running unittests src/lib.rs (target/debug/deps/block_storage-577f5c28ce4508c4)
+
+running 13 tests
+test tests::checkpoint_replay::close_persists_snapshot_index_page_and_descriptor ... ok
+test tests::checkpoint_replay::clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum ... ok
+test tests::checkpoint_replay::close_without_mapping_changes_does_not_publish_checkpoint ... ok
+test tests::checkpoint_replay::equal_lsn_checkpoints_must_describe_one_checkpoint ... ok
+test tests::checkpoint_replay::flush_persists_data_without_advancing_checkpoint ... ok
+test tests::checkpoint_replay::log_full_write_does_not_publish_live_checkpoint ... ok
+test tests::checkpoint_replay::payload_damage_after_flush_is_local_to_the_mapped_version ... ok
+test tests::checkpoint_replay::falls_back_from_corrupted_newest_index_page_and_replays_tail ... ok
+test tests::checkpoint_replay::falls_back_from_corrupted_newest_descriptor_and_replays_tail ... ok
+test tests::checkpoint_replay::reconstructs_every_recovery_cursor_from_replayed_state ... ok
+test tests::checkpoint_replay::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation ... ok
+test tests::checkpoint_replay::checkpoints_before_buffered_group_exceeding_replay_bound ... ok
+test tests::checkpoint_replay::rejects_invalid_checkpoint_after_bytes_before_touching_backing ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 0.05s
+
