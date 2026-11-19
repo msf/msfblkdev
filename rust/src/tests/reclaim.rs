@@ -5,6 +5,8 @@ use crate::format_v4::segment_table::SegmentState;
 use crate::{BackingDiscard, MaintenanceStep, SelectionMode};
 use std::time::Duration;
 
+mod descriptor_survival;
+
 /// Longest a test waits for one cleaner report before it fails.
 const CLEANER_WAIT: Duration = Duration::from_secs(20);
 
