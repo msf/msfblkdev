@@ -44,6 +44,22 @@ The guest kernel must support `io_uring`, `ublk_drv` and FUSE. The test user nee
 
 Run `make test-fault-model` on Linux or macOS to check the bounded medium and logical history without starting an engine. Run `make test-dst` on Linux to run those controls and exercise both descriptor-survival outcomes against format-4 recovery. It uses temporary regular files and needs `io_uring` and direct I/O, but no QEMU or ublk device. To test the real backing-error path in a provisioned guest, set `SCRATCH` and `DEVICE` as described below, then run `make test-fault`. The target builds the probe and example and stops at the first failure. Redirect its output to a new log on the guest OS disk for evidence. Neither target qualifies the full [ADR-05 campaign](../../docs/ADR05-CAMPAIGN.md).
 
+## How do I replay a seed against the engine?
+
+On Linux with direct I/O and `io_uring`, run from the repository root. No device, mount or root access is needed. `OUT` is optional; when given, it must name a new directory under an existing parent. Without it the test prints the plan and trace.
+
+```sh
+make test-fault-seed SEED=42 OUT=/tmp/dst-42
+make test-fault-seed PLAN=/tmp/dst-42/plan.txt OUT=/tmp/dst-replay
+cmp /tmp/dst-42/trace.txt /tmp/dst-replay/trace.txt
+```
+
+`format4-dst-v1` uses SplitMix64 with an unsigned 64-bit decimal seed. Both the one-block client writes and the backing faults come from the seed. Each plan row names a fault, the one-based occurrence of its backing opcode since reopen, then `lba:byte` pairs. Each pair fills a 4 KiB block with that byte and requests a FLUSH after a successful WRITE. For example, `write-short 3 5:142 3:169 0:152` makes the third backing Writev return zero bytes; it does not transfer a partial payload. Other effects reject Writev with ENOSPC, reject fsync with EIO, or return EIO *after* a successful Writev or fsync. The test uses the default fail-closed policy.
+
+A generated schedule runs four epochs of up to six writes each with a fixed volume ID. At the error it checks the hit count, caller result and failure latch. It copies the regular file before clean close, runs format-4 recovery on the copy, compares every byte of all eight logical blocks against the expected client history, then continues on that recovered copy. A read error or byte mismatch fails the run. The cut retains writes completed on the backing file; it does not simulate a power cut discarding pending bytes. A non-hit is **inconclusive** and exits nonzero. `make test` includes controls for a missed rule and a deliberately misdirected acknowledged write.
+
+Save `plan.txt`, `trace.txt`, the process output and the Git revision when reporting a failure. `PLAN` replays concrete rows without using the generator. Compare the trace files, not Cargo output, which includes elapsed time and temporary paths. V1 exercises serialized I/O and recovery only. It does not control kernel scheduling, timeouts or cleaner interleavings. For lost writeback and opt-in records replay, use the separate `make test-fsync01` regression.
+
 ## Run the injector probe
 
 Inside the disposable VM, identify the ext4 filesystem on the **second** virtual disk with `lsblk -f`. Use a writable directory on that filesystem for `SCRATCH`, and its device or `/dev/disk/by-uuid/…` path for `DEVICE`. The runner checks the device identity but never opens the device for I/O. Keep the source and output log on the guest OS disk.

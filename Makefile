@@ -127,3 +127,10 @@ test-rust:
 test-fsync01:
 	@cd rust && cargo test --locked --lib fsync01 --no-run
 	@cd rust && timeout -k 5s 60s cargo test --locked --lib fsync01 -- --nocapture --test-threads=1
+
+# Linux: generated or saved serial backing-fault schedule (SEED or PLAN, optional OUT).
+.PHONY: test-fault-seed
+test-fault-seed: export DST_ROOT := $(CURDIR)
+test-fault-seed:
+	@cd rust && cargo test --locked --lib --no-run
+	@cd rust && timeout -k 5s 60s cargo test --locked --lib tests::seeded_dst::replay_from_environment -- --exact --ignored --nocapture
