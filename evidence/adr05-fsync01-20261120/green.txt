@@ -1,0 +1,55 @@
++ git rev-parse HEAD
+067fd126ec90592db21269d57d35b8b43487364f
++ git status --short --branch
+## adr05/fsync01-fix...origin/adr05/fsync01-fix
++ uname -srmo
+Linux 7.2.12-orbstack-00394-gbecdd6130068 aarch64 GNU/Linux
++ id -u
+501
++ rustc -V
+rustc 1.97.1 (8bab26f4f 2026-07-14)
++ cargo -V
+cargo 1.97.1 (c980f4866 2026-06-30)
++ make test-fsync01
+running 2 tests
+test tests::fsync01::fsync01_controls ... FSYNC-01 Clean original offset=28672 len=8192 xxh3=d29d26d109c97ac9
+FSYNC-01 Clean original offset=36864 len=8192 xxh3=17cda94105a273e9
+FSYNC-01 Clean records barrier: backing sync succeeded
+FSYNC-01 BareRetry original offset=28672 len=8192 xxh3=48bfc66b93a39431
+FSYNC-01 BareRetry original offset=36864 len=8192 xxh3=1b6117428e184cad
+FSYNC-01 BareRetry records barrier: lost both records, EIO
+FSYNC-01 BareRetry records barrier: backing sync succeeded
+FSYNC-01 planted FLUSH success rejected: both recovered blocks contain their old values
+ok
+test tests::fsync01::fsync01_engine ... FSYNC-01 Engine original offset=28672 len=8192 xxh3=8ab3daf0308add54
+FSYNC-01 Engine original offset=36864 len=8192 xxh3=6349be4e4a800f06
+FSYNC-01 Engine records barrier: lost both records, EIO
+info event=records_replay through_lsn=5 attempt=2 barrier_errno=5 records=2 blocks=4
+FSYNC-01 Engine replay offset=28672 len=8192 xxh3=8ab3daf0308add54
+FSYNC-01 Engine replay offset=36864 len=8192 xxh3=6349be4e4a800f06
+FSYNC-01 Engine records barrier: backing sync succeeded
+info event=records_replay_done through_lsn=5 attempt=2 elapsed_ms=52 success=true errno=None
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 204 filtered out; finished in 0.10s
++ make lint
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.58s
++ make test
+PASS [doc] src/io_accounting.rs - io_accounting::PendingOperation (line 275) 0.076s
++ git status --short --branch
+## adr05/fsync01-fix...origin/adr05/fsync01-fix
+
+Separate six-control run at same source:
+running 6 tests
+test tests::records_retry::discard_invalidates_an_otherwise_replayable_records_epoch ... ok
+test tests::records_retry::enabling_mid_epoch_does_not_replay_an_incomplete_history ... ok
+test tests::records_retry::one_shot_report_after_sync_replays_without_another_log_append ... info event=records_replay through_lsn=2 attempt=2 barrier_errno=5 records=1 blocks=2
+info event=records_replay_done through_lsn=2 attempt=2 elapsed_ms=55 success=true errno=None
+ok
+test tests::records_retry::persistent_records_barrier_error_fences_after_one_retry ... info event=records_replay through_lsn=2 attempt=2 barrier_errno=5 records=1 blocks=2
+info event=records_replay_done through_lsn=2 attempt=2 elapsed_ms=55 success=false errno=Some(5)
+ok
+test tests::records_retry::records_capacity_sync_fails_closed_before_evicting_retained_bytes ... ok
+test tests::records_retry::records_retry_requires_exclusive_lock_and_heap_headroom ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 200 filtered out; finished in 0.26s
