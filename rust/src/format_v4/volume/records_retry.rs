@@ -46,6 +46,9 @@ impl Epoch {
 impl Volume {
     /// Opt in to one ordered replay after a terminal EIO on an explicit records flush.
     /// The caller must already own the backing exclusively, including during open/recovery.
+    /// The backing must honor successful barriers and report writeback loss no later than the
+    /// affected barrier. If an EIO can describe an earlier, discarded epoch, replay is unsafe.
+    /// Requesting direct I/O does not establish this contract. Leave retry off if it is unknown.
     /// Holds an advisory exclusive lock until drop; does not support the I/O ledger or hang
     /// deadlines. Requires room in the volume heap for one maximum record and its extents.
     /// The first successful client flush establishes a baseline. Epochs containing metadata
