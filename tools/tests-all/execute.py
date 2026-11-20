@@ -27,7 +27,7 @@ def command(cwd, argv, log, seconds=600, env=None):
         # open a caller-provided crash image. Preserve toolchain paths and TMPDIR.
         inherited = {k: v for k, v in os.environ.items() if not k.startswith('BLOCK_STORAGE_')
                      and k not in ('SEED', 'PLAN', 'OUT', 'DST_ROOT')}
-        proc = subprocess.Popen(argv, cwd=cwd, env={**inherited, 'CARGO_NET_OFFLINE': 'true',
+        proc = subprocess.Popen(argv, cwd=cwd, env={**inherited,
                                 'PYTHONDONTWRITEBYTECODE': '1', 'NO_COLOR': '1', **(env or {})},
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True)

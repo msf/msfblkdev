@@ -54,6 +54,11 @@
     "Try to inventory this source tree.",
     "Stop with a discovery error instead of silently excluding the test."
   ],
+  "tools/tests-all/test_execute.py::test_child_only_environment_is_removed": [
+    "The caller supplies a path intended only for a crash-test child and chooses a temporary directory.",
+    "Start a new test command through the repository runner and inspect the two settings it received.",
+    "Keep the caller’s temporary directory, but remove the crash-test path. A test must not accidentally overwrite the caller’s file."
+  ],
   "tools/tests-all/test_execute.py::test_output_limit_and_timeout": [
     "Use child programs that exceed either a small output budget or a one-second time limit.",
     "Run them through the report collector.",

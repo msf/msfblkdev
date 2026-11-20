@@ -99,8 +99,8 @@ def explanation(case, runs):
     # Only trusted, checked-in report prose may populate this field. Never pass log HTML.
     extra = case.get('explanation_html', '')
     if extra:
-        extra = ('<details><summary>Fault scenario and earlier evidence</summary>'
-                 '<p>These notes describe the original fault investigation. '
+        extra = ('<details><summary>Earlier fault investigation · 19–20 Nov 2026</summary>'
+                 '<p>These are historical notes from the fault campaign, not observations from the repository run. '
                  'Only the dated observations below give a verdict for this test run.</p>' + extra + '</details>')
     observed = []
     for i, run in enumerate(runs):
@@ -132,7 +132,7 @@ def render(cases: list[dict], runs: list[dict]) -> str:
              '<a href="#guide">Test explanations</a></nav></header><main>',
              '<h1>Repository test report</h1><p>This project presents a disk to an application '
              'and stores its data in a backing file. These tests check the engine, the applications '
-             'that use it, and the tools used to verify the results. A passing test can mean a checker detected a deliberately wrong answer. Some test-program entries are child-process helpers; they are listed for inventory completeness, not as separate storage guarantees.</p>']
+             'that use it, and the tools used to verify the results. A passing test can mean a checker detected a deliberately wrong answer. Some test-program entries are child-process helpers; they are listed for inventory completeness, not as separate storage guarantees. The inventory includes executable tests and manual qualification procedures. It does not count builds, lint, setup checks, benchmarks, third-party tests, or proposals as correctness tests.</p>']
     if runs:
         run = runs[-1]
         parts.append(f'<p>Latest run: {revision(run)} · {escape(run["date"])} · {escape(run["environment"])}</p>')
