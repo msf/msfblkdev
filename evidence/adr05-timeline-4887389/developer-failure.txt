@@ -1,0 +1,23 @@
+48873899a2e9872f431b79e6809e54799079218e
+Linux 7.2.12-orbstack-00394-gbecdd6130068 aarch64
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+running 1 test
+ext4::commands::tests::cleanup_refuses_unexpected_entries_before_removing_backing --- FAILED
+
+failures:
+
+---- ext4::commands::tests::cleanup_refuses_unexpected_entries_before_removing_backing stdout ----
+
+thread 'ext4::commands::tests::cleanup_refuses_unexpected_entries_before_removing_backing' (3092156) panicked at src/bin/block-storage-lab/ext4/commands.rs:430:64:
+called `Result::unwrap()` on an `Err` value: Os { code: 28, kind: StorageFull, message: "No space left on device" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ext4::commands::tests::cleanup_refuses_unexpected_entries_before_removing_backing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 106 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--bin block-storage-lab`
+FAIL [lab] ext4::commands::tests::cleanup_refuses_unexpected_entries_before_removing_backing 0.037s (exit status: 101)
+make: *** [Makefile:14: test] Error 1

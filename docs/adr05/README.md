@@ -2,7 +2,7 @@
 
 Authored by LLM. Campaign branch: `adr05/resilience-campaign`, 20 November 2026. **ADR-05 remains open.** The default daemon stops serving I/O after an uncertain backing failure. In one library test, the engine recovered two lost records by rewriting them before retrying the flush. The daemon does not use this retry.
 
-[Explore the fault results](../adr05-report.html) · [Read the decision](../../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) · [Check the remaining gates](../ADR05-CAMPAIGN.md)
+[Compare test results by revision](../adr05-report.html#timeline) · [Inspect historical cases and traces](../adr05-report.html#archive) · [Read the decision](../../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) · [Check the remaining gates](../ADR05-CAMPAIGN.md)
 
 ## What did we learn?
 

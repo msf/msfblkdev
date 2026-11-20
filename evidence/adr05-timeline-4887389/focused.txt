@@ -1,0 +1,74 @@
+48873899a2e9872f431b79e6809e54799079218e
+Linux 7.2.12-orbstack-00394-gbecdd6130068 aarch64
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+running 6 tests
+test accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch ... ok
+test accounted_io::fault_plan::adr05_seam::completed_fsync_can_report_uncertain_completion_and_latch_volume ... ok
+test accounted_io::fault_plan::adr05_seam::format_no_hit_is_byte_identical_and_enospc_stops_before_first_root ... ok
+test accounted_io::fault_plan::adr05_seam::open_io_and_zero_byte_read_fail_without_image_changes ... ok
+test accounted_io::fault_plan::adr05_seam::pre_io_capacity_enospc_keeps_volume_usable ... ok
+test accounted_io::fault_plan::adr05_seam::writev_short_releases_no_bytes_and_charges_existing_failure_path ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 203 filtered out; finished in 0.29s
+
+running 1 test
+test tests::format_v4_protocol::replay_cursor_skips_intact_old_metadata_but_not_damaged_framing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 208 filtered out; finished in 0.00s
+
+running 2 tests
+test tests::fsync01::fsync01_controls ... ok
+test tests::fsync01::fsync01_engine ... info event=records_replay through_lsn=5 attempt=2 barrier_errno=5 records=2 blocks=4
+info event=records_replay_done through_lsn=5 attempt=2 elapsed_ms=57 success=true errno=None
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 207 filtered out; finished in 0.10s
+
+running 6 tests
+test tests::records_retry::discard_invalidates_an_otherwise_replayable_records_epoch ... ok
+test tests::records_retry::enabling_mid_epoch_does_not_replay_an_incomplete_history ... ok
+test tests::records_retry::one_shot_report_after_sync_replays_without_another_log_append ... info event=records_replay through_lsn=2 attempt=2 barrier_errno=5 records=1 blocks=2
+info event=records_replay_done through_lsn=2 attempt=2 elapsed_ms=56 success=true errno=None
+ok
+test tests::records_retry::persistent_records_barrier_error_fences_after_one_retry ... info event=records_replay through_lsn=2 attempt=2 barrier_errno=5 records=1 blocks=2
+info event=records_replay_done through_lsn=2 attempt=2 elapsed_ms=55 success=false errno=Some(5)
+ok
+test tests::records_retry::records_capacity_sync_fails_closed_before_evicting_retained_bytes ... ok
+test tests::records_retry::records_retry_requires_exclusive_lock_and_heap_headroom ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 203 filtered out; finished in 0.18s
+
+running 3 tests
+test tests::seeded_dst::generated_and_replayed_histories_match_and_reject_misdirection ... ok
+test tests::seeded_dst::plan::v1_wire_format_and_bounds ... ok
+test tests::seeded_dst::replay_from_environment ... ignored, opt-in plan from SEED or PLAN; use make test-fault-seed
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 206 filtered out; finished in 0.09s
+
+running 1 test
+test tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 208 filtered out; finished in 0.03s
+
+test_retained_format4_image_and_recovered_history (test_model.CapturedEngineCase.test_retained_format4_image_and_recovered_history) ... ok
+test_discarded_value_resurrection_on_reopen_lba0 (test_model.LogicalChecker.test_discarded_value_resurrection_on_reopen_lba0) ... ok
+test_oracle_rejects_invalid_inputs_and_overlarge_uncertainty (test_model.LogicalChecker.test_oracle_rejects_invalid_inputs_and_overlarge_uncertainty) ... ok
+test_per_lba_legal_but_skipped_record_on_reopen (test_model.LogicalChecker.test_per_lba_legal_but_skipped_record_on_reopen) ... ok
+test_planted_lying_sync_loses_flushed_lba1 (test_model.LogicalChecker.test_planted_lying_sync_loses_flushed_lba1) ... ok
+test_planted_wrong_lba_before_reopen (test_model.LogicalChecker.test_planted_wrong_lba_before_reopen) ... ok
+test_rejected_write_must_never_reappear_on_reopen_lba0 (test_model.LogicalChecker.test_rejected_write_must_never_reappear_on_reopen_lba0) ... ok
+test_uncertain_write_and_failed_flush_are_not_barriers (test_model.LogicalChecker.test_uncertain_write_and_failed_flush_are_not_barriers) ... ok
+test_all_four_payload_metadata_survival_cases (test_model.PhysicalCuts.test_all_four_payload_metadata_survival_cases) ... ok
+test_discard_obeys_barriers_and_preserves_other_bytes (test_model.PhysicalCuts.test_discard_obeys_barriers_and_preserves_other_bytes) ... ok
+test_exact_match_and_hit_counts (test_model.PhysicalCuts.test_exact_match_and_hit_counts) ... ok
+test_limits_and_malformed_plans (test_model.PhysicalCuts.test_limits_and_malformed_plans) ... ok
+test_misdirected_io_stale_read_and_disappearance (test_model.PhysicalCuts.test_misdirected_io_stale_read_and_disappearance) ... ok
+test_sync_floor_tear_and_out_of_order_overlapping_writes (test_model.PhysicalCuts.test_sync_floor_tear_and_out_of_order_overlapping_writes) ... ok
+test_uncertain_completion_and_short_read_write (test_model.PhysicalCuts.test_uncertain_completion_and_short_read_write) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.003s
+
+OK
+PASS seeds 0..31: 128 epochs
+PASS seed 42: two generated runs and saved-plan replay identical
