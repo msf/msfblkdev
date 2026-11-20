@@ -65,7 +65,7 @@ V0.4 closure
 
 ## Next work
 
-- Test format-4 recovery under backing faults, starting with failed writes and flushes during checkpoint publication (ADR-05).
+- Extend the live checkpoint-B tests to other publication boundaries. Test how format 4 handles a slow request or a completion that arrives after timeout (ADR-05).
 - Complete RocksDB and PostgreSQL correctness on ext4 and XFS (ADR-06).
 - Complete the workbench and the remaining [blockcheck workloads](docs/BLOCKCHECK-PLAN.md), including aged SQLite A/F (ADR-10).
 - Later: extend the replicated log into a distributed replicated log.
@@ -76,7 +76,7 @@ V0.4 closure
 - [ADR-02: basic read and write](ADR-02-GOAL-1-BASIC-READ-WRITE.md) records V0.0 through V0.4 and its closure gate.
 - [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5 through V0.8.
 - [ADR-04: growable thin-provisioned format](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) proposes logical and physical growth. It is not implemented.
-- [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) owns the proposed policy and test plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
+- [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) records the format-4 retry decision and fault-testing plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
 - [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 and SQLite on both filesystems are complete. RocksDB and PostgreSQL remain open.
 - [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the version-3 format, mapping cache, checkpoint publication, and bounded recovery; format 4 keeps the cache and recovery contract.
 - [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) defines the implemented version-4 format: segments, two fixed heads, the mapping index tree, raw relocation, the two-publication freeing barrier, discard, backing growth and the heap budget.
