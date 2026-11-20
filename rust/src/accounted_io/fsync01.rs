@@ -106,8 +106,10 @@ impl Medium {
         let mut after = vec![0; before.len()];
         self.file.read_exact_at(&mut after, 0)?;
         let mut changes = before
-            .chunks_exact(BLOCK_SIZE)
-            .zip(after.chunks_exact(BLOCK_SIZE))
+            .as_chunks::<BLOCK_SIZE>()
+            .0
+            .iter()
+            .zip(after.as_chunks::<BLOCK_SIZE>().0)
             .enumerate()
             .filter_map(|(i, (a, b))| (a != b).then_some(i));
         let first = changes
