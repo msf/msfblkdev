@@ -1,27 +1,26 @@
 # ADR-05 Fault model, failure handling and fault testing
 
 Date: 2026-08-30
-Revised: 2026-10-06
+Revised: 2026-11-19
 Author: Miguel Filipe
-Status: proposed; design under review
-Goal status: implementation not started
-On-disk format: released baseline is ADR-07 format 3; ADR-08 format 4 is under separate evaluation
+Status: open; format-4 transient I/O policy accepted 2026-11-19; other design decisions remain open
+Goal status: fault framework and two engine fixes qualified on the campaign branch; automatic retry not implemented
+On-disk format: ADR-08 format 4, released in v2.0. The proposed [portable backing-fault lab](docs/ADR05-FAULT-LAB.md) targets this format.
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-06](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md), [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md), [ADR-10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md)
 Consolidates: the 2026-09-12 fault-policy discussion and `DETERMINISTIC_FAULT_TESTING_AND_SIMULATION.md`
 Would update: ADR-01's V0 fault model and recovery rules, and affected ADR-03 acceptance criteria, when accepted and implemented
 
 ## Context
 
-ADR-03 has accepted process-crash and live ublk evidence. It does not establish behavior under power loss, torn medium writes or the full range of device errors. The existing engine reports backing errors, but we have not implemented the fault-injection system proposed here.
+ADR-03 has accepted process-crash and live ublk evidence. It does not establish behavior under power loss, torn medium writes or the full range of device errors. On `adr05/resilience-campaign`, the [scenario report](docs/adr05-report.html) lists the real backing faults, controlled recovery images and checker controls exercised so far. The [arm64 qualification](evidence/adr05-repair-qualification-20261119/README.md) covers the repaired fail-closed engine, not the retry target below.
 
 This ADR owns the proposed fault model, failure policy, test mechanisms and simulation direction. ADR-01 and ADR-03 remain the accepted baseline. Their historical tests and evidence do not prove this proposal. Format ADRs define encodings and refer here for proposed fault behavior.
 
 v1.2.3 already tests format-3 corruption, checkpoint fallback, repeated recovery and process crashes.
-We will extend those tests. Compaction and space reclamation are implemented on a separate branch
-and remain under operator evaluation. This revision changes the testing plan, not that implementation.
+The [v2.0 qualification](docs/V2.0-QUALIFICATION.md) covers format-4 reclamation and process crashes, not failed backing writes or flushes during reclamation.
 
 Existing acceptance gates remain required. The [open decisions](#open-decisions-before-implementation)
-must be resolved before implementation of this ADR starts.
+still govern the unimplemented portions of this ADR.
 
 ## Proposed decision
 
@@ -56,18 +55,29 @@ A valid footer also passes its checksum, LBA bounds and uniqueness checks, and z
 | Condition | Proposed response |
 |---|---|
 | Valid log metadata with a damaged payload | Apply the metadata's mappings in order. Detect payload damage if the mapped version is read. |
-| Payload checksum mismatch on an online read | Return no payload bytes and complete the read with `EIO`. Keep the volume online and leave mapping and cursors unchanged. |
+| Payload checksum mismatch on an online read | Reread once against the same trusted mapping. On a second mismatch, return no payload bytes and complete the read with `EIO`. Keep the volume online and leave mapping and cursors unchanged. |
 | Recognizable log metadata with a bad checksum | Refuse startup and require operator action. Preserve the backing image unchanged. |
 | Unusable checkpoint descriptor or body | Try another valid checkpoint candidate. Refuse startup if no candidate is usable. |
-| Reported backing I/O error or short operation during recovery | Refuse startup and report the operation that failed. |
-| Reported backing I/O error or short operation online | Fail the operation without publishing an incomplete operation; do not fail the volume. Safe continuation after partial writes and failed fsync remains an open implementation design. |
+| Reported backing I/O error or short operation during recovery | Retry eligible recovery reads within budget. If unresolved, refuse startup and report the failed operation; unreadability alone does not justify fallback. |
+| Reported backing I/O error or short operation online | Keep the volume attached; pause admission and retry in order under the decision below. Fence if completion, persistence or ownership cannot be established safely. |
 | Invalid request or finite-log exhaustion detected before I/O | Reject the operation without poisoning the volume or changing its mapping. |
 
 Never skip a damaged mapping and expose an older value or zeroes. A later valid overwrite replaces the damaged version. The LBA is not permanently unusable. Filesystems and databases may nevertheless become unavailable after a failed read.
 
 Recognizable metadata corruption prohibits automatic truncation, stale-tail clearing, checkpoint publication or fallback that conceals the error. Normal checkpoint-candidate fallback remains supported. Classify failures by cause, not errno alone: backing `ENOSPC` is not pre-I/O finite-log exhaustion.
 
-The proposed online backing-error response differs from the current engine failure latch and the older ADR-05 test expectations. Keeping the volume online is a target, not a verified safe retry protocol. Partial record writes, incomplete checkpoint publication, failed fsync and unusable I/O resources need explicit continuation rules before implementation.
+### Accepted format-4 decision: bounded retry and automatic resume
+
+Keep the device attached across transient I/O faults. Do not return success for uncertain writes or expose unverified bytes. This is the implementation target, **not behavior qualified at `77fc16e`**. Keep F01’s failure latch until the corresponding retry and fence controls pass. F02’s validated stale-record handling does not change.
+
+- **Order and admission.** Allow one active mutation. While it is unresolved, hold reads, writes, flush, growth, cleaner and discard. Bound the queue; reject excess or expired queued work with a retryable error without issuing I/O. Never lose previously acknowledged buffered writes to resume service.
+- **Slow requests.** Use up to three total attempts per retryable unit with 50 ms and 250 ms backoffs. A slow original can finish normally; do not submit a competing attempt. Allow 5 s from request admission for the caller, shared across nested phases. Complete a timed-out caller exactly once. A submitted mutation may still take effect. Allow up to 30 s more to reconcile the stalled epoch, then fence. These are initial design budgets, not measured latencies.
+- **Reads.** Retry a terminal transient read error or short transfer at the same address into private scratch. On a checksum mismatch allow one verifying reread; two bad reads fail only that read with EIO and deliver no bytes. Never substitute an older mapping. Bad authoritative metadata is not a local payload error.
+- **Writes and logical discard.** Retain the same immutable bytes, offsets, LSN, reservations and epoch. After the original is terminal, reissue the whole idempotent physical unit, not the high-level command. Apply the logical effect once. Backing ENOSPC does not mean no bytes changed; do not hot-loop on capacity errors.
+- **Barriers and release.** Preserve records → records sync → same descriptor generation and slot → descriptor sync → release. After a failed barrier, replay its retained covered writes in order and sync again; a bare second fsync is insufficient. Bound retained memory by syncing epochs before they fill. Do not advance the durable watermark, switch root, free or punch until publication succeeds. Quarantine a punch extent until the original or retried punch is terminal.
+- **Ownership and resume.** Keep the ring, backing identity, buffers, iovecs and attempt IDs owned independently of client completion. A successful cancel request is not the original completion. Resume only after terminal completions, exclusive ownership of the same backing object, settled writes/barriers, and consistent mappings and reservations. Otherwise fence, reject new work promptly and require explicit recovery. Quarantine unresolved kernel work even after fencing; no replacement writer may race it. Record attempts, latency, errno, epoch and transition reason, not a presumed cause such as heat.
+
+Implement attempt ownership and deadlines first, then verified read retry, then frozen mutation/barrier replay. Before default enablement, require live one-shot failures that recover, persistent failures that fence, late completions on both sides of timeout, cancellation racing success, and crash cuts at each retry boundary. A planted fsync-only retry must lose the independent history check. The [report](docs/adr05-report.html#planned) separates these required cases from historical results.
 
 ### Detection limits and repair
 
@@ -77,7 +87,7 @@ No local repair exists. A future offline salvage tool may remove a log tail afte
 
 Future replication may report corruption out of band without delaying a failed read. [Protocol-Aware Recovery for Consensus-Based Storage](Protocol-Aware-Recovery-for-Consensus-Based-Storage.pdf), Sections 3.3–3.5, requires the correct entry or snapshot version, not an arbitrary peer's value at the same LBA. Repair must not overwrite newer writes. Physical addresses, their bound checksums and local LSNs are not replicated version identities. The report and repair interfaces remain undefined.
 
-This ADR remains the single proposed policy. A substantial later revision should contain the full replacement model and explicitly identify the superseded sections. Acceptance and implementation must remain separate from historical evidence.
+This ADR records the accepted format-4 transient I/O policy and the remaining proposals. A substantial later revision should contain the full replacement model and explicitly identify the superseded sections. Acceptance and implementation must remain separate from historical evidence.
 
 ## Proposal: checksum chaining instead of recovery-time zeroing
 
@@ -444,6 +454,6 @@ The inspected tools did not provide exact short operations, arbitrary surviving 
 - Select the tested format and its existing recovery and reuse rules. Define the atomic-write size
   and limits for crash exploration. Revisit the older checksum-chain proposal only if a protocol
   change is needed; it must not block ADR-08 evaluation.
-- Define safe online continuation after a partial write, checkpoint error, failed fsync, timeout or device disappearance. Keep the desired operation-level response distinct from an unproved retry mechanism.
+- **Decided; implementation and qualification pending:** use the bounded retry and automatic resume contract above. No format change or removal of the failure latch is approved by the historical arm64 evidence.
 - Reconcile ADR-06's proposed delivery order, the selected persistent format and the injectable interface. Approve a new implementation prompt only after that scope is settled.
 - Choose shared versus tier-specific fault plans. Verify `blklogwrites` compatibility and explain the unconditional `blkdebug` behavior before relying on either. Seeded and multi-node exploration remain later work.

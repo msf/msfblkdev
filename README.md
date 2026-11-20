@@ -10,7 +10,7 @@ The latest stable release is [**v2.0**](https://github.com/msf/msfblkdev/release
 | --- | --- | --- |
 | 01–03 | Architecture, basic read/write, minimum credible device | Implemented; regression baseline |
 | 04 | Growable thin-provisioned format | Proposed; not implemented |
-| 05 | Fault model, failure handling and fault testing | Under review; not implemented |
+| 05 | Backing I/O faults and recovery | Format-4 fault lab and two fixes qualified on arm64 on this branch; transient retry not implemented |
 | 06 | Filesystem and database correctness | ext4, XFS and SQLite accepted; RocksDB and PostgreSQL open |
 | 07 | Paged mapping and bounded cache (format 3) | Implemented in v1.2–v1.2.3 |
 | 08 | Segmented log and space reclamation (format 4) | Released in v2.0 |
@@ -49,7 +49,7 @@ The same report retains historical results and separates throughput, tails, memo
 
 [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) specifies format 4: a segmented log with two fixed append heads, a background cleaner, two-checkpoint segment reuse, client and backing discard, and backing growth. The [independent evaluation plan](docs/BLOCKCHECK-PLAN.md) specifies device-level checks for correctness, endurance and cleaning costs. [ADR-09](ADR-09-RELOCATION-COMPRESSION.md) defers compression until raw reclamation passes. [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) remains proposed; ADR-08 replaces its replacement-image compaction with segment reclamation.
 
-[ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) consolidates the proposed fault model, failure handling, fault testing and simulation direction. Its design remains under review; implementation has not started. ADR-01 and ADR-03 remain the accepted baseline.
+On `adr05/resilience-campaign`, the [fault-lab report](docs/adr05-report.html) shows how the repaired engine handles failed writes and flushes. The [combined arm64 run](evidence/adr05-repair-qualification-20261119/README.md) qualifies the existing fail-closed engine at `77fc16e`, not an automatic retry implementation. [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) tracks the target behavior and the remaining gates.
 
 [ADR-10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines the workbench test goals and KPI reports. The [reporting CLI](tools/workbench/README.md) prints the planned 48-case performance matrix and summarizes existing SQLite and go-ycsb evidence. [Native tool recipes](tools/README.md) build pinned SQLite, RocksDB and go-ycsb. The KVM boot probe runs; VM workload execution is not implemented.
 

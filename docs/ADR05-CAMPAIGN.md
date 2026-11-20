@@ -1,8 +1,17 @@
 # How do we qualify format 4 against backing faults?
 
-Authored by LLM. Execution plan, 2026-11-19. [ADR-05](../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) is proposed. A passing campaign is evidence for a decision, not a change in the released guarantees. Use local branch `adr05/resilience-campaign`. Never move a checkpoint tag or rewrite a failing result.
+Authored by LLM. Execution plan, 2026-11-19. [ADR-05](../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) remains open. This campaign qualifies the fail-closed baseline; it does not change the released guarantees. Use local branch `adr05/resilience-campaign`. Never move a checkpoint tag or rewrite a failing result.
 
-## 1. Plan and freeze the contract
+## Branch progress · 2026-11-19
+
+| Status | Scope |
+|---|---|
+| Measured | [Per-scenario results](adr05-report.html#matrix): syscall and engine faults, deterministic crash images, checker controls and seeded recovery. [Pre-fix triage](ADR05-TRIAGE-01.md): F01 and F02 confirmed, then repaired at `9f3d309` and `77fc16e`. |
+| Qualified | [Combined arm64 gates](../evidence/adr05-repair-qualification-20261119/README.md) at `adr05-repairs-v1`, evidence tagged `adr05-arm64-qualification-v1`. These tags cover the existing fail-closed policy only. |
+| Decided, not implemented | [ADR-05](../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) selects bounded transient retry and automatic resume. Next: own attempts across timeout/cancel, retry verified reads, then prove ordered mutation/barrier replay before enabling it. |
+| Still missing | [Unrun scenarios](adr05-report.html#planned), broader engine/cleaner schedules, other native host configurations, and operator-approved medium and application tests. No full ADR delivery or release. |
+
+## 1. Plan and freeze the contract (historical evaluation baseline)
 
 Test the released format 4 and its existing checkpoint selection, replay and reuse rules. Do not introduce a checksum-chain encoding or remove stale-tail protection. Keep the existing failure latch while evaluating the engine. Classify discrepancies against a *proposed* online continuation policy separately from violations of the released contract. Before changing that policy, specify what the next request can do after a partial record, uncertain flush, timeout or unavailable ring. Require a proof/test for buffer ownership, no double publication, no reuse of uncertain bytes and the effect of a second error. If safe continuation isn't established, keep the volume failed and record the decision needed.
 
