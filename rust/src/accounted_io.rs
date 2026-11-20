@@ -4,15 +4,23 @@ use std::io;
 
 #[cfg(test)]
 pub(crate) mod fault_plan;
+#[cfg(test)]
+pub(crate) mod fsync01;
 
 struct ExactIo {
     ring: Option<IoUring>,
     #[cfg(test)]
     plan: Option<fault_plan::FaultPlan>,
+    #[cfg(test)]
+    lost_writeback: Option<Box<fsync01::Medium>>,
 }
 
 impl ExactIo {
     fn submit(&mut self, entry: squeue::Entry, tag: u64, expected: i32) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(medium) = &mut self.lost_writeback {
+            return medium.submit(&mut self.ring, entry, tag, expected);
+        }
         #[cfg(test)]
         if let Some(action) = self.plan.as_mut().and_then(|plan| plan.hit(&entry)) {
             return action.submit(&mut self.ring, entry, tag, expected);
@@ -38,6 +46,8 @@ impl BackingIo {
                 ring: Some(IoUring::new(2)?),
                 #[cfg(test)]
                 plan: None,
+                #[cfg(test)]
+                lost_writeback: None,
             },
             accounting,
             mapping_io: crate::format_v4::metrics::MappingIo::default(),

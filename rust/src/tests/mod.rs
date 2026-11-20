@@ -612,6 +612,7 @@ mod checkpoint_replay;
 mod cleaner_thread;
 mod format_geometry;
 mod format_v4_protocol;
+mod fsync01;
 mod io_uring;
 mod mapping_prefetch;
 mod packed_writes;
