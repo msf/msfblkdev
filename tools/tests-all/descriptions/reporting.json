@@ -74,6 +74,16 @@
     "Read its individual verdict lines.",
     "Preserve all four outcomes, including the ignored test as not run."
   ],
+  "tools/tests-all/test_execute.py::test_trace_control_requires_the_planted_mismatch": [
+    "The history checker prints the block where it detected a planted error and the shorter workload that still reproduces it.",
+    "Read that output, then try a different block number and an unrelated success message.",
+    "Pass the control only when the checker detected the intended mismatch. A different mismatch is not a pass."
+  ],
+  "tools/tests-all/test_execute.py::test_rust_telemetry_and_expected_panic_keep_the_test_identity": [
+    "A Rust test logs a storage operation before printing its verdict. A second test prints no verdict; a third expects a panic.",
+    "Read the three records in order.",
+    "Attribute each observed pass to the correct inventory entry. Do not give the unfinished test the next test’s verdict."
+  ],
   "tools/tests-all/test_execute.py::test_partial_matrix": [
     "Require three repetitions for a matrix case.",
     "Supply records with all three passes, an explicit failure, or a missing repetition.",

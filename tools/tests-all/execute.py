@@ -109,8 +109,18 @@ def python_worker(directory, path):
 
 
 def parse_rust(text):
-    return {re.sub(r'(?<=\)) - (?:compile fail|compile|should panic)$', '', m[1]): result({'ok': 'passed', 'FAILED': 'failed', 'ignored': 'not run'}[m[2]], m[0])
-            for m in re.finditer(r'^test (.+?) \.\.\. (ok|FAILED|ignored)(?:, [^\n]*)?$', text.split('\nfailures:\n', 1)[0], re.MULTILINE)}
+    # With one test thread, engine telemetry can appear between a name and its verdict.
+    pattern = r'^test ([^\n]+?) \.\.\. (?:info event=[^\n]*\n(?:info event=[^\n]*\n)*)?(ok|FAILED|ignored)(?:, [^\n]*)?$'
+    statuses = {'ok': 'passed', 'FAILED': 'failed', 'ignored': 'not run'}
+    return {re.sub(r' - (?:compile fail|compile|should panic)$', '', m[1]): result(statuses[m[2]], m[0])
+            for m in re.finditer(pattern, text.split('\nfailures:\n', 1)[0], re.MULTILINE)}
+
+
+def trace_passed(slug, observation):
+    if slug in ('lose-discard', 'misdirect-write'):
+        # The reducer prints its nonempty list of epochs, not the number of epochs.
+        return re.fullmatch(r"detected=\['logical', 'kill', 336\] reduced_epochs=\[\[.+\]\]", observation) is not None
+    return observation.endswith(' PASS')
 
 
 def assign(cases, verdicts, detail):
@@ -286,8 +296,7 @@ class Runner:
                 if not line:
                     observations[case['id']] = result('blocked','No individual completion marker. '+detail)
                     continue
-                success = (line[1].endswith(' PASS') or (slug in ('lose-discard','misdirect-write') and
-                           re.fullmatch(r"detected=\['logical', 'kill', 336\] reduced_epochs=\d+",line[1])))
+                success = trace_passed(slug, line[1])
                 observations[case['id']] = result('passed' if success else 'failed',line[0][:220]+'. '+detail)
             return observations
         if group == 'script':

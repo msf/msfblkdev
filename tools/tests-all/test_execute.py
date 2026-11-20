@@ -63,6 +63,20 @@ class Case(unittest.TestCase):
         self.assertEqual([v['status'] for v in execute.parse_rust(text).values()],
                          ['passed','failed','not run','passed'])
 
+    def test_trace_control_requires_the_planted_mismatch(self):
+        text = "detected=['logical', 'kill', 336] reduced_epochs=[['w336:17', 'f', 'kill']]"
+        self.assertTrue(execute.trace_passed('misdirect-write', text))
+        self.assertFalse(execute.trace_passed('lose-discard', text.replace('336', '337')))
+        self.assertFalse(execute.trace_passed('lose-discard', 'unrelated PASS'))
+
+    def test_rust_telemetry_and_expected_panic_keep_the_test_identity(self):
+        text = ('test format ... info event=format\ninfo event=done\nok\n'
+                'test broken ... info event=begin\n'
+                'test invalid - should panic ... ok\n')
+        rows = execute.parse_rust(text)
+        self.assertEqual({key: value['status'] for key, value in rows.items()},
+                         {'format': 'passed', 'invalid': 'passed'})
+
     def test_partial_matrix(self):
         """A missing repetition is not a passing scenario."""
         keys = ['rep-1','rep-2','rep-3']
