@@ -1,0 +1,32 @@
+format4-dst-v1
+sync-eio 2 0:40 4:238
+write-enospc 3 1:210 5:182 2:11
+write-short 3 5:142 3:169 0:152
+write-enospc 2 2:226 1:122
+
+epoch=0
+write lba=0 value=40 ack
+flush ack
+write lba=4 value=238 ack
+hit=1 sync ordinal=2 lba=4 value=238 errno=Some(5) fenced
+recovered all 8 blocks: [40, 0, 0, 0, 238, 0, 167, 0]
+epoch=1
+write lba=1 value=210 ack
+flush ack
+write lba=5 value=182 ack
+flush ack
+hit=1 write ordinal=3 lba=2 value=11 errno=Some(28) fenced
+recovered all 8 blocks: [40, 210, 0, 0, 238, 182, 167, 0]
+epoch=2
+write lba=5 value=142 ack
+flush ack
+write lba=3 value=169 ack
+flush ack
+hit=1 write ordinal=3 lba=0 value=152 errno=None fenced
+recovered all 8 blocks: [40, 210, 0, 169, 238, 142, 167, 0]
+epoch=3
+write lba=2 value=226 ack
+flush ack
+hit=1 write ordinal=2 lba=1 value=122 errno=Some(28) fenced
+recovered all 8 blocks: [40, 210, 226, 169, 238, 142, 167, 0]
+PASS epochs=4
