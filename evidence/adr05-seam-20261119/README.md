@@ -8,7 +8,7 @@ In `pass.txt`, a no-hit format matched a clean format at a fixed volume ID, byte
 
 ## Confirmed defect before repair
 
-`Volume::maintain` exempts every raw `ENOSPC` from the failure latch. ADR-08's **failed backing operation** and **publication that cannot fit** contracts distinguish two cases with the same errno.
+At the tested revision, `Volume::maintain` left the volume usable after any raw `ENOSPC`. Under ADR-08, the errno alone does not decide whether the engine can continue. The tests distinguish a rejection before I/O from a backing error during publication.
 
 1. On a five-segment file a second client write cannot fit. It returns `ENOSPC` before the data write (rule hits: 0). The bytes don't change; a subsequent flush succeeds. This is correct.
 2. On a twelve-segment file checkpoint A has a victim pending release. A pressure maintenance step begins B and writes its descriptor. The seam rejects the second fsync during this step with `ENOSPC`. The caller receives errno 28, the rule fired exactly once, and the active in-memory slot didn't advance. **The volume isn't latched and the next flush returns success.** This violates the released failure policy. It does not by itself demonstrate data loss or premature hole punching.
@@ -19,4 +19,4 @@ In `pass.txt`, a no-hit format matched a clean format at a fixed volume ID, byte
 cargo test --locked --lib backing_enospc_at_checkpoint_b_final_fsync_must_latch -- --ignored --nocapture
 ```
 
-For a repair, preserve the public errno and the pre-I/O capacity exemption. Do not bypass the latch for an uncertain backing write or sync. Re-run the reproduction and its five-segment control, then promote the fixed case to an ordinary regression test.
+The repair must preserve the public errno and the nonfatal pre-I/O capacity refusal, but latch an uncertain backing write or sync. The [F01 repair report](../adr05-f01-repair-20261119/README.md) records the subsequent run of the same reproducer and its five-segment control.

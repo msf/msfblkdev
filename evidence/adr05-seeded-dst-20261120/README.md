@@ -4,7 +4,17 @@ Authored by LLM. Tested clean revision `39165a67a91685e865d6c65332fccc9612dff57a
 
 The [seed 42 plan](seed42.plan) and [observed trace](seed42.trace) matched byte for byte across two fresh seed runs and one replay of the saved plan. SHA-256 was `b3cb1238e832f5f087b517c5d34ecd8eba416e1cb2115ef0998a2fc433378dc7` for each plan and `42f40d7488a1207999f968bf73d654fbbbc345b2fea2501ac001bf14643187d5` for each trace, including its verdict.
 
-A separate sweep of seeds 0 through 31 passed all 128 epochs. Each epoch required exactly one injection and production recovery of the copy. There were 36 rejected writes (ENOSPC), 20 short writes, 20 completed writes followed by EIO, 23 rejected syncs and 29 completed syncs followed by EIO. For example, seed 0 targeted the first Writev with ENOSPC, then the first Writev with post-completion EIO after reopen. Seed 1 targeted the second Writev with ENOSPC, then the fourth Writev with ENOSPC after reopen.
+A separate sweep of seeds 0 through 31 passed all 128 epochs. To pass an epoch, the runner had to hit the scheduled fault exactly once and verify the logical blocks after production recovery opened a copy. The sweep recorded five fault effects:
+
+| Effect | Epochs |
+|---|---:|
+| Write rejected with ENOSPC | 36 |
+| Zero-byte write completion | 20 |
+| Completed write followed by EIO | 20 |
+| Rejected sync | 23 |
+| Completed sync followed by EIO | 29 |
+
+For example, seed 0 targeted the first Writev with ENOSPC, then the first Writev with post-completion EIO after reopen. Seed 1 targeted the second Writev with ENOSPC, then the fourth Writev with ENOSPC after reopen.
 
 To reproduce from the repository root with a fresh scratch directory:
 

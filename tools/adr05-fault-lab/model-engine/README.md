@@ -1,6 +1,6 @@
 # What if only half a data record survives?
 
-Authored by LLM. Run this gate inside the [disposable Linux guest](../README.md), with `SCRATCH` and `DEVICE` set to its separate writable ext4 scratch filesystem. From the repository root:
+Authored by LLM. Run this gate inside the [disposable Linux guest](../README.md), using its separate ext4 scratch disk. Set `SCRATCH` to a writable directory on that filesystem and `DEVICE` to its block device. From the repository root:
 
 ```sh
 (cd rust && cargo build --locked --example adr05-model-image)
@@ -10,7 +10,9 @@ timeout -k 5s 90s python3 -B -u tools/adr05-fault-lab/model-engine/record-cuts.p
 
 Require exit zero and `record_cuts=PASS`. The runner prints and retains its private fixture directory. Copy evidence before deleting the VM.
 
-The caller writes and flushes two known values, captures the entire format-4 image, then overwrites LBA 1 once without a flush. The engine ledger must report one completed 8 KiB write and no further sync. The runner refuses a capture unless only two adjacent 4 KiB blocks changed, the payload matches the write, and the footer links to the previous record. It gives the Python `Medium` the actual write bytes. Each recovery attempt starts from a new file containing the selected surviving fragments over the pre-write image. The input snapshots stay unchanged.
+The caller writes and flushes two known values, captures the entire format-4 image, then overwrites LBA 1 once without a flush. The engine ledger must report one completed 8 KiB write and no further sync. The runner refuses a capture unless only two adjacent 4 KiB blocks changed, the payload matches the write, and the footer links to the previous record.
+
+To construct a recovery case, the runner gives the Python `Medium` the bytes from the captured write. It starts with the pre-write image and overlays only the fragments selected for that case. Production recovery opens a new file for each case; the input snapshots stay unchanged.
 
 | Surviving part of the overwrite | Expected LBA 1 on production reopen/read |
 |---|---|

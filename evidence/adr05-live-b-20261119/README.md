@@ -8,7 +8,7 @@ Authored by LLM. On 2026-11-19 the live ublk client flushed known bytes, then is
 | One-shot `write_aio`, sector 0 | EIO | Not reached | EIO | 0 / 0 | 8 of 8 matched |
 | One-shot `flush_to_disk` | OK | EIO | EIO | 0 / 0 | 8 of 8 matched |
 
-Both failure cases had one post-arm QEMU write attempt, the descriptor at byte 0. Each client received one `-EIO` write completion. All six victim digests and allocated-block maps remained unchanged after shutdown. The control changed victim contents; backlog can limit the number of discards issued before shutdown. Moving the rule outside the image made the expected-EIO check fail ([negative control](negative.txt)). No product defect demonstrated in these two fault cases.
+Both failure cases had one post-arm QEMU write attempt, the descriptor at byte 0. Each client received one `-EIO` write completion. All six victim digests and allocated-block maps remained unchanged after shutdown. The control changed victim contents; backlog can limit the number of discards issued before shutdown. In the [negative control](negative.txt), QEMU targeted a sector outside the image. The harness rejected the run because the expected `EIO` never arrived. This control checks the harness. The two on-target runs tested the engine and found no defect in its response.
 
 - [Runner transcript](run.txt) and [full daemon/client/QEMU logs](traces.tar.gz), including the missed rule.
 - [Environment and source fingerprints](environment.txt), [build checks](build.txt), [reproduction steps](../../tools/adr05-fault-lab/live/README.md).

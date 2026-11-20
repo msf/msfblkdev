@@ -1,4 +1,4 @@
-# ADR-05 fault-lab dependencies
+# Run the ADR-05 backing-fault tests
 
 Authored by LLM. This inventory is for the [portable fault lab](../../docs/ADR05-FAULT-LAB.md). A new machine does not need `vmlab`, OrbStack, a private golden image, or any files from the developer's home directory. No launcher or qualified image is bundled yet.
 
@@ -42,7 +42,13 @@ The guest kernel must support `io_uring`, `ublk_drv` and FUSE. The test user nee
 
 ## Which command goes in the dev loop?
 
-Run `make test-fault-model` on Linux or macOS to check the bounded medium and logical history without starting an engine. Run `make test-dst` on Linux to run those controls and exercise both descriptor-survival outcomes against format-4 recovery. It uses temporary regular files and needs `io_uring` and direct I/O, but no QEMU or ublk device. To test the real backing-error path in a provisioned guest, set `SCRATCH` and `DEVICE` as described below, then run `make test-fault`. The target builds the probe and example and stops at the first failure. Redirect its output to a new log on the guest OS disk for evidence. Neither target qualifies the full [ADR-05 campaign](../../docs/ADR05-CAMPAIGN.md).
+| To check | Where | Command |
+|---|---|---|
+| Modeled byte survival and allowed client histories, without an engine | Linux or macOS | `make test-fault-model` |
+| The same model controls plus format-4 recovery with and without a surviving descriptor | Linux with direct I/O and `io_uring`; temporary regular files, no QEMU or ublk | `make test-dst` |
+| Whether a caller sees the intended backing error through QEMU/FUSE | Provisioned disposable guest | `make test-fault` |
+
+Before running the guest target, set `SCRATCH` and `DEVICE` as described under [Run the injector probe](#run-the-injector-probe). Redirect the target's output to a new log on the guest OS disk. It builds the probe and engine example and stops at the first failure. No single target qualifies the full [ADR-05 campaign](../../docs/ADR05-CAMPAIGN.md).
 
 ## How do I replay a seed against the engine?
 
@@ -56,7 +62,7 @@ cmp /tmp/dst-42/trace.txt /tmp/dst-replay/trace.txt
 
 `format4-dst-v1` uses SplitMix64 with an unsigned 64-bit decimal seed. Both the one-block client writes and the backing faults come from the seed. Each plan row names a fault, the one-based occurrence of its backing opcode after the epoch is armed, then `lba:byte` pairs. Each pair fills a 4 KiB block with that byte and requests a FLUSH after a successful WRITE. For example, `write-short 3 5:142 3:169 0:152` makes the third backing Writev return zero bytes; it does not transfer a partial payload. Other effects reject Writev with ENOSPC, reject fsync with EIO, or return EIO *after* a successful Writev or fsync. The test uses the default fail-closed policy.
 
-A generated schedule runs four epochs of up to six writes each with a fixed volume ID. At the error it checks the hit count, caller result and failure latch. It copies the regular file before clean close, runs format-4 recovery on the copy, compares every byte of all eight logical blocks against the expected client history, then continues on that recovered copy. A read error or byte mismatch fails the run. The cut retains writes completed on the backing file; it does not simulate a power cut discarding pending bytes. A non-hit is **inconclusive** and exits nonzero. `make test` includes controls for a missed rule and a deliberately misdirected acknowledged write.
+A generated schedule runs four epochs of up to six writes each with a fixed volume ID. When the fault fires, the runner checks that it fired once, that the caller saw the expected error and that the volume rejected another flush. Before clean close, it copies the regular file. It then reopens the copy, checks all eight logical blocks byte for byte against the expected history, and uses that copy for the next epoch. A read error or byte mismatch fails the run. The cut retains writes completed on the backing file; it does not simulate a power cut discarding pending bytes. A non-hit is **inconclusive** and exits nonzero. `make test` includes controls for a missed rule and a deliberately misdirected acknowledged write.
 
 Save `plan.txt`, `trace.txt`, the process output and the Git revision when reporting a failure. `PLAN` replays concrete rows without using the generator. Compare the trace files, not Cargo output, which includes elapsed time and temporary paths. V1 exercises serialized I/O and recovery only. It does not control kernel scheduling, timeouts or cleaner interleavings. For lost writeback and opt-in records replay, use the separate `make test-fsync01` regression. See the [32-seed run and replay hashes](../../evidence/adr05-seeded-dst-20261120/README.md).
 
