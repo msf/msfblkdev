@@ -10,6 +10,10 @@ lint: lint-rust
 lint-rust:
 	@cd rust && cargo fmt --check && cargo clippy --all-targets --features lab -- -D warnings
 
+.PHONY: tests-all
+tests-all:
+	@python3 -B tools/tests-all/run.py
+
 test:
 	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- test
 

@@ -132,7 +132,7 @@ def render(cases: list[dict], runs: list[dict]) -> str:
              '<a href="#guide">Test explanations</a></nav></header><main>',
              '<h1>Repository test report</h1><p>This project presents a disk to an application '
              'and stores its data in a backing file. These tests check the engine, the applications '
-             'that use it, and the tools used to verify the results.</p>']
+             'that use it, and the tools used to verify the results. A passing test can mean a checker detected a deliberately wrong answer. Some test-program entries are child-process helpers; they are listed for inventory completeness, not as separate storage guarantees.</p>']
     if runs:
         run = runs[-1]
         parts.append(f'<p>Latest run: {revision(run)} · {escape(run["date"])} · {escape(run["environment"])}</p>')

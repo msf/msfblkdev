@@ -1,3 +1,5 @@
+/build/tests-all/
+__pycache__/
 /tools/build/
 /tools/sqlite/__pycache__/
 /ublksrv/

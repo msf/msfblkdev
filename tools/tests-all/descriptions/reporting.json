@@ -1,0 +1,82 @@
+{
+  "tools/tests-all/test_render.py::test_counts_use_only_latest_run_and_include_missing_cases": [
+    "List five tests. Only the first test passed in the older run.",
+    "Give four other tests different outcomes in the new run, leaving the first without a result.",
+    "The new summary must show one pass out of five listed tests, not two. Among the two tests with a pass or failure, the pass rate must be 50%."
+  ],
+  "tools/tests-all/test_render.py::test_page_links_are_local_and_evidence_is_text_not_markup": [
+    "Give a test an unusual name containing an HTML tag. Put a script tag in its failure message.",
+    "Generate a report containing these strings and follow its links by matching their target IDs.",
+    "Every link must point to one place in the same page. The message must appear as text rather than executable HTML."
+  ],
+  "tools/tests-all/test_render.py::test_zero_decided_tests_have_no_rate": [
+    "Prepare one inventory with a blocked test and another with no recorded runs.",
+    "Render both reports without any pass or failure verdicts.",
+    "Neither report may imply a measured pass rate. The second must identify itself as an inventory only."
+  ],
+  "tools/tests-all/test_render.py::test_unknown_status_cannot_render_as_a_verdict": [
+    "Give the report a result whose status is ‘looks fine’, rather than one of the defined outcomes.",
+    "Ask the renderer to publish that result.",
+    "It must reject the unknown status rather than turn it into a verdict."
+  ],
+  "tools/tests-all/test_run.py::test_runner_failure_replaces_stale_report_with_blocked_observation": [
+    "Start with a previously passing report and one test in the current inventory.",
+    "Make the runner raise an error instead of returning a verdict.",
+    "Replace the old report with a blocked observation, include the reason, and return an unsuccessful exit status."
+  ],
+  "tools/tests-all/test_run.py::test_appendix_alias_keeps_explanation_without_repository_link": [
+    "Give a fault scenario two names and a link to a separate log file.",
+    "Select it by its alternate name and embed the explanation in the repository report.",
+    "Keep the explanatory text. Do not copy conflicting section IDs or a link that would require another file."
+  ],
+  "tools/tests-all/test_inventory.py::test_cases_have_unique_ids_and_explanations": [
+    "Collect the test inventory from this checkout.",
+    "Check the order, identity and required fields of each entry.",
+    "Every ID must be unique and sorted. Each entry must name its suite, setup, action, expectation and runner."
+  ],
+  "tools/tests-all/test_inventory.py::test_profiles_count_once_but_distinct_filesystems_do_not_merge": [
+    "Read the SQLite workload definitions and the live device and seeded test lists.",
+    "Compare their report entries against the supported combinations.",
+    "List 29 workload/profile pairs for each filesystem, eight live I/O scenarios, and both the seed sweep and saved replay. Do not invent an unsupported journal mode."
+  ],
+  "tools/tests-all/test_inventory.py::test_shared_modules_and_documentation_keep_their_cargo_target": [
+    "Two Rust binaries share tests in a common source file. The library also contains a documentation example.",
+    "Find their test names as Cargo would see them.",
+    "Keep each binary’s separate execution identity, and match the documentation example by item and source line."
+  ],
+  "tools/tests-all/test_inventory.py::test_new_functions_are_inventoried_before_any_run": [
+    "Create temporary Rust and Python source files containing new tests.",
+    "Discover their test names without executing them.",
+    "Both new tests must appear; discovery must not create Rust build output."
+  ],
+  "tools/tests-all/test_inventory.py::test_unattached_rust_test_is_not_silently_lost": [
+    "Put a Rust test function in a file that no crate target includes.",
+    "Try to inventory this source tree.",
+    "Stop with a discovery error instead of silently excluding the test."
+  ],
+  "tools/tests-all/test_execute.py::test_output_limit_and_timeout": [
+    "Use child programs that exceed either a small output budget or a one-second time limit.",
+    "Run them through the report collector.",
+    "Stop the programs, retain only bounded output, and say which limit prevented completion."
+  ],
+  "tools/tests-all/test_execute.py::test_structured_python_outcomes": [
+    "Make a Python suite that prints a fake failure, fails a real subtest and skips a test. List one additional missing test.",
+    "Collect the individual results.",
+    "Keep the real pass, failure and skip separate; mark the missing case blocked rather than interpreting printed text as a verdict."
+  ],
+  "tools/tests-all/test_execute.py::test_rust_output": [
+    "Prepare Rust test-program output containing a pass, failure, ignored test and documentation example.",
+    "Read its individual verdict lines.",
+    "Preserve all four outcomes, including the ignored test as not run."
+  ],
+  "tools/tests-all/test_execute.py::test_partial_matrix": [
+    "Require three repetitions for a matrix case.",
+    "Supply records with all three passes, an explicit failure, or a missing repetition.",
+    "Only three passes can pass the case. A recorded failure must fail it; an incomplete set without a failure has no verdict."
+  ],
+  "tools/tests-all/test_execute.py::test_guest_requires_permission": [
+    "Present a Linux host without explicit permission to use its devices.",
+    "Ask the runner to execute a guest-only scenario.",
+    "Mark it blocked without spawning any lab process."
+  ]
+}
