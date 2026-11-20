@@ -29,6 +29,7 @@ fn scenario(mode: Mode) -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 8, 12, 32)?;
     let mut volume = crate::open(&backing.0)?;
+    volume.enable_records_flush_retry()?;
     write_pair(&mut volume, OLD)?;
     volume.flush()?;
     Medium::arm(&mut volume.backing_io, &backing.0, mode)?;
