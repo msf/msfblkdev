@@ -31,6 +31,8 @@ impl ExactIo {
 
 pub(super) struct BackingIo {
     exact: ExactIo,
+    /// Set only after a successful FSYNC-01 baseline. Any unretained mutation invalidates it.
+    pub(crate) records_only: bool,
     accounting: Option<Writer>,
     pub(super) mapping_io: crate::format_v4::metrics::MappingIo,
     #[cfg(test)]
@@ -40,6 +42,11 @@ pub(super) struct BackingIo {
 }
 
 impl BackingIo {
+    pub(crate) fn can_retry_completed_io(&self) -> bool {
+        // A wait failure consumes the ring. A ledger failure is not a backing CQE.
+        self.exact.ring.is_some() && self.accounting.is_none()
+    }
+
     pub(super) fn new(accounting: Option<Writer>) -> io::Result<Self> {
         Ok(Self {
             exact: ExactIo {
@@ -50,6 +57,7 @@ impl BackingIo {
                 lost_writeback: None,
             },
             accounting,
+            records_only: false,
             mapping_io: crate::format_v4::metrics::MappingIo::default(),
             #[cfg(test)]
             metadata_short_write: None,
@@ -60,6 +68,30 @@ impl BackingIo {
 }
 
 pub(super) fn submit_exact(
+    backing_io: &mut BackingIo,
+    entry: squeue::Entry,
+    user_data: u64,
+    expected_result: i32,
+) -> io::Result<()> {
+    if entry.get_opcode() != u32::from(opcode::Read::CODE) {
+        backing_io.records_only = false;
+    }
+    submit_accounted(backing_io, entry, user_data, expected_result)
+}
+
+/// Only the foreground data-record writer retains bytes for this path.
+/// Cleaner, checkpoint and metadata writes must use the invalidating path above.
+pub(crate) fn submit_user_record(
+    backing_io: &mut BackingIo,
+    entry: squeue::Entry,
+    user_data: u64,
+    expected_result: i32,
+) -> io::Result<()> {
+    assert_eq!(entry.get_opcode(), u32::from(opcode::Writev::CODE));
+    submit_accounted(backing_io, entry, user_data, expected_result)
+}
+
+fn submit_accounted(
     backing_io: &mut BackingIo,
     entry: squeue::Entry,
     user_data: u64,
@@ -88,6 +120,7 @@ pub(super) fn submit_exact_unaccounted(
     user_data: u64,
     expected_result: i32,
 ) -> io::Result<()> {
+    backing_io.records_only = false;
     backing_io.exact.submit(entry, user_data, expected_result)
 }
 

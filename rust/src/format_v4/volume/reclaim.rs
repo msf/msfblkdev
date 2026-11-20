@@ -83,7 +83,7 @@ pub(crate) struct Reclaim {
     pub(crate) stats: ReclaimStats,
     discard: BackingDiscard,
     discard_disabled: bool,
-    discards_in_flight: usize,
+    pub(super) discards_in_flight: usize,
 }
 
 impl Reclaim {
@@ -827,6 +827,8 @@ impl Volume {
             }
             self.log.segments.begin_discard(segment)?;
             self.reclaim.discards_in_flight += 1;
+            // The punch runs on the cleaner ring, outside the foreground write recorder.
+            self.backing_io.records_only = false;
             self.reclaim.cleaner.send(Command::Discard { segment })?;
         }
     }

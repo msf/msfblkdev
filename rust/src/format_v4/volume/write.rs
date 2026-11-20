@@ -4,7 +4,7 @@ use crate::format_v4::{
     data_record::DataRecord,
     reservation::{Reservation, ensure_user_space},
 };
-use crate::{MAXIMUM_PAYLOAD_BLOCKS, accounted_io::submit_exact};
+use crate::{MAXIMUM_PAYLOAD_BLOCKS, accounted_io::submit_user_record};
 use io_uring::{opcode, types};
 use std::os::fd::AsRawFd;
 
@@ -143,6 +143,7 @@ impl Volume {
     fn submit_record(&mut self, record: &DataRecord) -> io::Result<()> {
         let count = record.header.payload_count(self.log.geometry)?;
         let start = record.header.start(self.log.geometry)?;
+        self.retain_user_record(start, &record.lba_ids[..count])?;
         let iovecs = &mut self.release_iovecs.0;
         iovecs.clear();
         for &lba in record.lba_ids.iter().take(count) {
@@ -166,7 +167,7 @@ impl Volume {
         )
         .offset(u64::from(start) * BLOCK_SIZE as u64)
         .build();
-        submit_exact(
+        submit_user_record(
             &mut self.backing_io,
             write,
             record.header.lsn,

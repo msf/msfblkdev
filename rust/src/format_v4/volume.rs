@@ -23,6 +23,7 @@ use std::{fs::File, io, os::unix::fs::MetadataExt, path::Path};
 mod discard;
 mod growth;
 pub(crate) mod reclaim;
+mod records_retry;
 mod write;
 
 /// Limit buffer allocation to a quarter of the segment capacity, as format 3 did for its log.
@@ -39,6 +40,7 @@ pub struct Volume {
     footer_scratch: AlignedBlock,
     release_iovecs: ReleaseIovecs,
     release_stats: ReleaseStats,
+    records_epoch: Option<records_retry::Epoch>,
     pub(crate) checkpoint_after_bytes: u64,
     live_blocks: u64,
     pub(crate) reserve: Reserve,
@@ -161,6 +163,7 @@ pub(crate) fn open_with_io(
         footer_scratch: AlignedBlock([0; BLOCK_SIZE]),
         release_iovecs: ReleaseIovecs(Vec::with_capacity(crate::MAXIMUM_PAYLOAD_BLOCKS + 1)),
         release_stats: ReleaseStats::default(),
+        records_epoch: None,
         checkpoint_after_bytes: options.checkpoint_after_bytes,
         live_blocks,
         reserve,
@@ -352,7 +355,7 @@ impl Volume {
     pub fn flush(&mut self) -> io::Result<()> {
         self.check_operational()?;
         self.release_records(ReleaseTrigger::Flush)?;
-        let result = storage::sync(&mut self.backing_io, &self.backing);
+        let result = self.sync_client_records();
         self.latch(result)?;
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint(crate::LOG_FSYNC_COMPLETE_FAILPOINT)?;

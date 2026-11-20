@@ -1,4 +1,4 @@
-//! Single-shot rules for one test-owned `BackingIo`. No process-global state.
+//! Fault rules for one test-owned `BackingIo`. Single-shot unless explicitly made persistent.
 use super::BackingIo;
 use io_uring::{IoUring, opcode, squeue};
 use std::{
@@ -49,6 +49,7 @@ impl Action {
 pub(crate) struct FaultPlan {
     opcode: u8,
     remaining: usize,
+    persistent: bool,
     action: Action,
     hits: Arc<AtomicUsize>,
 }
@@ -74,9 +75,17 @@ impl FaultPlan {
         io.exact.plan = Some(Self {
             opcode,
             remaining: occurrence,
+            persistent: false,
             action,
             hits: Arc::clone(&hits),
         });
+        hits
+    }
+
+    /// Fail every matching call until the owning test drops the volume.
+    pub(crate) fn persistent_eio(io: &mut BackingIo, opcode: u8) -> Arc<AtomicUsize> {
+        let hits = Self::install(io, opcode, 1, Action::Reject(libc::EIO));
+        io.exact.plan.as_mut().expect("just installed").persistent = true;
         hits
     }
 
@@ -88,6 +97,7 @@ impl FaultPlan {
         if self.remaining != 0 {
             return None;
         }
+        self.remaining = usize::from(self.persistent);
         self.hits.fetch_add(1, Ordering::Relaxed);
         Some(self.action)
     }

@@ -619,6 +619,7 @@ mod packed_writes;
 mod process_crash;
 mod reclaim;
 mod reclaim_crash;
+mod records_retry;
 mod stale_tail;
 mod volume_write;
 mod write_buffer;

@@ -508,14 +508,14 @@ fn wait_exact_with(
         if unexpected_completion || completion.flags() != 0 {
             return Err(io::Error::other("unexpected io_uring completion"));
         }
+        if completions.next().is_some() {
+            return Err(io::Error::other("unexpected extra io_uring completion"));
+        }
         if completion.result() < 0 {
             return Err(io::Error::from_raw_os_error(-completion.result()));
         }
         if completion.result() != expected_result {
             return Err(io::Error::other("short io_uring operation"));
-        }
-        if completions.next().is_some() {
-            return Err(io::Error::other("unexpected extra io_uring completion"));
         }
         return Ok(());
     }
