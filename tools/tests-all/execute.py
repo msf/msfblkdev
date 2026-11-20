@@ -23,7 +23,11 @@ def command(cwd, argv, log, seconds=600, env=None):
     proc = None
     rc = None
     try:
-        proc = subprocess.Popen(argv, cwd=cwd, env={**os.environ, 'CARGO_NET_OFFLINE': 'true',
+        # Never let a parent-process test enter one of its child-only modes or
+        # open a caller-provided crash image. Preserve toolchain paths and TMPDIR.
+        inherited = {k: v for k, v in os.environ.items() if not k.startswith('BLOCK_STORAGE_')
+                     and k not in ('SEED', 'PLAN', 'OUT', 'DST_ROOT')}
+        proc = subprocess.Popen(argv, cwd=cwd, env={**inherited, 'CARGO_NET_OFFLINE': 'true',
                                 'PYTHONDONTWRITEBYTECODE': '1', 'NO_COLOR': '1', **(env or {})},
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True)
@@ -113,9 +117,8 @@ def assign(cases, verdicts, detail):
     found = {}
     for case in cases:
         key = case['selector']
-        names = [key] if key in verdicts else []
-        if len(names) == 1:
-            v = verdicts[names[0]]
+        if key in verdicts:
+            v = verdicts[key]
             found[case['id']] = result(v['status'], v['detail'] + '. ' + detail)
         else:
             found[case['id']] = result('blocked', 'No unique individual verdict. ' + detail)
@@ -175,8 +178,6 @@ class Runner:
             dest = self.out / f'{key}-{i}'
             folders.append(dest)
             env = {'DST_ROOT': str(self.root), 'OUT': str(dest)}
-            if any(os.environ.get(var) for var in ('PLAN', 'SEED')):
-                return result('blocked', 'Unset SEED and PLAN so the runner can supply its recorded schedule.')
             if seed is None:
                 env['PLAN'] = str(folders[0] / 'plan.txt')
             else:
@@ -216,13 +217,20 @@ class Runner:
             return {c['id']:repetitions(m['completed_selections'],m['failed_selections'],
                     [c['selector'].replace('/','--')+f'--repetition-{i}' for i in range(1,4)],detail) for c in cases}
         if key == 'test-ublk-fio':
-            passed = set()
+            passed, failed = set(), set()
+            active = None
             with raw.open(errors='replace') as f:
                 for line in f:
                     match = re.fullmatch(r'PASS scenario=([\w-]+) repetition=(\d+)\n',line)
+                    start = re.fullmatch(r'=== scenario=([\w-]+) repetition=(\d+)/3 ===\n', line)
+                    if start:
+                        active = start.groups()
                     if match:
                         passed.add(match.groups())
-            return {c['id']:repetitions(passed,(),[(c['selector'],str(i)) for i in range(1,4)],detail) for c in cases}
+                    if line.startswith('result: FAIL ') and active and active not in passed:
+                        failed.add(active)
+                        detail += ' ' + line.strip()[:250]
+            return {c['id']:repetitions(passed,failed,[(c['selector'],str(i)) for i in range(1,4)],detail) for c in cases}
         return {c['id']:outcome(rc,text,detail) for c in cases}
 
     @staticmethod

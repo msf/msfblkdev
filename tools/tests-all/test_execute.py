@@ -42,6 +42,18 @@ class Case(unittest.TestCase):
             self.assertEqual([r['status'] for r in results.values()],
                              ['passed','failed','not run','blocked'])
 
+    def test_child_only_environment_is_removed(self):
+        """An inherited crash fixture must not redirect the tests to someone else's file."""
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+            'BLOCK_STORAGE_CRASH_TEST_BACKING': '/not-our-file', 'TMPDIR': directory
+        }):
+            p = Path(directory)
+            rc, text, _ = execute.command(p, [sys.executable, '-c',
+                "import os; print(os.getenv('BLOCK_STORAGE_CRASH_TEST_BACKING')); print(os.getenv('TMPDIR'))"],
+                p/'log', 5)
+            self.assertEqual(rc, 0)
+            self.assertEqual(text.splitlines(), ['None', directory])
+
     def test_rust_output(self):
         """Retain distinct passed, failed, ignored, and documentation results."""
         text = ('test one::test ... ok\ntest two::test ... FAILED\n'
