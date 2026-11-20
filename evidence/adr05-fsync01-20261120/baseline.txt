@@ -1,0 +1,33 @@
+Linux 7.2.12-orbstack-00394-gbecdd6130068 aarch64 GNU/Linux
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+cargo 1.97.1 (c980f4866 2026-06-30)
+make lint: PASS
+running 2 tests
+test tests::fsync01::fsync01_controls ... FSYNC-01 Clean original offset=28672 len=8192 xxh3=b655f037f877f975
+FSYNC-01 Clean original offset=36864 len=8192 xxh3=09d0b780bffd1d40
+FSYNC-01 Clean records barrier: backing sync succeeded
+FSYNC-01 BareRetry original offset=28672 len=8192 xxh3=4317b073f3920849
+FSYNC-01 BareRetry original offset=36864 len=8192 xxh3=c1851a0580249ad3
+FSYNC-01 BareRetry records barrier: lost both records, EIO
+FSYNC-01 BareRetry records barrier: backing sync succeeded
+FSYNC-01 planted FLUSH success rejected: both recovered blocks contain their old values
+ok
+test tests::fsync01::fsync01_engine ... FSYNC-01 Engine original offset=28672 len=8192 xxh3=0059e2190bf6ae20
+FSYNC-01 Engine original offset=36864 len=8192 xxh3=c120e31889f91f73
+FSYNC-01 Engine records barrier: lost both records, EIO
+FSYNC-01 engine FLUSH=Err(Os { code: 5, kind: Uncategorized, message: "Input/output error" }) latched=true recovery_matches_new=false
+
+thread 'tests::fsync01::fsync01_engine' (2721649) panicked at src/tests/fsync01.rs:61:11:
+FSYNC-01 transient records barrier must resume within the same client FLUSH: Os { code: 5, kind: Uncategorized, message: "Input/output error" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    tests::fsync01::fsync01_engine
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 198 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `--lib`
+make: *** [Makefile:129: test-fsync01] Error 101
