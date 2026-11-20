@@ -1,0 +1,627 @@
+{
+  "rust/src/accounted_io/fault_plan/adr05_seam.rs::format_no_hit_is_byte_identical_and_enospc_stops_before_first_root": [
+    "Two fresh files receive the same format.",
+    "Compare normal formatting with a rule aimed at a write that never happens. Then refuse the second write for lack of space.",
+    "The first two images must match byte for byte. The refusal must return an error before the first usable checkpoint appears."
+  ],
+  "rust/src/accounted_io/fault_plan/adr05_seam.rs::open_io_and_zero_byte_read_fail_without_image_changes": [
+    "The engine opens an existing volume whose bytes the test saved beforehand.",
+    "Refuse the second checkpoint read, then try a separate run where that read returns zero bytes.",
+    "Startup must fail in both cases. Reading zero bytes is not a successful read of a block filled with zeros. Neither attempt may change the file."
+  ],
+  "rust/src/accounted_io/fault_plan/adr05_seam.rs::writev_short_releases_no_bytes_and_charges_existing_failure_path": [
+    "Block 2 already contains a flushed pattern.",
+    "Replace it while the backing write reports zero bytes transferred.",
+    "The overwrite must fail and stop the volume. Count one error, no additional completed bytes and no pending work. After reopening, block 2 must still contain the original pattern."
+  ],
+  "rust/src/accounted_io/fault_plan/adr05_seam.rs::completed_fsync_can_report_uncertain_completion_and_latch_volume": [
+    "The client overwrites a previously flushed block.",
+    "Let the backing sync finish but make it report an error to the engine.",
+    "The engine cannot assume success: the flush must fail and the volume must stop. On this particular image the new value must survive because the underlying sync actually finished."
+  ],
+  "rust/src/accounted_io/fault_plan/adr05_seam.rs::pre_io_capacity_enospc_keeps_volume_usable": [
+    "The engine has no room to admit another write.",
+    "Attempt a write with a backing-write error rule armed, then request a flush.",
+    "The engine must report no space before reaching the rule. This refusal must not stop the volume: the next flush must succeed."
+  ],
+  "rust/src/accounted_io/fault_plan/adr05_seam.rs::backing_enospc_at_checkpoint_b_final_fsync_must_latch": [
+    "Engine maintenance has written the record identifying a new checkpoint but still needs a final sync before releasing space.",
+    "Reject that sync for lack of space.",
+    "The engine must keep the earlier checkpoint active, stop serving the volume and reject the next flush rather than reuse space whose release was never confirmed."
+  ],
+  "rust/src/bin/block-storage-mount.rs::formatter_uses_only_the_system_binary_and_pinned_device": [
+    "The mount helper prepares a filesystem formatter without executing it.",
+    "Inspect its executable, arguments, inherited device handle and environment.",
+    "The command must invoke the specified system formatter on the already opened device, not resolve a caller-selected program or accept another path."
+  ],
+  "rust/src/bin/block-storage-mount.rs::inherited_descriptors_survive_exec_without_reusing_standard_io": [
+    "The helper must give a child program access to an already opened object.",
+    "Prepare its file descriptor for inheritance and start a child process to check it.",
+    "The child must retain access after the program starts. The inherited descriptor must not replace standard input, output or error."
+  ],
+  "rust/src/bin/block-storage-mount.rs::helper_requires_kernel_ownership_unprivileged_flag_and_exact_geometry": [
+    "The helper receives simulated kernel information for a block device.",
+    "Change its owner, permission flag, block size, capacity or selected filesystem.",
+    "Accept the matching device for each filesystem. Reject the others rather than format or mount a device with the wrong owner or layout."
+  ],
+  "rust/src/bin/block-storage-mount.rs::helper_rejects_paths_options_and_arbitrary_device_names": [
+    "The helper accepts a small set of operations on numbered devices in lab directories.",
+    "Parse valid requests alongside unexpected paths, names, flags and argument counts.",
+    "Only supported operations with an allowed device number and generated directory name may become actions. The parser must not interpret arbitrary arguments as mount options."
+  ],
+  "rust/src/bin/fs_support/mod.rs::mount_checks_reject_wrong_source_aliases_and_nested_mounts": [
+    "The helper reads sample mount-table entries instead of mounting a disk.",
+    "Change the device identity or source, add another mount, or place a mount below the intended directory.",
+    "The checks must distinguish the expected mount from an alias, a nested mount or an unrelated device before the helper proceeds."
+  ],
+  "rust/src/bin/fs_support/mod.rs::filesystem_selection_preserves_ext4_rejection_of_xfs_mounts": [
+    "Two filesystem types use different lab settings.",
+    "Check sample mount data and device sizes using the selected filesystem.",
+    "The ext4 check must not accept an XFS mount. Each selection must use its own expected filesystem type and capacity."
+  ],
+  "rust/src/bin/fs_support/mod.rs::parses_mountinfo_escapes_and_rejects_malformed_records": [
+    "The kernel mount table represents some characters in paths with escapes.",
+    "Parse sample records containing escaped path characters and malformed fields.",
+    "Return the decoded paths and device information for valid entries. Reject invalid records rather than silently comparing the wrong path."
+  ],
+  "rust/src/bin/fs_support/mod.rs::only_generated_directory_names_are_accepted": [
+    "The helper needs to recognize directories created by the lab.",
+    "Try generated names and lookalikes with invalid components.",
+    "Only the restricted generated name format may pass; a similar-looking caller-supplied directory must not be treated as lab-owned."
+  ],
+  "rust/src/bin/ublk_support/request_counts.rs::totals_decode_operations_and_exclude_cancelled_requests": [
+    "The request counter receives sample reads, writes, flushes and other operations.",
+    "Include cancellation while accumulating totals.",
+    "Totals must distinguish the operation types without counting a cancelled operation as completed work."
+  ],
+  "rust/src/bin/ublk_support/request_counts.rs::counts_each_flag_combination_including_discovery_and_unknown_requests": [
+    "Requests can carry the same operation with different flags, including before the device is ready.",
+    "Record example requests, errors and cancellations and print their counts.",
+    "The report must retain separate flag combinations, including unknown ones, and show the correct counts and sector totals."
+  ],
+  "rust/src/bin/ublk_support/request_counts.rs::capacity_and_counter_overflow_cannot_report_complete_evidence": [
+    "The request counter has limited space for distinct flags and finite numeric counters.",
+    "Exceed the available entries or the maximum representable count.",
+    "The counter must mark its evidence incomplete rather than present truncated or wrapped totals as a complete workload."
+  ],
+  "rust/src/bin/ublk_support/request_counts.rs::report_propagates_output_failures": [
+    "The counter has a report ready to write.",
+    "Give it an output buffer that cannot hold the report.",
+    "The report operation must return the output error. A partially written report must not be reported as a successful export."
+  ],
+  "rust/src/format_v4/budget.rs::division_is_proportional_floored_and_rejects_oversubscription": [
+    "The engine divides a limited memory budget between buffered writes, mapping lookups, cleanup and other bookkeeping.",
+    "Calculate sizes for small and large volumes and try allocations that do not fit.",
+    "Honor the minimum budget and proportional growth, account for each component, and reject a configuration that needs more memory than allowed."
+  ],
+  "rust/src/format_v4/data_record.rs::every_payload_count_round_trips_from_both_segment_positions": [
+    "A disk record groups one or more blocks of client data under a footer.",
+    "Encode and decode each supported block count at two positions within a disk region.",
+    "The decoded record must identify each payload block at its original address and reject a request beyond its last block."
+  ],
+  "rust/src/format_v4/data_record.rs::data_record_after_a_link_starts_its_segment": [
+    "A link record directs the log into a new disk region.",
+    "Encode a data record immediately after the link and locate its payload blocks.",
+    "The payloads must start in the new region, not after the previous record in the old region."
+  ],
+  "rust/src/format_v4/data_record.rs::rejects_duplicate_out_of_range_unused_and_misframed_footers": [
+    "The test builds a valid footer that identifies two data blocks.",
+    "Alter addresses, unused fields, placement, length or checksum, including changes with a freshly computed checksum.",
+    "The decoder must refuse inconsistent or damaged records rather than associate a payload with the wrong client block."
+  ],
+  "rust/src/format_v4/descriptor.rs::descriptor_fields_have_exact_offsets_and_checksum": [
+    "A checkpoint descriptor tells the engine where to start recovery.",
+    "Encode a known descriptor, inspect the byte positions and decode it again.",
+    "The identifying fields and checksum must match the specified disk layout; the two checkpoint slots must occupy distinct reserved blocks."
+  ],
+  "rust/src/format_v4/descriptor.rs::descriptor_rejects_malformed_fields_without_panic": [
+    "The decoder receives a checkpoint descriptor and an expected slot.",
+    "Vary fields, lengths, checksum or slot identity in controlled inputs.",
+    "It must reject invalid descriptors without crashing or treating damaged bytes as a usable recovery point."
+  ],
+  "rust/src/format_v4/descriptor.rs::equal_lsn_roots_must_match_and_growth_may_differ": [
+    "The engine compares the two saved descriptions of a volume.",
+    "Vary the descriptions at the same log position, and compare checkpoints across volume growth.",
+    "Two descriptions claiming the same position must agree. A legitimate change in backing size across checkpoints must not by itself invalidate the pair."
+  ],
+  "rust/src/format_v4/format_plan.rs::format_plan_selects_largest_qualifying_size": [
+    "The formatter knows the logical size, backing capacity and expected maximum fill.",
+    "Compute candidate region sizes and change the amount of client data that must fit.",
+    "Choose the largest qualifying region size, switching to a different size when the previous layout cannot meet the requested fill."
+  ],
+  "rust/src/format_v4/format_plan.rs::format_plan_rejects_invalid_sizes_targets_and_insufficient_capacity": [
+    "The formatter receives proposed sizes and fill targets before creating any file.",
+    "Try misaligned, invalid or insufficient capacities alongside an accepted boundary case.",
+    "Reject invalid combinations rather than constructing an unusable layout; the valid boundary must still produce a plan."
+  ],
+  "rust/src/format_v4/format_plan.rs::format_plan_caps_fill_at_the_logical_size_and_respects_table_reach": [
+    "A format plan must cover both client data and the tables that describe physical regions.",
+    "Ask for fill beyond the logical volume size and for a backing layout beyond the table limit.",
+    "Cap useful fill at the client-visible size and refuse geometry the tables cannot represent."
+  ],
+  "rust/src/format_v4/geometry.rs::geometry_derives_segments_pages_and_tree_shape": [
+    "The geometry calculator translates volume and backing sizes into fixed-size regions and mapping pages.",
+    "Calculate counts and tree sizes at representative boundaries.",
+    "The resulting layout must cover the requested addresses with the expected number of regions, pages and index levels."
+  ],
+  "rust/src/format_v4/geometry.rs::geometry_rejects_bounds_and_growth_is_monotonic": [
+    "The engine holds a current description of disk capacity.",
+    "Try invalid sizes, enlarge the backing store, then request a smaller or invalid replacement.",
+    "Only representable geometry and valid growth may succeed. Growth must not reduce the existing storage bounds."
+  ],
+  "rust/src/format_v4/heads.rs::head_cursor_reserves_the_link_slot_and_restarts_after_a_link": [
+    "An append cursor must leave space for the link that moves writes to the next region.",
+    "Advance toward the end of a region, then start again after a link.",
+    "Payload room must exclude the link slot and restart at the correct capacity in the new region."
+  ],
+  "rust/src/format_v4/heads.rs::append_plan_matches_hand_counted_packing": [
+    "The append planner estimates space without writing any data.",
+    "Vary payload and metadata counts with room for a full record, a partial group or only a link.",
+    "Its counts of blocks, records, links and new regions must match hand-counted layouts, including footer space."
+  ],
+  "rust/src/format_v4/heads.rs::opening_a_new_user_head_does_not_create_capacity_while_the_reserve_is_in_debt": [
+    "The engine reserves regions so that maintenance can still run when client space runs low.",
+    "Calculate available space when opening a new client write region while the reserve is depleted.",
+    "Moving the write cursor must not manufacture client capacity: only the space left after honoring the reserve is available."
+  ],
+  "rust/src/format_v4/heads.rs::reserve_and_user_availability_follow_the_plan": [
+    "The space calculator separates maintenance capacity from space a client may consume.",
+    "Vary available regions and remaining room at the append position.",
+    "The reserved region count and the user-visible space must agree with the allocation plan rather than charging the same region twice."
+  ],
+  "rust/src/format_v4/index_page.rs::index_page_has_exact_layout_for_both_levels": [
+    "An index page holds addresses for locating lower-level mapping information.",
+    "Encode and decode known pages at both supported levels and inspect their fields.",
+    "Each child address must occupy the expected position, and the page must round-trip only when its layout is valid."
+  ],
+  "rust/src/format_v4/index_page.rs::index_page_rejects_malformed_children_levels_and_identity": [
+    "An index page has a known volume, level, position and permitted children.",
+    "Submit pages with malformed references or with identity fields that do not match the expected page.",
+    "The decoder must reject them instead of letting a valid-looking address take recovery to an unrelated page."
+  ],
+  "rust/src/format_v4/mapping_index.rs::snapshot_updates_dirty_their_direct_page_and_parents": [
+    "A mapping index tracks which saved pages are out of date.",
+    "Replace snapshot references in the index and inspect the pages marked for rewrite.",
+    "Changing a child must mark its direct index page and affected parents, so writing an index cannot leave old pointers above a changed mapping."
+  ],
+  "rust/src/format_v4/mapping_page.rs::mapping_snapshot_keeps_the_format_3_layout_with_a_format_4_header": [
+    "A mapping snapshot stores block addresses using a layout inherited from an earlier disk format.",
+    "Encode known entries with the newer header, inspect their positions and decode the result.",
+    "The entries must retain the expected layout while the header and record boundary identify the current format."
+  ],
+  "rust/src/format_v4/mapping_page.rs::rejects_malformed_snapshots_and_reserved_address_bit": [
+    "A decoder receives a saved mapping page with a known identity.",
+    "Alter fields and try entries using the reserved address bit.",
+    "Malformed snapshots and unrepresentable addresses must be rejected, not interpreted as locations containing client data."
+  ],
+  "rust/src/format_v4/mapping_page.rs::mapping_framing_survives_only_body_damage": [
+    "A saved mapping page has separate integrity checks for its frame and contents.",
+    "Damage its body and test the frame and full-page decoders separately.",
+    "Recovery may still recognize the record boundary when only the contents are damaged. It must not accept the damaged mappings as valid."
+  ],
+  "rust/src/format_v4/reclaim/scheduler.rs::continuous_requests_cannot_postpone_the_maximum_interval": [
+    "A scheduler tracks elapsed time between background maintenance runs.",
+    "Continually report completed requests up to the maximum interval.",
+    "Even without an idle gap the scheduler must say maintenance is due at the deadline and record the completed maintenance run."
+  ],
+  "rust/src/format_v4/reclaim/scheduler.rs::idle_wait_is_distinct_from_the_maintenance_deadline": [
+    "The scheduler has a short idle wait and a longer maintenance deadline.",
+    "Advance a simulated clock across both thresholds and record late maintenance.",
+    "Becoming idle must not imply that the deadline expired. Wake-up hints and lateness must use the applicable threshold."
+  ],
+  "rust/src/format_v4/reclaim/scheduler.rs::rejects_an_idle_wait_longer_than_the_interval": [
+    "A scheduler must check for maintenance within its maximum allowed interval.",
+    "Construct one with a 200 ms idle wait but a 100 ms maximum interval.",
+    "Construction must reject the contradictory timing requirements with the expected assertion, not start a scheduler that can sleep past its deadline."
+  ],
+  "rust/src/format_v4/reservation.rs::reservation_counts_payloads_footers_snapshots_and_crossings": [
+    "The write reservation calculator estimates physical space before accepting logical writes.",
+    "Combine pending payloads, mapping snapshots and transitions between regions.",
+    "The required space must include data footers, snapshot records and boundary costs. Reject inputs whose total cannot be represented."
+  ],
+  "rust/src/format_v4/reservation.rs::reservation_covers_all_small_dirty_sets_and_pressure_schedules": [
+    "The engine must reserve enough room even if cache pressure forces mappings to be saved at different times.",
+    "Enumerate small changed-block sets and alternative save schedules.",
+    "For every tested ordering, the calculated reservation must cover the payload blocks, their record metadata and the snapshots actually needed."
+  ],
+  "rust/src/format_v4/segment_table.rs::flags_pack_state_and_head_exactly_and_reject_invalid_bits": [
+    "The segment table represents region state and write position using compact flags.",
+    "Encode supported combinations, decode their fields, and try undefined or incompatible bits.",
+    "Valid flags must recover the intended state and write position. Invalid bit patterns must not become ordinary region states."
+  ],
+  "rust/src/format_v4/segment_table.rs::table_page_has_exact_parallel_arrays_and_round_trips": [
+    "A segment-table page stores state flags and sequence numbers in separate arrays.",
+    "Encode a page containing different region states, inspect byte offsets and decode it.",
+    "Each flag must stay paired with the correct sequence number, including a region waiting for release."
+  ],
+  "rust/src/format_v4/segment_table.rs::last_partial_page_and_boundary_entries_round_trip": [
+    "The final segment-table page may describe fewer regions than a full page.",
+    "Encode and decode entries around a page boundary and try a value outside the final partial page.",
+    "Valid boundary entries must survive unchanged. Unused slots must not advertise regions outside the backing file."
+  ],
+  "rust/src/format_v4/segment_table.rs::table_page_rejects_malformed_entries_identity_and_padding": [
+    "A valid segment-table page is expected at one position in one volume.",
+    "Alter state bits, sequence numbers, unused bytes or identifying fields and recompute integrity fields where appropriate.",
+    "The decoder must reject inconsistent entries and pages from the wrong location, even when a checksum alone would not expose the change."
+  ],
+  "rust/src/format_v4/segments.rs::allocation_takes_the_lowest_free_segment_and_skips_pending_discards": [
+    "The allocator tracks free regions and regions still waiting for discard to finish.",
+    "Repeatedly request a free region while some low-numbered regions are unavailable.",
+    "Choose the lowest eligible free region, never one still awaiting discard. Reject an impossible initial region configuration."
+  ],
+  "rust/src/format_v4/segments.rs::freeing_needs_two_publications_and_republishes_pending_state_after_fallback": [
+    "A region is no longer needed in memory, but an older saved checkpoint can still refer to it.",
+    "Advance the release through checkpoint publications and simulate recovery from the earlier checkpoint.",
+    "Do not free the region on the first publication. After fallback, publish the pending release again before permitting reuse."
+  ],
+  "rust/src/format_v4/segments.rs::table_pages_track_dirty_state_metadata_references_and_growth": [
+    "The segment table tracks which pages changed and which metadata references remain live.",
+    "Change region state, enlarge the table, then load saved entries.",
+    "Changed pages and references must be accounted for. A page restored from saved state must not be marked dirty solely because it was loaded."
+  ],
+  "rust/src/format_v4/segments.rs::conservation_detects_dangling_references": [
+    "The engine accounts for allocated regions and references into them.",
+    "Check a valid allocation and then present inconsistent reference information.",
+    "The conservation check must detect a dangling reference rather than accept space as both available and in use."
+  ],
+  "rust/src/format_v4/small_records.rs::segment_link_round_trips_and_rejects_self_and_out_of_range_targets": [
+    "A link at the end of a region must name another valid region.",
+    "Encode and decode links, including one pointing to itself and one beyond backing capacity.",
+    "Valid links must preserve their destination. Recovery must reject destinations that would loop in place or leave the backing file."
+  ],
+  "rust/src/format_v4/small_records.rs::backing_growth_is_monotonic_and_validated_beyond_the_header_checksum": [
+    "A growth record stores both the previous and new backing sizes.",
+    "Corrupt the new size outside the header checksum, or propose no growth, shrinkage or an invalid previous size.",
+    "A valid growth must round-trip. A readable header alone must not make a damaged or inconsistent change in size acceptable."
+  ],
+  "rust/src/format_v4/small_records.rs::discard_ranges_round_trip_at_both_ends_and_reject_invalid_ranges": [
+    "A discard record identifies a range of logical blocks that no longer need their old data.",
+    "Encode ranges at the start and end of the volume, then try empty and invalid ranges.",
+    "Valid ranges must decode to the original endpoints; a discard must not authorize removal outside the volume."
+  ],
+  "rust/src/format_v4.rs::header_has_exact_bytes_and_every_kind_round_trips": [
+    "The disk record header identifies the record type and its place in the log.",
+    "Encode known fields and decode each supported type.",
+    "The bytes must occupy the specified positions and each supported kind must round-trip; an unknown write-head identifier must not be accepted."
+  ],
+  "rust/src/format_v4.rs::rejects_versions_kinds_padding_truncation_and_corruption": [
+    "Recovery needs a valid header before it can interpret a record.",
+    "Feed the decoder unsupported versions and types, nonzero reserved bytes, short buffers and damaged header bytes.",
+    "Each invalid input must produce an error rather than a guessed record type or address."
+  ],
+  "rust/src/format_v4.rs::frame_rule_follows_predecessor_inside_a_segment_and_restarts_after_a_link": [
+    "Within a region, the next record must follow the previous boundary. A region link starts a different sequence.",
+    "Validate example data records in both positions.",
+    "Only the payload span consistent with the preceding boundary or new region start may be accepted."
+  ],
+  "rust/src/format_v4.rs::frame_rule_rejects_backward_chains_descriptor_blocks_and_multi_block_metadata": [
+    "A proposed record includes its current and previous boundaries.",
+    "Try a backward chain, reserved checkpoint blocks and metadata spanning several blocks, alongside a valid data span.",
+    "Reject the invalid placements without rejecting the permitted multi-block data layout."
+  ],
+  "rust/src/format_v4.rs::metadata_trailer_separates_framing_from_body_integrity": [
+    "Metadata has a record frame and a separate integrity check over the contents.",
+    "Alter bytes in each part and try to recognize the boundary separately from reading the complete record.",
+    "A frame can remain recognizable when the body is damaged. Damaged contents must not be returned as valid metadata."
+  ],
+  "rust/src/io_accounting/tests.rs::create_rejects_zero_budget_and_existing_path": [
+    "A ledger file records storage operations under a fixed byte budget.",
+    "Try to create one with zero budget and try creating a second ledger at an occupied path.",
+    "Both requests must fail; creating a ledger must neither accept an unusable budget nor overwrite existing evidence."
+  ],
+  "rust/src/io_accounting/tests.rs::only_one_writer_holds_the_lease": [
+    "A ledger reader already exists and one writer holds the right to update it.",
+    "Open a second writer without closing the first.",
+    "The second attempt must return immediately with a would-block error rather than allow concurrent changes to the same counters."
+  ],
+  "rust/src/io_accounting/tests.rs::readers_see_pending_and_exact_completions": [
+    "An independent reader watches the ledger while the writer records operations.",
+    "Take snapshots before and after completions.",
+    "The pending count must reflect operations still in flight. Completed operations and byte totals must appear exactly once after the writer records their outcomes."
+  ],
+  "rust/src/io_accounting/tests.rs::zero_length_io_is_rejected": [
+    "The accounting layer receives an operation with a declared byte count.",
+    "Ask it to begin a zero-length data transfer.",
+    "The accounting writer must reject the invalid request rather than reserve budget or count an operation that transfers no bytes."
+  ],
+  "rust/src/io_accounting/tests.rs::budget_is_reserved_before_io_and_never_refunded": [
+    "A writer has a ten-byte lifetime budget.",
+    "Reserve six bytes for a write that fails, then request five more.",
+    "The failed write must use its reservation without adding completed bytes. The next request must report no space; the reader must see the error and exhausted budget."
+  ],
+  "rust/src/io_accounting/tests.rs::exact_budget_ceiling_is_admitted": [
+    "A ledger writer has a finite remaining write allowance.",
+    "Submit a write whose size reaches the budget exactly and record successful completion.",
+    "The writer must admit the operation rather than reject equality at the limit. The completed-byte count must include the entire write."
+  ],
+  "rust/src/io_accounting/tests.rs::dropped_guard_marks_unknown_completion_incomplete": [
+    "A writer begins a tracked operation but never explicitly reports success or failure.",
+    "Drop the object responsible for recording completion, then inspect the ledger and try reopening the writer.",
+    "Mark the totals incomplete instead of guessing how many bytes reached storage. Refuse restart from that incomplete accounting state."
+  ],
+  "rust/src/io_accounting/tests.rs::new_writer_refuses_abandoned_pending_work_without_repair": [
+    "A writer reserves four bytes and exits with the operation still pending.",
+    "Open another writer and read a snapshot of the original ledger.",
+    "Refuse to resume rather than invent a completion. Keep the pending operation and four reserved bytes visible to the reader."
+  ],
+  "rust/src/io_accounting/tests.rs::new_writer_refuses_odd_epoch_without_repair": [
+    "The ledger sequence number indicates that an update started but never finished.",
+    "Attempt to open a new writer against that interrupted state.",
+    "The new writer must refuse to modify the ledger. The original odd sequence number must remain available as evidence of the interruption."
+  ],
+  "rust/src/io_accounting/tests.rs::reservation_and_completion_overflow_are_fail_closed": [
+    "Ledger counters have finite ranges for both reservations and completions.",
+    "Place counters near their limits and attempt updates that would overflow.",
+    "The writer must not wrap counters and silently admit more work. The visible pending count must remain consistent after rejection."
+  ],
+  "rust/src/io_accounting/tests.rs::subprocess_reader_sees_updates": [
+    "A writer and a separate reader process share the same on-disk accounting ledger.",
+    "Run the reader while the writer changes the ledger.",
+    "The reader process must observe the expected updates through its own mapping and exit successfully, without relying on in-process variables."
+  ],
+  "rust/src/logging.rs::level_names_round_trip_through_parsing": [
+    "A log setting can be supplied as text and displayed again.",
+    "Parse each supported level name and try invalid names.",
+    "A supported name must reproduce its original level and printed form; unsupported text must not select a level."
+  ],
+  "rust/src/logging.rs::each_level_permits_exactly_the_records_at_or_below_it": [
+    "Messages and logging configurations have ordered levels of detail.",
+    "Compare each configured threshold with candidate message levels, including disabled logging.",
+    "The filter must allow precisely the messages at or below the configured level and never treat the disabled level as a message to emit."
+  ],
+  "rust/src/mapping_cache/clock.rs::rejects_zero_capacity": [
+    "The mapping cache uses a clock-like cursor to choose an entry to replace.",
+    "Construct the replacement policy with space for zero entries.",
+    "Construction must fail rather than leave a cursor that cannot refer to any valid cache slot."
+  ],
+  "rust/src/mapping_cache/clock.rs::second_chances_access_and_cursor_wrap": [
+    "The cache replacement policy remembers which entries were recently accessed.",
+    "Touch selected entries and repeatedly ask for a replacement as the cursor passes the end of its array.",
+    "A recent entry must get a second chance, and the cursor must wrap without losing track of the next eligible slot."
+  ],
+  "rust/src/mapping_cache/clock.rs::dirty_slots_are_skipped_and_scan_is_bounded": [
+    "A changed mapping must not be evicted until it has been saved.",
+    "Exclude dirty entries from replacement and ask the clock policy to scan a partially or entirely protected cache.",
+    "It must choose only eligible entries and stop after a bounded scan even when no entry can be evicted."
+  ],
+  "rust/src/mapping_cache/clock.rs::one_slot_and_bitset_word_boundaries": [
+    "The clock policy stores recent-access flags in machine words.",
+    "Exercise a one-slot cache and capacities around a word boundary, allowing only the last slot to be evicted.",
+    "The policy must find that slot without losing or misreading a flag at the boundary."
+  ],
+  "rust/src/mapping_cache/clock.rs::rejects_inconsistent_slot_event": [
+    "A one-slot replacement policy has only slot zero.",
+    "Tell it that slot one was accessed.",
+    "The expected bounds assertion must fire. A caller error must not modify an unrelated bit or produce a plausible replacement decision."
+  ],
+  "rust/src/mapping_cache/tests.rs::mapping_layout_and_empty_cache": [
+    "The test constructs a mapping cache with no entries loaded.",
+    "Inspect the size of a mapping entry, initial occupancy and memory accounting.",
+    "The empty cache must report its allocated storage accurately, including slots, lookup structures and replacement-policy bookkeeping rather than just payload bytes."
+  ],
+  "rust/src/mapping_cache/tests.rs::budget_rounding_minimum_and_page_cap": [
+    "A mapping cache has a byte budget and a finite number of pages it could ever use.",
+    "Calculate its capacity near rounding boundaries, the minimum allocation and the page-count ceiling.",
+    "The chosen capacity must fit whole slots and must not reserve more pages than the volume can address."
+  ],
+  "rust/src/mapping_cache/tests.rs::rejects_invalid_geometry_capacity_and_size_overflow": [
+    "The sizing calculation receives the requested logical volume size and cache capacity.",
+    "Try invalid geometry, impossible capacities and sizes whose arithmetic would overflow.",
+    "The calculator must reject unrepresentable allocations while still accepting the largest supported logical volume."
+  ],
+  "rust/src/mapping_cache/tests.rs::default_budgets_choose_largest_fitting_capacity": [
+    "The cache size is derived from an allowed memory budget.",
+    "Calculate the default capacity at representative budgets, then price a cache with one more slot.",
+    "The selected size must fit. Where memory is the limit, the next larger size must exceed the budget."
+  ],
+  "rust/src/mapping_cache/tests.rs::synthetic_zero_page_is_a_clean_miss_then_a_hit": [
+    "An unmapped region can be represented by a clean mapping page containing only zeros.",
+    "Look up the same synthetic page twice in the cache.",
+    "Only the first lookup should be a miss. Reuse the cached zero page on the second lookup without treating it as a changed page that needs writing."
+  ],
+  "rust/src/mapping_cache/tests.rs::dirty_protection_publication_and_retry_have_exact_counters": [
+    "A small mapping cache contains changes that have not yet been saved.",
+    "Request another page, publish the dirty mappings and retry the lookup.",
+    "The cache must not evict unsaved changes. After publication the retry can proceed, and hit, miss and replacement counters must reflect the actual operations."
+  ],
+  "rust/src/mapping_cache/tests.rs::invalid_updates_and_loads_preserve_contents_and_dirty_state": [
+    "The cache holds known mappings, including a page with unsaved changes.",
+    "Try to update or load a page using invalid input.",
+    "Report the error without changing existing mappings or clearing the dirty flag. A subsequent lookup must still see the earlier contents."
+  ],
+  "rust/src/mapping_cache/tests.rs::cancelled_miss_does_not_evict_or_consume_a_slot": [
+    "A lookup misses and reserves the opportunity to load a page.",
+    "Cancel the miss before installing the replacement.",
+    "No clean page should count as evicted, and the cancelled lookup must not permanently consume a cache slot."
+  ],
+  "rust/src/mapping_cache/tests.rs::deterministic_churn_matches_reference_mapping_without_allocation_growth": [
+    "A small cache repeatedly handles a deterministic mixture of mapping lookups and updates.",
+    "Compare the changing cache with a separate reference mapping through evictions and pressure to save changes.",
+    "Results must agree throughout, while the storage reserved for the cache must not grow with the number of operations."
+  ],
+  "rust/src/mapping_cache/tests.rs::hashmap_churn_stays_preallocated_across_capacity_boundaries": [
+    "The cache uses a lookup table with preallocated space.",
+    "Replace entries repeatedly at capacities near internal allocation boundaries.",
+    "The lookup table must reuse its allocated space instead of growing as old entries leave. The number of resident pages must stay within the selected capacity."
+  ],
+  "rust/src/mapping_cache/tests.rs::dirty_updates_pressure_retry_iteration_and_snapshots_do_not_allocate": [
+    "The cache is already allocated and contains changed mappings.",
+    "Update pages, retry under cache pressure and iterate or snapshot the cache while counting allocations.",
+    "These normal operations must not request additional heap memory once the cache is initialized."
+  ],
+  "rust/src/mapping_cache/tests.rs::sorted_dirty_pages_and_prefetch_are_bounded_and_allocation_free": [
+    "The cache can list changed pages in order and fetch a page before it is requested.",
+    "Exercise ordered iteration and prefetch with a bounded cache while measuring allocations and inspecting counters.",
+    "The work must stay bounded and allocation-free, and a prefetched page evicted before use must be counted as unused."
+  ],
+  "rust/tests/compaction_small.rs::overwrites_at_full_logical_fill_survive_restart": [
+    "A newly formatted file provides a 128 MiB logical disk with 185 MiB of backing space.",
+    "Fill every client block with a recognizable pattern, then overwrite blocks and reopen the file.",
+    "The engine must reclaim at least one region and, after restart, return the expected version of every block rather than an earlier copy."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::exclusive_backing_lock_tracks_the_inode_and_owner_process": [
+    "Two processes can reach the same backing file under different names.",
+    "Keep an exclusive lock in one process and attempt a competing open before and after the owner exits.",
+    "Aliases must not bypass the active lock. Once the owning process releases it, the file must no longer appear permanently busy."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::parses_explicit_commands": [
+    "The device program accepts distinct commands for creating, serving and deleting a device.",
+    "Parse supported command lines with their arguments, including a delete request for device seven.",
+    "The parser must return the corresponding operation and preserve the supplied values without performing the operation."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::format_requires_logical_and_raw_sizes_and_defaults_to_full_logical_fill": [
+    "A format request needs a logical volume size and backing allocation size.",
+    "Parse requests with and without an explicit maximum fill and try malformed sizes.",
+    "When no fill target is supplied, plan for the full logical volume. Reject missing or invalid required sizes instead of guessing storage requirements."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::rejects_duplicate_sizes_byte_flags_aliases_and_forced_segments": [
+    "The formatter exposes a restricted set of size options in MiB.",
+    "Try repeated options, old byte-based aliases and options that would force a region size.",
+    "The parser must refuse these requests rather than silently picking one of two conflicting sizes or bypassing layout planning."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::rejects_invalid_arguments_and_negative_delete_ids": [
+    "The device command parser expects a known subcommand and a valid device number for deletion.",
+    "Offer unknown or incomplete commands, a negative identifier and trailing arguments.",
+    "Return a parse error, not an operation against an unintended device."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::format_new_sizes_formats_and_opens_exact_image": [
+    "The formatter receives a new path and valid logical and physical capacities.",
+    "Create the backing file, then open the volume with the engine and inspect its geometry.",
+    "The file and client-visible disk must have the requested sizes and use the region size selected by the format plan."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::format_new_honors_partial_fill_that_default_rejects": [
+    "The same raw capacity is tested with two expectations for how full the logical disk will become.",
+    "Request the default full-fill layout, then explicitly allow partial fill.",
+    "The first request must fail without creating a file; the permitted partial-fill layout must format and reopen with the planned region size."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::format_new_never_overwrites_an_existing_path": [
+    "A file at the requested format path already contains recognizable data.",
+    "Ask the formatter to create a new volume at that path.",
+    "It must report that the file exists and preserve the original bytes instead of truncating or replacing the file."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::format_new_rejects_invalid_or_insufficient_space_before_file_io": [
+    "The formatter receives invalid or insufficient capacity for a proposed layout.",
+    "Test the error path against a missing file and an existing file with sentinel contents.",
+    "The invalid request must not create a new backing file or modify the existing one before reporting the layout error."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::invalid_optional_ledger_fails_before_backing_creation": [
+    "An operator may request optional accounting when creating the backing volume.",
+    "Provide invalid ledger configuration and separately omit accounting entirely.",
+    "A bad ledger must stop setup before the backing file appears. With no ledger requested, the optional step must return no writer rather than an error."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::readiness_line_is_explicitly_flushed_and_flush_errors_are_returned": [
+    "The device program announces its readiness by writing a device path.",
+    "Capture the readiness line in a test writer, then make the writer fail during flush.",
+    "The complete line must be written and flushed explicitly. A flush error must reach the caller rather than producing a false readiness indication."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::configures_exact_v07_target_parameters": [
+    "The device adapter builds the parameters it would advertise to Linux for a 37-block disk.",
+    "Inspect the configuration without starting a kernel device.",
+    "It must advertise the matching sector count, block sizes, cache behavior and discard limits, without advertising unsupported zoned-device operations."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::configures_single_queue_with_derived_depth": [
+    "The device adapter derives a queue size from its request and memory limits.",
+    "Build controller settings for a sample device and compare them with the expected settings.",
+    "Use a single queue with the calculated depth. The test checks the configuration, not I/O through a running kernel device."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::cache_budget_reaches_engine_and_fua_persists_across_mapping_pages": [
+    "The engine receives a cache budget through the device-serving configuration.",
+    "Issue writes across mapping pages using the request flag that requires data to be durable on completion. Reopen the volume and read it.",
+    "The engine must use the selected cache configuration and return the written data without requiring a later client flush."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::serve_config_validation_and_depth_derivation": [
+    "The service limits request size, simultaneous memory use and the time between maintenance checks.",
+    "Validate default settings and vary timing, memory fractions, block alignment and request limits.",
+    "Invalid combinations must fail; valid limits must produce a queue depth that fits the configured memory."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::configures_unprivileged_control_without_user_recovery": [
+    "The adapter selects control flags before creating a Linux block device.",
+    "Inspect those flags without creating a live device.",
+    "The configuration must enable an unprivileged device and leave user recovery disabled. Enabling the former must not accidentally request the latter."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::stop_control_uses_recorded_id_on_stop_thread": [
+    "A separate control thread handles the request to stop a device.",
+    "Send the recorded device identifier to a test stop operation and capture the executing thread.",
+    "The operation must receive the intended identifier and run on the stop thread, not on the caller that requested shutdown."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::metadata_hint_preserves_read_write_decoding_and_validation": [
+    "The kernel can attach a metadata hint to a read or write.",
+    "Decode otherwise identical requests with and without the hint, including invalid address or length combinations.",
+    "The hint must not change the logical operation or weaken normal validation of its geometry."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::failfast_read_hints_preserve_results_and_geometry_checks": [
+    "Some read flags ask the device to fail promptly instead of retrying.",
+    "Decode reads with these hints and compare their results with ordinary reads, including malformed and unsupported requests.",
+    "Supported hints must preserve the normal read and its bounds checks; unsupported flag combinations must still be refused."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::accepts_fua_writes_but_rejects_fua_reads_flushes_and_unknown_flags": [
+    "A write may ask for durable completion using the force-unit-access flag.",
+    "Decode writes, reads and flushes carrying that flag and requests with unknown bits.",
+    "Only supported writes may use the durability flag. Other operations and unknown flags must return an unsupported-operation error."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::decodes_only_exact_supported_requests": [
+    "The adapter translates kernel request descriptors into engine operations.",
+    "Supply valid operations and descriptors with invalid alignment, bounds or unsupported operation numbers.",
+    "Only exact supported requests may reach the engine. Invalid geometry and unsupported operations must report their respective errors."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::discard_and_write_zeroes_unmap_blocks_and_persist": [
+    "The request adapter operates on a formatted backing file with known client data.",
+    "Issue discard and write-zeroes requests, then reopen the volume and read the affected and neighboring blocks.",
+    "The cleared range must read as zeros after restart, without clearing unaffected neighbors."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::adapter_targets_exact_lba_and_flushes_with_stale_descriptor_geometry": [
+    "A four-block volume receives requests through the device adapter, without a live kernel device.",
+    "Write a pattern at sector 16, flush with stale address information in the descriptor and reopen.",
+    "The flush must succeed without interpreting the stale address as a data range. Only the intended logical block should contain the pattern."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::multi_block_request_splits_into_consecutive_logical_blocks": [
+    "The device adapter receives one request spanning more than a single logical block.",
+    "Write a multi-block pattern, reopen and read the covered blocks and a neighbor.",
+    "The engine must place each part in consecutive logical blocks and leave the neighboring block unchanged."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::fatal_engine_error_is_completed_before_post_failure_work_is_rejected": [
+    "A queue receives an operation that makes its engine unusable.",
+    "Complete that request, then present additional work and combine the queue and close outcomes.",
+    "Return the original failure to the waiting caller, reject later work without invoking the failed engine, and report the shutdown error."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::latched_enospc_preserves_errno_and_fails_the_queue": [
+    "An accounting limit leaves no backing-write budget after the engine opens its test volume.",
+    "Issue the first foreground write through the queue.",
+    "The client must receive the original no-space error, the volume must enter the failed state, and the queue must record that it cannot serve further work."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::maps_engine_capacity_and_fatal_errors_to_stable_errno": [
+    "The adapter must translate storage errors into Linux request completion codes.",
+    "Pass representative capacity, integrity and fatal engine errors through its error mapping.",
+    "Preserve the no-space result for capacity failures and report an input/output error for unusable or corrupt storage rather than inventing a successful byte count."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::rejects_a_short_libublk_buffer_without_engine_io": [
+    "A device write descriptor requests a full block, but the supplied data buffer is too short.",
+    "Submit the malformed request and then read the intended block with a correctly sized buffer.",
+    "Reject the short request before engine I/O. The subsequent read must return the unchanged original data."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::fetched_requests_complete_once_without_shutdown_or_post_failure_engine_io": [
+    "The queue may already have fetched a request when shutdown or failure begins.",
+    "Exercise accepted and rejected paths with counters for engine calls and completions.",
+    "Complete each fetched request exactly once. A rejected request must not invoke the engine or report that client bytes were transferred."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::signal_state_stops_new_work_and_handler_is_restored": [
+    "The daemon installs a temporary signal handler for stopping work.",
+    "Exercise the signal path in a child process and inspect the handler after cleanup.",
+    "A shutdown signal must prevent new work, and the previous handler must be restored rather than affecting later users of the process."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::shutdown_waits_for_in_flight_work_before_stopping": [
+    "One queue request has begun when shutdown is requested.",
+    "Try to advance shutdown while work remains in flight, then finish that work.",
+    "Do not stop the queue underneath the active request. Once the queue enters the stopping state it must reject new engine work."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::daemon_shutdown_propagates_each_error": [
+    "Daemon shutdown collects results from several distinct operations.",
+    "Return an error from each stage in turn, combine multiple errors and test a clean shutdown.",
+    "The combined result must preserve the relevant failures rather than report success because the last stage succeeded. All-success inputs must still return success."
+  ],
+  "rust/src/bin/block-storage-ublk.rs::shutdown_reports_queue_and_close_errors": [
+    "Queue completion and closing the engine can fail independently.",
+    "Combine a successful queue with a close error, a queue error alone and both failures together.",
+    "The caller must see the applicable errors, including both causes when neither queue shutdown nor engine close succeeded."
+  ]
+}

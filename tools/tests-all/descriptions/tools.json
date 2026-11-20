@@ -1,0 +1,257 @@
+{
+  "tools/adr05-fault-lab/checker/test_check.py::test_both_heads_link_discard_growth": [
+    "The offline checker opens a constructed disk image with two starting points for recovery.",
+    "Follow both logs through their links, including changes to the disk size and discarded data.",
+    "Both paths must end at record 16 with no client blocks mapped, after applying seven records on one path and three on the other."
+  ],
+  "tools/adr05-fault-lab/checker/test_check.py::test_two_distinct_roots_and_unreferenced_damage": [
+    "A constructed disk contains two checkpoints, each recording where to find one client block.",
+    "Change an unused disk block and inspect both the original and modified images.",
+    "The image fingerprints must differ, but both audits must report the same checkpoints and mappings: recovery does not depend on the damaged bytes."
+  ],
+  "tools/adr05-fault-lab/checker/test_check.py::test_new_root_frees_segment_still_referenced_by_old_root": [
+    "The checker reads a constructed image with two possible starting points for recovery.",
+    "Mark a region free in the newer checkpoint while the older checkpoint still uses a block in it.",
+    "The audit must reject reuse and identify block 34 in region 2. Otherwise a later write could overwrite data still needed for recovery."
+  ],
+  "tools/adr05-fault-lab/checker/test_check.py::test_overwrite_old_payload": [
+    "The offline audit starts separately from each checkpoint in a constructed disk image.",
+    "Damage data at physical block 34, which the older checkpoint uses.",
+    "The older path must report a data checksum error and identify the affected address. The newer path must not report an error."
+  ],
+  "tools/adr05-fault-lab/checker/test_check.py::test_damage_metadata": [
+    "A constructed disk has separate older and newer starting points for recovery.",
+    "Alter metadata in block 7 and audit both recovery paths independently.",
+    "The checker must identify a metadata checksum error at block 7 on the older path, but no error on the newer one."
+  ],
+  "tools/adr05-fault-lab/checker/test_check.py::test_input_size_bound": [
+    "The offline image reader expects a complete disk image before it can inspect checkpoints.",
+    "Give it only a few bytes instead.",
+    "It must reject the input with an image-size error rather than pretend that it inspected a valid disk."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_all_four_payload_metadata_survival_cases": [
+    "A simulated 8192-byte disk initially contains x throughout. One write puts P in the first 4096 bytes (data) and M in the other 4096 bytes (information about that data).",
+    "Reject the sync before it persists the write. Build four images by keeping neither half, only the first half, only the second half, or both. This is not an engine reopen test.",
+    "A selected half must contain its new bytes; every other half must still contain x. The sync error must fire once. A model that always kept or always dropped the entire write could not test these partial outcomes."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_sync_floor_tear_and_out_of_order_overlapping_writes": [
+    "A four-byte disk contains aaaa after a successful sync. Two later writes overlap: BB starts at byte one and CC starts at byte two, counting from zero.",
+    "Construct crash images with neither pending write, with both in each possible order, and with just the last byte of CC. Also ask to apply part of a write that predates the sync.",
+    "Expect aaaa with neither write, aBCC or aBBC depending on order, and aaaC with only the last byte. Reject the request to reorder the pre-sync write. The successful sync fixes the starting bytes for every case."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_exact_match_and_hit_counts": [
+    "The simulated caller writes one byte at offset zero. A rule requests a no-space error before a write. The test varies the call number, operation, offset and length one at a time.",
+    "Fire only when all four fields match. For the exact match, reject the first write of X and allow the second write of Y. Other rules deliberately miss.",
+    "The exact match must report ENOSPC and count one hit. Each miss must allow X and count zero hits. A test cannot claim the engine handled a fault that never fired."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_uncertain_completion_and_short_read_write": [
+    "Start with the four characters 0000. Apply AB at offset zero but return a timeout. Then request CD at offset two, accept only C, and return a one-byte count.",
+    "A read of all four bytes returns only ABC. Before sync, an image that drops all pending writes contains 0000. At sync, persist the pending bytes and then report an input/output error.",
+    "After that sync, the crash image must contain ABC0. Each of the four rules must fire once. Neither an error nor a short count means that the entire requested operation took effect, or that nothing changed."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_misdirected_io_stale_read_and_disappearance": [
+    "A simulated disk starts as 01. Redirect a write of X from byte zero to byte one. No sync has saved X.",
+    "Return the old durable byte for a read at byte one. Redirect a read of byte zero to byte one. Finally make the device disappear at sync and try to discard a byte.",
+    "The two reads must return 1 and X respectively. Both sync and discard must report ENODEV (no device), and each scheduled rule must fire once. These faults require different observations even when a caller reads the wrong value."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_discard_obeys_barriers_and_preserves_other_bytes": [
+    "A simulated disk contains AAAA. The caller asks to discard the two middle bytes. In this model a discarded byte reads as a zero byte, not the character 0.",
+    "No error is injected. Take a crash image before and after a successful sync. Before sync, choose an image that keeps no pending changes.",
+    "The discard returns a count of two and live reads show A, zero, zero, A. The first crash image still contains AAAA. The second must contain the two zero bytes between the unchanged As."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_limits_and_malformed_plans": [
+    "This tests the simulator itself. Try an empty image, invalid fault rules and a discard past the end of a two-byte disk.",
+    "Examples include a supposedly short write that completes the full count, an address change on a sync that has no address, an out-of-bounds destination and call number zero. Separately issue 32 valid syncs and then request one more.",
+    "Reject each invalid input and the extra sync with a validation error. A malformed or over-budget run is not evidence of storage failure or success."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_rejected_write_must_never_reappear_on_reopen_lba0": [
+    "A two-block history starts with A successfully flushed in block 0. A later write of B to that block is rejected before it takes effect. A write of C succeeds but has no later flush.",
+    "No device runs. Present three possible results for block 0 after restart: A, B or C. Leave block 1 unchanged.",
+    "Accept A and C: the last unflushed write could be lost or retained. Reject B: no possible completion of this history stored that value."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_discarded_value_resurrection_on_reopen_lba0": [
+    "A history checker tracks two one-byte blocks. The client flushes A in block 0, discards that block and flushes again. Discarded blocks in this test read as zero bytes.",
+    "No disk fault is injected. Give the checker two possible recovery results: one with a zero byte in block 0 and another with the old A.",
+    "The checker must accept the zero byte and reject A. The second successful flush covers the discard as well as the earlier write."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_per_lba_legal_but_skipped_record_on_reopen": [
+    "The client flushes A in block 0. Then it writes B to block 0 and C to block 1, in that order. Both writes succeed; neither has a later flush.",
+    "No disk fault is injected. Present the proposed recovery results B,C and A,C to a checker for a serial log that can retain an initial sequence of writes.",
+    "Accept B,C. Reject A,C: the later C survived but its required predecessor B did not. Checking each block separately would miss the impossible combination."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_uncertain_write_and_failed_flush_are_not_barriers": [
+    "Block 0 contains flushed A. A write of B there has an unknown outcome. A write of C to block 1 succeeds, but its flush has an unknown outcome too.",
+    "The checker considers possible restart contents rather than failing a real disk. Before any later success, try A or B in block 0, with the original character 0 or C in block 1. Then add a successful flush to the recorded history.",
+    "All four pairs are possible before the confirmed flush. Afterwards, A,C and B,C are still possible, but B,0 is not: the successful write of C is now covered. A later flush cannot tell us whether the earlier uncertain write of B happened."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_planted_lying_sync_loses_flushed_lba1": [
+    "Block 0 already holds a flushed A. The simulated client writes C to block 1 and asks to flush all earlier writes to storage.",
+    "Report flush success but leave C pending. Build a crash image without any unsaved writes.",
+    "The live pair A,C must match the client history. The recovered pair A,0 must fail because the client received flush success. Reading live bytes alone would miss this loss."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_oracle_rejects_invalid_inputs_and_overlarge_uncertainty": [
+    "The history checker normally records one value per simulated block. Feed it invalid events: an unsupported operation or outcome, an invalid block number, a discard carrying data, a write of the wrong width, and a flush with a block address.",
+    "Then start nine blocks at the character 0 and report a write of X with an unknown outcome to each. Each affected block might hold either value, so the number of combinations doubles per write.",
+    "Reject each invalid event. Reject the ninth uncertain write when it exceeds the limit of 256 possible states. Silently discarding possibilities would make the checker’s verdict unreliable."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_planted_wrong_lba_before_reopen": [
+    "A history checker tracks two one-byte blocks. Block 0 already holds a flushed A. The client writes C to block 1 and receives success.",
+    "Redirect the simulated write to block 0. Keep the client’s record of the requested destination unchanged.",
+    "Before any restart, the checker must reject the live pair C,0: the client requested A,C. A write count alone would not detect this address error."
+  ],
+  "tools/adr05-fault-lab/model/test_model.py::test_retained_format4_image_and_recovered_history": [
+    "In the saved run, the client wrote blocks 1 and 5, overwrote block 1, then flushed. Closing the volume failed when writing the alternate checkpoint descriptor. A separate recovery run recorded the contents of all eight blocks.",
+    "The Python test checks the saved disk image’s hash, then models a rejected 4096-byte descriptor write at offset 4096. The rejection happens before any byte changes. The Python test does not run the storage engine again.",
+    "The error must fire once, and the modeled crash image must exactly match the saved image. The three successful writes and one flush in the client log must explain all eight recovered blocks. The comparison would reject loss of a flushed value."
+  ],
+  "tools/sqlite/test_baseline.py::test_select_and_compare_reports_samples_and_arithmetic": [
+    "The SQLite baseline tool receives two generated sets of measurements, not live database results.",
+    "Select the first set as the reference and compare a second set whose sample times are doubled.",
+    "Keep all three samples per case, report a 100% increase in median time, leave missing throughput unavailable and apply no performance threshold."
+  ],
+  "tools/sqlite/test_baseline.py::test_self_comparison_is_explicit_and_overwrite_is_rejected": [
+    "The comparison tool has a saved reference to a generated SQLite run.",
+    "Compare the run to itself, then try to select it again using the same reference file.",
+    "Label the measurements as not independent, report zero median change and refuse to overwrite the existing selection."
+  ],
+  "tools/sqlite/test_baseline.py::test_xfs_baseline_rejects_mixed_filesystems": [
+    "The baseline tool receives generated SQLite results labeled as XFS.",
+    "Compare them with themselves and with an ext4 run. Then give one member of the XFS set an ext4 label.",
+    "Accept the consistent XFS comparison. Reject both the cross-filesystem comparison and the mixed set."
+  ],
+  "tools/sqlite/test_baseline.py::test_tampering_and_incomplete_matrix_are_rejected": [
+    "Select generated SQLite measurements as the reference for later comparisons.",
+    "Modify a selected result after selection. In a separate set, mark a case as failed in the run summary.",
+    "Reject the comparison against changed evidence and refuse to select the unsuccessful set as a reference."
+  ],
+  "tools/sqlite/test_baseline.py::test_hardware_and_commit_changes_require_correct_policy": [
+    "A generated SQLite candidate has the same hardware settings as the reference but a different revision with local changes.",
+    "Compare first without permission to change revisions, then with permission. Finally change the reported CPU count.",
+    "Only the explicitly permitted revision change may pass. Record it for each group; that permission must not excuse a hardware change."
+  ],
+  "tools/sqlite/test_baseline.py::test_invalid_numbers_duplicate_repetition_and_missing_validation_reject": [
+    "Start with complete generated SQLite results and alter one case in each of four separate copies.",
+    "Supply an invalid duration, duplicate a repetition number, remove a required check, or exceed the reserved write allowance.",
+    "The selection tool must reject each damaged set rather than publish it as a baseline."
+  ],
+  "tools/workbench/test_report.py::test_full_matrix_preserves_samples_and_unavailable_metrics": [
+    "The workbench reads a complete set of generated SQLite results.",
+    "Build the report and try again using the same output directory.",
+    "Write 87 sample rows and a CSV header, mark the set validated and keep unavailable throughput and physical space unknown. Refuse to overwrite the output."
+  ],
+  "tools/workbench/test_report.py::test_backing_io_distinguishes_zero_missing_and_flushes": [
+    "One generated SQLite result reports storage counts for three non-overlapping intervals.",
+    "Give each interval zero read bytes, one MiB written, two writes and one flush. Then make a read count negative.",
+    "Report three MiB written, six requests and three separate flushes. Keep unknown space distinct from zero and reject negative counts."
+  ],
+  "tools/workbench/test_report.py::test_missing_result_cannot_pass_and_is_visible": [
+    "A generated SQLite run has a list of expected cases.",
+    "Remove one case result, leaving the rest of the evidence in place, and request a report.",
+    "The report must still be written. It must mark one row missing, mark the run invalid and return an unsuccessful exit status."
+  ],
+  "tools/workbench/test_report.py::test_timing_uses_logical_f_requests_and_final_latency_summary": [
+    "The workbench reads a generated database timing log in which a client operation can make several API calls.",
+    "Parse completed operations and the final latency summary separately.",
+    "Report 100 client operations at 50 per second, not 150 operations from the API count. Preserve latency percentiles and leave unmeasured storage traffic unknown."
+  ],
+  "tools/workbench/test_report.py::test_bad_latency_counts_and_partial_timing_remain_invalid": [
+    "A generated timing log includes final latency counts and a run record.",
+    "Give the final summary an inconsistent count. Separately remove the run portion of the case record.",
+    "The report must flag the count mismatch; incomplete timing evidence must not qualify as a valid run either."
+  ],
+  "tools/workbench/test_report.py::test_filter_duplicate_input_and_matrix_readiness": [
+    "The workbench has one generated timing run and a catalog of workload combinations.",
+    "Supply the same input twice, request a case absent from the run, and list the catalog.",
+    "Reject duplicates and the empty selection without creating an empty report. The catalog must still show its 48 planned runs and identify unavailable configurations."
+  ],
+  "tools/workbench/test_report.py::test_completed_cases_do_not_upgrade_an_incomplete_batch": [
+    "A generated timing batch contains a completed workload but lacks the status of the batch itself.",
+    "Request a report for the completed workload alone.",
+    "Keep its 100 operations visible, but label the containing run incomplete and return an unsuccessful status. Filtering must not turn partial evidence into a complete batch."
+  ],
+  "tools/workbench/test_report.py::test_nonfinite_and_negative_metrics_are_rejected": [
+    "A report helper converts measurement values into different units.",
+    "Give it a non-number, infinity, a negative count and a Boolean; separately scale zero and a missing value.",
+    "Reject each invalid metric. A measured zero must stay zero, while an absent measurement must remain absent."
+  ],
+  "tools/blockcheck/src/payload.rs::round_trips_its_own_payload": [
+    "The block checker generates recognizable data from a seed, a block address and a version number.",
+    "Fill a block for address 42 with version 9 and decode it at that same address using the same seed.",
+    "The decoder must identify version 9, not corrupt data or an unwritten block."
+  ],
+  "tools/blockcheck/src/payload.rs::rejects_other_lba_seed_and_damage": [
+    "Generate test data for block 42 using seed 7.",
+    "Check it as block 43, check it with seed 8, then flip one bit near the end and check it at the correct address and seed.",
+    "Each check must reject the block; a valid header alone does not prove the entire block belongs here."
+  ],
+  "tools/blockcheck/src/payload.rs::zero_block_is_zero": [
+    "The checker needs to distinguish empty blocks from blocks containing one of its test patterns.",
+    "Give the decoder a block filled entirely with zero bytes.",
+    "It must classify that block as zero, not as an encoded version and not as corrupt data."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::correct_target_passes_before_and_after_recovery": [
+    "The checker writes and flushes a simulated disk, discards some blocks, writes zeros, then handles a rejected write and an unflushed overwrite.",
+    "Simulate crashes that keep all pending changes, drop all, or keep a random selection.",
+    "Reads before and after recovery must produce no reported violations in any of the three runs."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::durable_data_lost_after_recovery_is_detected": [
+    "The checker writes version one to simulated block 5.",
+    "The simulated disk acknowledges a flush but saves nothing. Read the live block, then drop pending writes in a simulated crash.",
+    "The live read must pass. Recovery must flag exactly one lost write when block 5 contains zeros instead of the flushed version."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::data_from_another_lba_is_detected_without_a_crash": [
+    "The checker expects simulated block 3 to be empty.",
+    "Redirect a write intended for block 2 to block 3 and immediately read block 3 without restarting.",
+    "The checker must report corruption at block 3. Valid bytes for a neighboring address are not valid data here."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::discarded_data_returning_after_recovery_is_detected": [
+    "A simulated client writes and flushes block 7, discards it, and flushes again.",
+    "Keep the discard only in memory. Read the block before a crash, then drop unsaved changes and recover.",
+    "The live read should pass. Recovery must flag the original value as stale: the confirmed discard promised zero bytes there."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::rejected_write_becoming_visible_is_detected_after_recovery": [
+    "The checker flushes version one of block 9. Storage rejects version two for lack of space and accepts version three without a flush.",
+    "Crash the simulator and drop pending writes; in the faulty variant let the rejected version reach storage.",
+    "The normal variant must pass. The faulty one must report the rejected version as never acknowledged."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::uncertain_write_is_accepted_when_it_survives": [
+    "A simulated block contains flushed version one. An overwrite changes the cache but reports an input/output error, so the caller cannot know whether it took effect.",
+    "Run once keeping the pending change after a crash and once dropping it.",
+    "The checker must record one uncertain write but no violation: either recovered version is possible."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::recovery_reads_every_lba_before_rewriting": [
+    "The simulated disk loses an unflushed overwrite. During recovery the checker will repair block 2.",
+    "Deliberately send the repair write to block 3 instead. Check the recovery verdict, then separately read block 3.",
+    "Recovery must judge the pre-repair image without contamination from its own write. The later read must detect corruption caused by the repair."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::uncertain_write_that_recovery_retired_cannot_return_later": [
+    "An uncertain simulated write to block 6 disappears in a crash. Recovery reads zeros, ruling out that version.",
+    "Write another version, then simulate a second crash that restores the first one.",
+    "First recovery must pass. Second recovery must report the retired version as never acknowledged, not accept it merely because it was once possible."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::fault_scheduled_after_the_last_request_never_occurs": [
+    "The checker runs its normal scripted workload on a simulated disk for each available fault type.",
+    "Schedule the fault beyond the last request, then perform the writes, reads, crash and recovery.",
+    "The simulator must count zero fault occurrences and the checker must count zero violations. Configuring a fault is not proof that it fired."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::random_runs_pass_on_a_correct_target": [
+    "The checker exercises a simulated disk without deliberately broken storage behavior.",
+    "For eight seeds, run 20,000 operations mixing writes, reads, flushes, discards, zeros, errors and simulated recovery.",
+    "Each workload must finish with zero planted faults and zero data violations. Ordinary uncertainty after a reported error is not itself a violation."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::random_runs_detect_each_fault": [
+    "The checker uses the same repeatable workload on a simulated disk for each of seven deliberately broken behaviors.",
+    "Enable one fault at a time, including wrong addresses, lost flushes and rejected writes that still reach disk.",
+    "For every variant the simulator must record a fault occurrence and the checker must report at least one violation."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::rejects_invalid_geometry_and_ranges": [
+    "The checker accepts only supported disk sizes and requests inside the declared disk.",
+    "Try zero or excessive capacity, a write beyond the end, empty and overflowing discards, and recovery on a smaller simulated disk.",
+    "Each request must receive the corresponding size, address, range or geometry error rather than proceed."
+  ],
+  "tools/blockcheck/tests/checker_faults.rs::second_uncertain_write_before_recovery_marks_the_run_incomplete": [
+    "The simulated disk reports an error for a write to block 1 without applying the bytes.",
+    "Before the checker can recover and resolve what happened, make another write to the same block report an error.",
+    "The checker must report that it cannot track another uncertain version there, not issue a clean verdict."
+  ]
+}

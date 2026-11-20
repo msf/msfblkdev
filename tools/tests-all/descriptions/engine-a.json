@@ -1,0 +1,327 @@
+{
+  "rust/src/tests/accounting_integration.rs::public_accounting_apis_count_format_open_write_checkpoint_and_close": [
+    "A shared counter records the engine's backing-file operations.",
+    "Format and open a volume through the public accounting interface. Write a block, read it and close the volume.",
+    "The bytes must match. Writes for data and the final checkpoint must all be charged, with no uncompleted reservations or errors."
+  ],
+  "rust/src/tests/accounting_integration.rs::format_accounts_table_page_descriptors_and_barriers": [
+    "The formatter starts with a backing file and a ledger that counts physical writes and syncs.",
+    "Create an empty volume, then inspect the ledger rather than estimating work from file size.",
+    "The table and two checkpoint descriptors cost three 4096-byte writes and two syncs. Nothing should remain pending."
+  ],
+  "rust/src/tests/accounting_integration.rs::open_write_read_and_close_account_exact_deltas": [
+    "A formatted volume has an independent counter for physical reads, writes and syncs.",
+    "Take counter readings before and after a write, read back the block, then close the volume.",
+    "The data must match. Closing should add three metadata writes and two syncs; bytes reserved must equal bytes completed."
+  ],
+  "rust/src/tests/accounting_integration.rs::checkpoint_load_accounts_reads_and_skips_unmapped_pages": [
+    "An empty checkpoint describes ranges of logical blocks that have no data on disk.",
+    "Load its index while counting actual reads of the backing file.",
+    "The loader should find empty mappings with only three block reads. It must not read nonexistent pages, write data or sync the file."
+  ],
+  "rust/src/tests/accounting_integration.rs::checkpoint_publish_preserves_the_old_root_until_all_writes_succeed": [
+    "The engine has an older usable checkpoint and a changed mapping page in memory.",
+    "Try to save a replacement checkpoint with different limits on how many bytes may be written.",
+    "If the budget runs out, the old checkpoint stays current and the changed page remains unsaved. With enough space the new checkpoint becomes current."
+  ],
+  "rust/src/tests/accounting_integration.rs::failed_pressure_publication_counts_completed_io_without_counting_publication": [
+    "The mapping cache is full and has one changed page. The backing-write budget covers only part of a checkpoint.",
+    "Read another logical block so the engine must save that page before it can make room.",
+    "Return no-space without changing the read buffer. Count the completed page write, not a successful checkpoint. Refuse subsequent flush and close."
+  ],
+  "rust/src/tests/accounting_integration.rs::record_io_failure_latches_before_mapping_publication": [
+    "Opening the volume uses the entire test allowance for backing writes.",
+    "Try to write block zero, then try to read it and flush.",
+    "Reject the write for lack of space before recording any new mapping or live bytes. Further operations must fail; the failed read must leave its buffer untouched."
+  ],
+  "rust/src/tests/accounting_integration.rs::exact_budget_exhaustion_rejects_write_before_backing_modification": [
+    "Block zero already contains a saved value. After startup the remaining write budget covers one block, less than the proposed record.",
+    "Attempt to overwrite block zero and compare the planned destination before and after.",
+    "Return no-space, mark the allowance exhausted and leave the destination unchanged. Reopening must still return the earlier value."
+  ],
+  "rust/src/tests/accounting_integration.rs::unknown_accounted_opcode_is_rejected_and_marks_totals_incomplete": [
+    "The backing-operation counter can classify only supported request types.",
+    "Submit a request with an operation code it does not recognize.",
+    "Reject the request as invalid input. Count one error, leave no request pending and mark the completion totals incomplete rather than presenting them as reliable."
+  ],
+  "rust/src/tests/accounting_integration.rs::actual_short_backing_read_marks_accounting_incomplete": [
+    "A volume contains one saved client block and is open with I/O accounting.",
+    "Shorten the backing file so the engine cannot read a full block from the saved address.",
+    "Report a short read, not a completed block read. Count the error, mark the totals incomplete and refuse clean close."
+  ],
+  "rust/src/tests/allocations.rs::detects_allocations": [
+    "Other tests rely on a counter to detect unexpected heap allocation.",
+    "Measure code that allocates, then measure a calculation that simply returns 42.",
+    "The counter must detect at least one allocation in the first case and none in the second. This checks the measuring tool, not disk behavior."
+  ],
+  "rust/src/tests/checkpoint_batches.rs::checkpoint_batches_preserve_records_and_exact_io_at_chunk_boundaries": [
+    "A checkpoint must save changed mapping pages in batches, including when a page count falls just above a batch boundary.",
+    "Close volumes with 1, 2, 31, 32, 33 and 65 changed pages. Inspect the stored records and I/O counts.",
+    "All pages must be accounted for in order, with correct links and a newer usable checkpoint."
+  ],
+  "rust/src/tests/checkpoint_batches.rs::short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages": [
+    "Saving a checkpoint would free cache space for another read. There are 65 changed mapping pages.",
+    "Make a checkpoint write stop partway through a batch. Try further requests and inspect the backing file after restart.",
+    "Stop the volume without publishing the incomplete checkpoint. Recover across a whole-block cut; reject recognizable damaged metadata without changing the file."
+  ],
+  "rust/src/tests/checkpoint_batches.rs::missing_snapshot_blocks_do_not_publish_later_out_of_order_records": [
+    "The engine writes a batch of 65 mapping snapshots to a temporary volume.",
+    "Replace one snapshot with zeros, leaving later records intact. Repeat with the gap at different positions, then reopen.",
+    "The later records cannot complete a checkpoint across the gap. Recovery must still return the expected client data."
+  ],
+  "rust/src/tests/checkpoint_batches.rs::batched_checkpoint_survives_sigkill_before_root_publication": [
+    "Closing a volume writes its changed mapping pages before it publishes a new checkpoint.",
+    "Kill the child process at selected page, descriptor and sync boundaries during close. Open the same file in the surviving process.",
+    "The engine must recover the data for all 65 changed pages, even when the child never finishes close."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum": [
+    "The client writes two blocks, then overwrites block zero before closing the volume.",
+    "Inspect the saved map, read the physical blocks it identifies and check their recorded checksums.",
+    "The map must refer to the newer value for block zero and the original value for block one. Count two live blocks, not three writes."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::payload_damage_after_flush_is_local_to_the_mapped_version": [
+    "The client flushes two known blocks. One copy has a close-time checkpoint; another must recover from the log.",
+    "Damage the stored bytes for just one block, leaving its recorded checksum and the other block intact.",
+    "Reject a read of the damaged version without touching the caller's buffer. Reads of unaffected data and a subsequent valid replacement must succeed."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::falls_back_from_corrupted_newest_descriptor_and_replays_tail": [
+    "Two checkpoints provide alternative starting points for recovery. Valid records follow the older one.",
+    "Damage the descriptor that identifies the newer checkpoint, then reopen the volume.",
+    "Start from the older usable checkpoint and apply the valid later records. The client must still read the expected values, not just the older checkpoint's state."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::falls_back_from_corrupted_newest_index_page_and_replays_tail": [
+    "The newest checkpoint points to a page that identifies saved mappings. An older checkpoint is still available.",
+    "Damage the newer checkpoint's index page without damaging the older one or the later valid log records.",
+    "Reopen from the older checkpoint and recover the later updates. Falling back must not discard those client writes."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation": [
+    "A disk image has two possible starting points for recovery.",
+    "Corrupt the newer checkpoint descriptor and a page needed by the older checkpoint. Attempt to open the volume twice.",
+    "Both attempts must return an invalid-data error, without a panic or any change to the damaged image."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::reconstructs_every_recovery_cursor_from_replayed_state": [
+    "An engine checkpoint contains two saved writes. The test then constructs valid later records directly in its backing file.",
+    "Reopen the image and inspect the reconstructed write position, mappings, checksums and live space.",
+    "The engine should resume after the last valid record, with four live blocks and the expected data at each address."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::rejects_invalid_checkpoint_after_bytes_before_touching_backing": [
+    "The engine accepts an option that limits how much log data it must replay at startup.",
+    "Try invalid values on an existing file and a missing path. Compare the existing file with its original contents.",
+    "Reject the invalid option before modifying or creating a file. A valid configuration should still open normally."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::checkpoints_before_buffered_group_exceeding_replay_bound": [
+    "The engine holds writes in memory and has a limit on how much log history may accumulate after a checkpoint.",
+    "Send groups of buffered writes until the next group would exceed that limit, then reopen.",
+    "Save a checkpoint before exceeding the limit. Later records may follow the checkpoint; recovering them must return the latest complete values."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::log_full_write_does_not_publish_live_checkpoint": [
+    "A small volume already stores a live block and cannot reclaim enough space for an overwrite.",
+    "Try another value for the same address while the existing data is still needed.",
+    "Return no-space without relocating live data or changing the mapping. The old value must remain readable rather than disappearing with the rejected write."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::flush_persists_data_without_advancing_checkpoint": [
+    "A newly formatted volume has an initial checkpoint and one new client write.",
+    "Flush the write without asking the engine to close and save a new checkpoint. Open the backing file again.",
+    "The checkpoint sequence should still identify the original checkpoint, but recovery should return the flushed bytes."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::close_persists_snapshot_index_page_and_descriptor": [
+    "Two client blocks have new mappings that are not part of the original empty checkpoint.",
+    "Close the volume, inspect the new checkpoint descriptor and follow its pointers to the saved mappings. Then reopen.",
+    "The alternate descriptor should identify the new checkpoint. Its mappings and checksums, and those loaded after restart, must agree."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::close_without_mapping_changes_does_not_publish_checkpoint": [
+    "An open volume has no mapping changes that need a new checkpoint.",
+    "Close it and compare checkpoint state before and after close, including a repeat without further updates.",
+    "Closing must not publish a different checkpoint simply because the caller closed the volume."
+  ],
+  "rust/src/tests/checkpoint_replay.rs::equal_lsn_checkpoints_must_describe_one_checkpoint": [
+    "Two checkpoint slots claim the same position in the log.",
+    "First place equivalent checkpoint descriptions in both slots. Then change a table pointer in one and recompute its checksum so it still looks intact.",
+    "Accept the matching descriptions. Reject the conflicting pair as invalid rather than choosing a version arbitrarily."
+  ],
+  "rust/src/tests/cleaner_thread.rs::delayed_cleaner_reads_make_the_writer_wait_and_wake_it_through_the_descriptor": [
+    "A background worker reads blocks so the engine can reclaim partially unused disk regions.",
+    "Delay that worker's reads. Ask for maintenance several times before the worker signals that it has finished.",
+    "Those calls should report waiting promptly without issuing foreground reads. The completion signal must wake the engine so it can copy the two live blocks and preserve their data."
+  ],
+  "rust/src/tests/cleaner_thread.rs::pressure_blocks_on_the_delayed_report_instead_of_failing": [
+    "Writes have used the immediately available space, but a background worker can still find space to reclaim.",
+    "Delay the worker's report while the client keeps writing.",
+    "The engine must wait for the report and free space, not tell the client that all space is occupied. The expected block values must remain intact."
+  ],
+  "rust/src/tests/cleaner_thread.rs::close_with_a_window_read_outstanding_joins_the_cleaner_and_keeps_every_block": [
+    "A background worker is updating its view of the volume and reading a range of blocks for reclamation.",
+    "Close the volume while that work is still outstanding, then reopen it and read back the blocks.",
+    "Close must finish with the worker stopped. All expected values must survive, and the engine's counts of used and free space must balance."
+  ],
+  "rust/src/tests/cleaner_thread.rs::a_failed_cleaner_read_latches_the_volume_and_leaves_the_backing_consistent": [
+    "The cleaner is reading data that it may have to copy before the engine frees a disk region.",
+    "Inject an error in the cleaner's read, then attempt another write and another maintenance operation.",
+    "The engine must report the error and stop accepting both kinds of work. Reopening must still return the expected client data."
+  ],
+  "rust/src/tests/cleaner_thread.rs::scheduled_idle_and_due_ticks_run_and_the_workload_never_starves": [
+    "A client repeatedly overwrites a small set of blocks. A scheduler decides when the engine should reclaim unused storage.",
+    "Compare runs with and without scheduled maintenance, including idle intervals and periods of continuous requests.",
+    "With scheduling enabled, maintenance must run both when idle and when its deadline arrives. Client writes must keep making progress without a false no-space error."
+  ],
+  "rust/src/tests/cleaner_thread.rs::idle_maintenance_between_writes_never_starves_the_writer_or_treadmills": [
+    "A client continually replaces data so that old copies occupy space the engine can reclaim.",
+    "Allow idle maintenance between writes and then read back the last values.",
+    "The engine must actually free regions rather than continually moving the same data. Writes must continue without a false no-space error and return the latest data."
+  ],
+  "rust/src/tests/cleaner_thread.rs::aged_quarter_full_volume_closes_publishes_and_reopens": [
+    "A temporary 256 MiB backing file holds a working set of 16384 logical blocks.",
+    "Overwrite blocks chosen by a repeatable generator, with periodic flushes and scheduled maintenance. Flush, close and reopen the aged volume.",
+    "The workload must finish; opening the resulting checkpoint, inspecting space use and closing again must succeed. This is not a byte-by-byte readback test."
+  ],
+  "rust/src/tests/format_geometry.rs::public_cache_configuration_reports_requested_and_effective_capacity": [
+    "A 673-block volume needs three pages to describe where its data lives.",
+    "Open with several cache budgets and read empty blocks while recording cache capacity, hits, misses and memory use.",
+    "The engine must report the requested budget separately from effective capacity. Reads should return zeros, with cache counts appropriate to the capacity."
+  ],
+  "rust/src/tests/format_geometry.rs::xxh3_matches_persistent_format_vectors": [
+    "The disk format uses a specific checksum to recognize damaged bytes. Old files depend on that calculation remaining stable.",
+    "Calculate checksums for empty input, a zero block and a seeded input containing encoded addresses and data.",
+    "Each value must exactly match its fixed reference value; changing the calculation would change the persistent format."
+  ],
+  "rust/src/tests/format_geometry.rs::format_validates_geometry_boundaries": [
+    "The formatter calculates how many logical blocks and physical regions fit in a backing file.",
+    "Try valid boundary sizes as well as zero, undersized and oversized layouts and an invalid region size.",
+    "Accept the supported layouts and reject the invalid combinations. An invalid request must not create the missing backing file."
+  ],
+  "rust/src/tests/format_geometry.rs::open_reconstructs_empty_volume_and_requires_matching_roots": [
+    "A freshly formatted image contains two checkpoint descriptors but no client data.",
+    "Open it and compare the recovered identity, size, empty mappings and log position with the on-disk descriptors. Exercise mismatched checkpoint descriptions.",
+    "The clean image must reconstruct an empty volume at its starting position. Inconsistent descriptions must not silently become a valid volume."
+  ],
+  "rust/src/tests/format_geometry.rs::format_writes_valid_empty_checkpoint_roots": [
+    "The formatter initializes a backing file for an empty volume.",
+    "Read both checkpoint descriptors directly, including the version, slot, volume identity, sizes, sequence number and reserved fields.",
+    "Each descriptor must contain the expected initial values for its slot. The two records must describe the same empty volume."
+  ],
+  "rust/src/tests/format_geometry.rs::format_three_images_are_rejected_without_modification": [
+    "Current software expects version four of the disk format.",
+    "Give the opener images marked as format three and compare their bytes before and after the attempt.",
+    "The engine must reject the older format without changing it. Refusing an unsupported version must not act as an implicit upgrade."
+  ],
+  "rust/src/tests/format_v4_protocol.rs::format_writes_initial_table_page_and_two_equal_roots": [
+    "An empty format-four volume needs a table of disk regions and two starting records for recovery.",
+    "Format a test file, then load its checkpoint and inspect its space map and log position.",
+    "Both checkpoint slots must describe the same initial position. The table must occupy its assigned block, the free-region count must agree, and no client block should be live."
+  ],
+  "rust/src/tests/format_v4_protocol.rs::publication_moves_snapshots_index_and_table_pages_and_older_root_remains_a_fallback": [
+    "The engine has changed mappings and must save new snapshots, their index and its space table.",
+    "Publish the checkpoint in the alternate slot, try publishing again without changes and inspect both starting points.",
+    "The new slot must point to the new metadata; the old slot must remain a usable fallback. The second publish must report no change."
+  ],
+  "rust/src/tests/format_v4_protocol.rs::recovery_merges_both_heads_by_global_lsn_and_follows_durable_links": [
+    "The engine writes client updates and relocated data to separate regions but numbers the records in a single sequence.",
+    "Fill regions, advance to new ones through on-disk links, then reconstruct the volume from the log.",
+    "Recovery must follow the links and apply both streams in sequence. The resulting addresses and data must reflect the combined history."
+  ],
+  "rust/src/tests/format_v4_protocol.rs::replay_cursor_skips_intact_old_metadata_but_not_damaged_framing": [
+    "A disk region is reused, leaving an intact record from its earlier use where recovery is looking for a new update.",
+    "Present the recovery scanner with the old record, then with damaged or misplaced versions.",
+    "It should recognize intact stale data as the end of new updates, but reject the invalid versions. Old bytes must not authorize arbitrary corruption."
+  ],
+  "rust/src/tests/format_v4_protocol.rs::torn_data_footer_ends_the_prefix_but_torn_metadata_fails_closed": [
+    "A recovery scan follows data records and metadata that connects one region to the next.",
+    "Damage a data record's footer in one image; in other images change the metadata needed to follow the log.",
+    "Keep only the complete data prefix before the torn footer. Reject recognizable damaged metadata rather than silently treating it as a safe end."
+  ],
+  "rust/src/tests/format_v4_protocol.rs::bounded_recovery_publishes_one_root_after_replaying_windows": [
+    "The volume's later writes affect three mapping pages but the recovery cache can hold only one page at a time.",
+    "Reopen and replay the records in windows, then inspect the checkpoint and reopen again.",
+    "One new checkpoint must describe all five live blocks. No changed page should remain unsaved or be lost when the next window replaces it."
+  ],
+  "rust/src/tests/format_v4_protocol.rs::link_fsync_precedes_every_write_into_the_new_segment": [
+    "The engine is about to start writing relocated data into another disk region.",
+    "Advance the write position and count the physical operations that record and sync the link. Try advancing again when no free region remains.",
+    "The link must be written and synced before use of the new region. A failed advance must not add writes."
+  ],
+  "rust/src/tests/fsync01.rs::fsync01_controls": [
+    "Two controls start with flushed old values, then overwrite the same two blocks.",
+    "Run once without faults. In the broken control, drop both new records and report a successful flush after repeating only the sync.",
+    "The clean copy must contain both new values. The checker must catch both old values in the broken copy; detecting false success is the passing outcome."
+  ],
+  "rust/src/tests/fsync01.rs::fsync01_engine": [
+    "The client flushes two old values, then overwrites both blocks with library retry enabled before the writes.",
+    "Remove both new records from the backing file at flush and report an I/O error.",
+    "The engine must rewrite the saved bytes at their original locations and sync before reporting success. Reopening a copy must return both new values."
+  ],
+  "rust/src/tests/io_uring.rs::direct_io_uring_write_survives_fsync_and_reopen": [
+    "The low-level storage path uses the Linux asynchronous I/O interface to write blocks directly to a file.",
+    "Write a known block, sync the file, reopen it and read the block back through that interface.",
+    "The bytes read after reopen must exactly match the bytes written, not just have the requested length."
+  ],
+  "rust/src/tests/io_uring.rs::waits_when_submission_succeeds_before_completion_exists": [
+    "A Linux asynchronous request can be accepted before any completion is available. An event descriptor lets the test control when a poll completes.",
+    "Submit the poll, then make the event readable and wait for completion.",
+    "The wait helper must continue after submission and return the matching completion rather than treating an empty completion queue as success."
+  ],
+  "rust/src/tests/io_uring.rs::destroys_ring_before_returning_permanent_wait_error": [
+    "The engine has a Linux asynchronous I/O queue and is waiting for a request to finish.",
+    "Make the wait operation report a permanent input/output error.",
+    "The caller must receive the original error and the queue must already be destroyed when control returns, so no later work can reuse it."
+  ],
+  "rust/src/tests/mapping_prefetch.rs::sorted_snapshots_prefetch_in_one_read_in_cold_and_full_caches": [
+    "The disk contains 65 adjacent mapping snapshots and the memory cache can hold only four.",
+    "Read one logical block from each page in sequence, counting both requested and speculative page reads.",
+    "Read-ahead should combine adjacent reads and satisfy 47 later requests from prefetched pages. It must not trigger a checkpoint or discard speculative pages unused."
+  ],
+  "rust/src/tests/mapping_prefetch.rs::prefetch_preserves_dirty_and_resident_pages_and_stops_at_nonadjacent_pointers": [
+    "A cache contains a changed mapping page, and some on-disk page locations do not form a consecutive range.",
+    "Read successive pages near the changed page, then repeat after closing and reopening the volume.",
+    "Read-ahead must not replace the changed mapping, force a checkpoint or fetch across a gap. Reading the changed block must return the client's value."
+  ],
+  "rust/src/tests/mapping_prefetch.rs::speculative_corruption_is_not_installed_and_demand_corruption_still_fails": [
+    "The engine tries to read mapping information ahead of the client's requests. A page in the speculative range contains damaged data.",
+    "Read neighboring pages first, then explicitly request the block whose mapping is corrupt.",
+    "Do not install the damaged mapping. The direct request must fail, leave the destination buffer untouched and mark the volume failed."
+  ],
+  "rust/src/tests/mapping_prefetch.rs::short_prefetch_read_exposes_no_mapping_or_payload": [
+    "A sequential read pattern causes the engine to request several mapping pages together.",
+    "Shorten the prefetch read so the engine receives less than the requested amount. Inspect the cache and the caller's buffer.",
+    "Fail the read without copying partial data or installing speculative mappings. The volume must also refuse a later flush."
+  ],
+  "rust/src/tests/mapping_prefetch.rs::nonsequential_misses_do_not_prefetch": [
+    "A volume has eight mapping pages and a four-page cache.",
+    "Read pages in the order 0, 3, 6, 2, 5, 1 instead of reading adjacent pages.",
+    "Issue six demand reads and no read-ahead. Missing a page on its own should not cause unrelated pages to be loaded."
+  ],
+  "rust/src/tests/packed_writes.rs::sorting_buffer_preserves_payload_locations_and_coalesced_values_without_allocating": [
+    "An in-memory buffer contains 4096 blocks inserted in reverse address order; one address has already been overwritten.",
+    "Sort the buffered addresses, count allocations, check each payload and clear the buffer for reuse.",
+    "The addresses must become strictly increasing without allocating more memory. Each address must keep its latest bytes, and the cleared buffer must accept a new write."
+  ],
+  "rust/src/tests/packed_writes.rs::removing_a_range_keeps_the_remaining_payloads_reachable_without_allocating": [
+    "The write buffer holds entries for several addresses, with distinct payloads to identify each one.",
+    "Remove a consecutive range while counting allocations. Look up the removed addresses and their neighbors, then insert a replacement.",
+    "Only the requested entries should disappear. The others must retain their bytes; removal must allocate nothing and leave the buffer usable."
+  ],
+  "rust/src/tests/packed_writes.rs::packed_buffers_cross_record_boundaries_with_one_log_flush": [
+    "The client buffers writes in reverse order, with enough blocks to cross the limit of a single on-disk record.",
+    "Flush groups of several sizes and inspect the physical records and backing I/O counts. Reopen the file to read the blocks.",
+    "Records must contain the correct sorted addresses, with one log flush for the group. Every address must still have its expected payload."
+  ],
+  "rust/src/tests/packed_writes.rs::incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes": [
+    "An engine cannot safely release a buffered group if the mapping cache or checkpoint budget is too small for it.",
+    "Attempt to open an image with incompatible settings, then try a supported combination.",
+    "Reject the invalid settings without changing any bytes in the file. For valid settings, allocated memory must fit the reported heap budget."
+  ],
+  "rust/src/tests/packed_writes.rs::pressure_is_resolved_before_a_group_and_overlapping_dirty_pages_need_no_checkpoint": [
+    "The write buffer holds two blocks and the cache holds two mapping pages.",
+    "Repeatedly write addresses on the same two pages; then write a group that needs two different pages. Flush and reopen.",
+    "Reusing the same pages needs no pressure checkpoint. The new group should cause one checkpoint, and all four block values must survive."
+  ],
+  "rust/src/tests/packed_writes.rs::packed_record_recovers_all_mappings_after_a_partial_in_memory_update": [
+    "A single on-disk record can contain updates to several logical blocks.",
+    "Kill the engine process at selected points while it is updating the in-memory map for a packed record. Reopen the same backing file.",
+    "Recovery must reconstruct all the mappings from the stored record. It must not expose only the entries that reached memory before the process died."
+  ],
+  "rust/src/tests/packed_writes.rs::preflight_checkpoint_crashes_preserve_the_previous_complete_group": [
+    "Two writes have already been flushed. A new buffered group needs a checkpoint before the engine can release it.",
+    "Kill the child process at different stages of that checkpoint, including writes and syncs of the descriptor, then reopen.",
+    "The earlier complete group must still be readable. The not-yet-released group must not appear as a completed update."
+  ]
+}

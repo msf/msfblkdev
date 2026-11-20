@@ -1,0 +1,517 @@
+{
+  "rust/src/bin/block-storage-lab/config.rs::validates_arguments": [
+    "The lab accepts several kinds of test requests.",
+    "Parse valid requests and then supply missing, extra or unsupported arguments.",
+    "Select the requested task only for a supported argument list; reject the others before starting a workload."
+  ],
+  "rust/src/bin/block-storage-lab/config.rs::validates_sqlite_xfs_arguments_and_defaults": [
+    "SQLite can run one selected case or the full set on XFS.",
+    "Parse both forms, invalid selections and the default time limits.",
+    "Choose the requested XFS mode, reject malformed requests and apply the expected command and suite deadlines."
+  ],
+  "rust/src/bin/block-storage-lab/config.rs::validates_sqlite_ext4_arguments_and_defaults": [
+    "An operator can request a SQLite probe or an ext4 matrix run.",
+    "Parse complete and malformed requests and load their time limits.",
+    "Select only a supported workload and repetition. The probe and matrix must receive the deadlines for their respective modes."
+  ],
+  "rust/src/bin/block-storage-lab/config.rs::validates_environment_and_defaults": [
+    "The lab chooses deadlines before starting its workers.",
+    "Load several test modes with defaults and with environment overrides.",
+    "Use the limits for the selected mode. Invalid settings must not silently change how long a test may run."
+  ],
+  "rust/src/bin/block-storage-lab/database_io.rs::uses_data_sectors_instead_of_flush_inflated_write_completions": [
+    "A saved Linux device counter line includes data writes and requests to flush them.",
+    "Parse the line from the SQLite probe without running SQLite.",
+    "Report 204856 sectors written and 5558 flushes separately; the number of completed write requests is not a measure of data volume."
+  ],
+  "rust/src/bin/block-storage-lab/database_io.rs::rejects_incomplete_or_non_block_aligned_counters": [
+    "Device counters must describe transfers in complete storage blocks.",
+    "Pass truncated counters, aligned zero counts and inconsistent sector counts to the reader.",
+    "Read the valid counts and reject missing or misaligned data rather than publish a misleading transfer total."
+  ],
+  "rust/src/bin/block-storage-lab/database_snapshot.rs::validates_snapshot_environment": [
+    "A database observer needs the device number and accounting file to take a snapshot.",
+    "Supply a complete set of settings, then omit or invalidate individual values.",
+    "Read the intended device and file from valid settings and reject incomplete settings before collecting counters."
+  ],
+  "rust/src/bin/block-storage-lab/database_snapshot.rs::snapshot_json_preserves_reader_fields": [
+    "The observer has sample device and accounting counters at a known point in a database run.",
+    "Convert the snapshot to JSON and read back its fields.",
+    "Preserve the measurement phase, connection identity and counters so a report can associate them with the right event."
+  ],
+  "rust/src/bin/block-storage-lab/evidence.rs::evidence_files_are_create_new": [
+    "A prior run already wrote a file of evidence.",
+    "Ask the evidence writer to create another file at the same path.",
+    "Creation must fail and the file must still contain the original text. A later run must not erase the earlier observation."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/commands.rs::failed_and_timed_out_commands_preserve_output_and_reap_children": [
+    "The lab launches child commands and records their output.",
+    "Run one command that fails and another that exceeds its deadline.",
+    "Keep the command output in both cases, report the appropriate error and leave no managed child waiting for cleanup."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/commands.rs::suite_deadline_prevents_spawning_another_command": [
+    "A suite has used up its time before the next command starts.",
+    "Ask the lab to start another command after the deadline.",
+    "Return a timeout without starting a child or advancing the command number."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/commands.rs::isolation_preserves_explicit_observer_values_and_removes_inherited_defaults": [
+    "A worker can receive explicit observer settings and may inherit unrelated variables from the parent.",
+    "Build its isolated environment and inspect which variables remain visible.",
+    "Keep the selected observer values; do not pass through unrelated secrets or inherited defaults that would change the test."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/commands.rs::cleanup_refuses_unexpected_entries_before_removing_backing": [
+    "The lab owns a temporary directory and a backing image inside it.",
+    "Add an unexpected entry before asking the lab to clean up.",
+    "Refuse cleanup without deleting the backing image. Once the unexpected entry is removed, normal cleanup may finish."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/commands.rs::runtime_preflight_requires_an_existing_private_owned_directory": [
+    "A filesystem run needs a private directory owned by its user.",
+    "Check directory ownership, access permissions and a missing path before starting work.",
+    "Accept the existing private directory for its owner. Reject unsafe or missing directories rather than creating or using them implicitly."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/lifecycle.rs::sqlite_format_attaches_the_ledger_explicitly": [
+    "The SQLite lab formats its backing storage before measuring a database workload.",
+    "Inspect the format worker request and its accounting settings.",
+    "The worker must receive the specified accounting file so costs of formatting are associated with the intended run."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/lifecycle.rs::readiness_never_accepts_arbitrary_devices_or_extra_output": [
+    "A daemon announces which device is ready with a line of text.",
+    "Parse a valid device announcement, unrelated paths and messages with extra output.",
+    "Accept just the canonical numbered device path. Do not let an unrelated device or an ambiguous message become the test target."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/mod.rs::acceptance_plan_has_four_unmounted_checks_and_clean_restart": [
+    "The filesystem acceptance plan orders device startup, mounts, checks and restart.",
+    "Walk the proposed sequence and track whether the device is running and mounted at each step.",
+    "All four filesystem checks must occur while unmounted. The plan must include the clean restart and three repetitions."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/request_evidence.rs::totals_include_hints_but_exclude_shutdown_cancellations": [
+    "A sample request log contains reads with extra flags, writes, flushes and cancellations at shutdown.",
+    "Count completed operations and then introduce an unknown operation or a flush transferring data.",
+    "Exclude cancelled reads, retain valid hinted requests and reject inconsistent records instead of adding them to the totals."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/request_evidence.rs::validates_unmap_ranges_and_matches_kernel_write_sectors": [
+    "The request log can include releases of unused disk ranges as well as data writes.",
+    "Validate the ranges and compare the transferred sectors with the device counters; try inconsistent reports.",
+    "Accept consistent totals and reject invalid range or sector information. A space release is not evidence that new client data was written."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/request_evidence.rs::requires_complete_consistent_request_and_discovery_counts": [
+    "A request report ends with a completeness record and counts for the operations it saw.",
+    "Give the reader inconsistent or incomplete records.",
+    "Reject the report rather than treat partial totals or contradictory discovery counts as a complete account of the run."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/hardware.rs::records_arm_cpu_fields_without_inventing_a_model_name": [
+    "An ARM host may provide numbered processor fields but no marketing model name.",
+    "Parse sample processor and memory information, including malformed fields.",
+    "Record the reported ARM identifiers and reject invalid data instead of guessing a CPU name."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/hardware.rs::records_stable_hardware_not_free_memory_or_frequency": [
+    "A hardware description should identify the machine rather than its momentary load.",
+    "Parse sample processor and memory files, then try missing processor data and an invalid memory total.",
+    "Report stable hardware properties. Do not substitute free memory or current frequency for machine identity."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/matrix.rs::full_matrix_is_exact_and_unique": [
+    "SQLite qualification combines workloads, database settings and repetitions.",
+    "Expand the complete schedule and count distinct entries without running any database.",
+    "Produce 87 distinct runs from 29 workload and settings combinations. No repeated entry may stand in for a missing one."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/matrix.rs::selector_accepts_only_matrix_members": [
+    "A user wants one member of the SQLite qualification schedule.",
+    "Try supported workload, settings and repetition combinations as well as unsupported ones.",
+    "Select a run only if it belongs to the published matrix; reject invalid combinations before creating a database."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/parser.rs::speedtest_parser_requires_all_main_subtests_and_marks_zero_unavailable": [
+    "A SQLite speed test prints separate lines for its main subtests.",
+    "Read sample output with the expected subtests, missing data and timing values too small to measure.",
+    "Require the full set of 32 subtests and retain the verification hash. Do not publish a zero measurement as a useful performance estimate."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/parser.rs::kv_parser_retains_zero_and_infinite_coarse_timings_as_unavailable": [
+    "A short key-value workload can finish within one tick of the tool’s clock.",
+    "Parse sample output reporting zero elapsed time and an infinite rate.",
+    "Keep the raw values for diagnosis but mark the derived measurements unavailable instead of presenting impossible throughput."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/runner.rs::failed_and_timeout_json_preserve_status": [
+    "A SQLite worker can return an error or exceed its deadline.",
+    "Convert both errors into the JSON record used by the report.",
+    "Retain the distinction between failure and timeout, along with the diagnostic message, so an incomplete run cannot look successful."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/summary.rs::summary_rejects_results_from_another_filesystem": [
+    "The summarizer expects a result for a particular SQLite workload and filesystem.",
+    "Validate an XFS result against its intended selection, then against mismatched selections.",
+    "Accept the matching result only. An XFS run cannot satisfy an ext4 requirement."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/summary.rs::timeout_preserves_partial_suite_counts": [
+    "The selected SQLite suite times out before all planned work starts.",
+    "Generate the partial summary from the selection and attempt counters.",
+    "Report timeout, retain the selected count and show only actual attempts. Do not count the remaining work as passed."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/summary.rs::summary_preserves_reported_throughput_exactly": [
+    "A database workload reports throughput as a decimal value.",
+    "Read the supplied rates into the summary and serialize the resulting numbers.",
+    "Preserve the reported values without rounding them to a different throughput or recomputing them from unrelated timings."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/summary.rs::expected_set_is_exact": [
+    "The SQLite lab accepts the complete matrix or an explicit single-case selection.",
+    "Check the expected set for the full list, a partial list and one selected run.",
+    "Accept the complete matrix and the single-run mode. Do not silently accept a truncated matrix as full qualification."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/summary.rs::manifest_tracks_attempts_and_terminal_identities": [
+    "The lab selects one SQLite case from the full matrix and starts an attempt.",
+    "Record the attempted run and its failure, then read the saved manifest.",
+    "Distinguish 87 planned from one selected, one attempted and one failed. Save the failed case identity and leave no temporary manifest."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/summary.rs::identity_is_stable": [
+    "A SQLite run is identified by its workload, settings and repetition.",
+    "Generate the identity for the main speed test with full synchronous writes in write-ahead-log mode, repetition two.",
+    "Produce the stable name that includes all three parts, so evidence for different runs stays separate."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/telemetry.rs::paired_snapshots_and_process_are_exact": [
+    "A database process reports elapsed time and paired snapshots of the device counters.",
+    "Parse a complete sample including time spent taking snapshots and closing the database.",
+    "Preserve the separate durations and differences; snapshot collection must not disappear into the reported workload time."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/telemetry.rs::speedtest_delete_profile_needs_no_generator_or_automatic_checkpoint": [
+    "The SQLite speed test runs with a rollback journal instead of a write-ahead log.",
+    "Read telemetry for this profile without requiring generator activity or automatic checkpoints.",
+    "Accept the workload connection and recorded final checkpoint; do not impose write-ahead-log checkpoint requirements on this profile."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/telemetry.rs::only_long_wal_case_requires_selected_connection_auto_checkpoints": [
+    "A long SQLite write-ahead-log workload exercises automatic copying of log data into the database.",
+    "Vary which connection reports the checkpoints and which workload is selected.",
+    "Require the qualifying checkpoints on the selected workload connection only for the case that promises to exercise them."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/telemetry.rs::explicit_failure_from_any_connection_fails": [
+    "SQLite telemetry can include results from more than one database connection.",
+    "Give the reader a report with an explicit failure on a connection.",
+    "Reject the report even if a different connection appears healthy. A successful connection must not conceal another connection’s error."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/telemetry.rs::reference_requires_process_but_forbids_snapshots": [
+    "A reference database run measures the process without collecting storage snapshots.",
+    "Read samples with and without process timing and device snapshots.",
+    "Require the process measurement, but reject snapshots in this mode rather than confuse reference timing with storage-instrumented timing."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite/telemetry.rs::rejects_missing_duplicate_decreasing_and_invalid_snapshot_records": [
+    "The telemetry reader pairs measurements taken at different stages of a database run.",
+    "Remove or duplicate records and supply decreasing counters or invalid snapshot data.",
+    "Reject these reports. An incomplete or impossible measurement pair must not become a published difference."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite.rs::commands_and_typed_profiles_are_exact": [
+    "The SQLite harness builds requests for several durability profiles.",
+    "Inspect the tool arguments and settings chosen for each profile.",
+    "Select the intended transaction and journal behavior without adding an option that changes the data-access method. This checks command construction, not database durability."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite.rs::matrix_commands_cover_tools_access_sizes_and_transactions": [
+    "The database matrix includes speed tests and key-value workloads with different access patterns.",
+    "Build the tool requests and inspect their program, order, size and transaction settings.",
+    "Use the correct tool and arguments for each workload; a read case must not silently become an update."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite.rs::matrix_result_uses_generic_schema_and_explicit_scope": [
+    "The reporting code has a result for a selected SQLite filesystem run.",
+    "Build the structured result and inspect its schema, labels and scope.",
+    "Identify it as a versioned SQLite result for the selected filesystem and matrix rather than an unqualified database measurement."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite.rs::sqlite_database_commands_pin_tmpdir_and_database_parent": [
+    "SQLite may create temporary files or resolve relative paths from its working directory.",
+    "Inspect database worker requests before running them.",
+    "Set the intended temporary directory and database parent explicitly, so auxiliary files cannot escape into the caller’s working directory."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite.rs::validation_parser_is_exact_and_read_only_command_is_pinned": [
+    "The lab validates a database by opening it without writing and comparing its output.",
+    "Inspect the validation request and try malformed rows alongside a valid digest.",
+    "Use the prescribed read-only invocation and accept only the expected validation output, not arbitrary text that happens to contain a checksum."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite.rs::block_and_ledger_deltas_are_monotonic_and_exact": [
+    "Device and engine counters are sampled before and after database activity.",
+    "Subtract the earlier snapshot from the later one, then swap their order.",
+    "Report exact differences for reads, flushes and backing writes. Reject decreasing counters rather than turn a reset into a large transfer."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite.rs::process_duration_arithmetic_uses_in_process_headline": [
+    "Database timing includes workload execution, draining pending writes and the parent process envelope.",
+    "Compute reported durations from sample timings and then provide an inconsistent timing.",
+    "Use the process’s own measurements for the workload headline, report the parent elapsed time separately and reject impossible intervals."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/sqlite.rs::only_daemon_commands_receive_the_cumulative_budget_path": [
+    "The filesystem lab caps cumulative bytes written through its storage daemon.",
+    "Construct daemon and non-daemon requests and inspect their environment.",
+    "Pass the write-budget file only to the daemon. Other tools must not receive the path for charging the 512 MiB budget."
+  ],
+  "rust/src/bin/block-storage-lab/ext4/workload.rs::workload_verifies_exact_contents_and_rejects_corruption": [
+    "The filesystem workload creates a known set of files in a temporary directory.",
+    "Verify the initial contents, try populating again and alter the stored files.",
+    "Reject a repeated population or a mismatch during verification. Finding the expected filename alone is not enough to show its contents survived."
+  ],
+  "rust/src/bin/block-storage-lab/filesystem.rs::filesystem_commands_keep_defaults_and_checks_read_only": [
+    "The lab supports formatting and checking both ext4 and XFS.",
+    "Inspect the requests it builds for each filesystem without formatting any disk.",
+    "Use each filesystem’s own formatter with its intended defaults and request a read-only check rather than repairing the image during verification."
+  ],
+  "rust/src/bin/block-storage-lab/filesystem.rs::filesystem_selects_helper_and_worker_commands": [
+    "The filesystem worker uses a restricted helper to mount and unmount its test volume.",
+    "Select ext4 and XFS in turn and inspect helper actions and worker requests.",
+    "Choose the matching filesystem-specific action for both mount and unmount instead of using the ext4 helper for an XFS run."
+  ],
+  "rust/src/bin/block-storage-lab/filesystem.rs::effective_options_come_from_the_recorded_mountinfo_entry": [
+    "A sample Linux mount table contains information about the options actually in effect.",
+    "Look up the mount identified by the recorded mount number and try a missing number.",
+    "Return the observed options for that mount only; do not infer them from the requested options or a different mount."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::normal_exit_is_reported": [
+    "The process supervisor starts a short-lived test child.",
+    "Wait for the child to exit normally within its deadline.",
+    "Report a successful exit rather than a timeout. No storage engine or filesystem is required for this check."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::timeout_is_reported": [
+    "The process supervisor starts a child that deliberately stays alive.",
+    "Give the process less time than it needs to finish.",
+    "Return a timeout rather than reporting success or waiting indefinitely."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::managed_child_supports_explicit_term_and_cleanup": [
+    "A managed child is still running and has a recorded process identifier.",
+    "Check that it is live, then explicitly request termination and wait for it.",
+    "Identify termination by the requested signal and collect the exit status instead of leaving a child behind."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::managed_child_supports_exact_kill": [
+    "The supervisor owns a running child process.",
+    "Send the unconditional kill signal and collect the exit status.",
+    "Report that exact signal. An arbitrary unsuccessful exit would not prove that the requested kill occurred."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::managed_child_drop_reaps_the_process": [
+    "A managed child is still alive when its owner releases the handle.",
+    "Drop the handle without explicitly waiting for a normal exit.",
+    "The supervisor must reap the process as part of cleanup rather than leave it alive or waiting for its parent."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::timeout_cleans_descendant_process_group": [
+    "A parent fixture starts another child in the same process group and reports its identity.",
+    "Let the supervising command exceed its time limit after the descendant starts.",
+    "Report a timeout and remove the descendant too. Killing only the immediately supervised parent is not sufficient."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::normal_child": [
+    "The supervisor needs a child that finishes normally.",
+    "Launch this empty fixture as its child process; it performs no storage operations.",
+    "It should exit successfully. The separate supervisor test checks how the parent reports that exit."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::sleeping_child": [
+    "A timeout test needs a process that outlives the deadline.",
+    "When selected as a child, pause for 60 seconds; otherwise return immediately.",
+    "The parent should be able to exercise its timeout path. Running this helper alone does not demonstrate that cleanup worked."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::descendant_parent_child": [
+    "The timeout test needs a parent and a grandchild in one process group.",
+    "When selected as the fixture parent, start the leaf child and wait for its readiness file.",
+    "The leaf must signal readiness before the deadline, giving the outer supervisor a known descendant to clean up."
+  ],
+  "rust/src/bin/block-storage-lab/main.rs::descendant_leaf_child": [
+    "A supervisor test needs to identify the grandchild before forcing a timeout.",
+    "When selected as the leaf, write the process identifier to the readiness file and sleep.",
+    "The outer test can then check whether this specific descendant survived cleanup. Without the fixture setting the helper returns immediately."
+  ],
+  "rust/src/bin/block-storage-lab/suite.rs::parses_only_test_entries": [
+    "The suite runner receives a text listing of test cases and other output.",
+    "Parse the listing before scheduling cases.",
+    "Include entries marked as tests and exclude unrelated lines so summaries or other items do not become invented test runs."
+  ],
+  "rust/src/bin/block-storage-lab/suite.rs::classifies_and_formats_timings": [
+    "The suite displays elapsed durations and classifies slow tests.",
+    "Format a sample interval and classify sample durations against the timing thresholds.",
+    "Use the expected precision and timing category. This checks presentation, not the speed of a storage workload."
+  ],
+  "rust/src/bin/block-storage-lab/ublk.rs::parses_only_exact_canonical_device_paths": [
+    "A daemon supplies a numbered Linux block-device path.",
+    "Try a valid path for device 42 and a range of noncanonical strings.",
+    "Recover the exact number and path from the valid name and reject alternatives rather than opening an unintended target."
+  ],
+  "rust/src/bin/block-storage-lab/ublk.rs::expected_geometry_matches_the_ublk_acceptance_shape": [
+    "The live I/O plan has a small backing file and a larger client-visible volume.",
+    "Compute the expected storage geometry without creating a device.",
+    "Distinguish the 322 backing blocks from the 4 MiB logical volume and preserve the 128 KiB segment size."
+  ],
+  "rust/src/bin/block-storage-lab/ublk.rs::validates_parameterized_sysfs_geometry_and_identity": [
+    "A test supplies a simulated Linux device directory and kernel attribute files.",
+    "Check device identity, capacity and the major and minor numbers; alter or omit identifying information.",
+    "Accept matching geometry and reject inconsistent identity rather than attaching a workload to the wrong device."
+  ],
+  "rust/src/bin/block-storage-lab/ublk.rs::ext4_geometry_is_validated_independently_of_fio_geometry": [
+    "Filesystem acceptance uses a different volume size from the small direct-I/O workload.",
+    "Validate sample kernel geometry using the appropriate and inappropriate expected sizes.",
+    "Require the correct capacity for the selected test; an image sized for another workload must not pass this check."
+  ],
+  "rust/src/bin/block-storage-lab/ublk.rs::owned_directory_requires_its_original_identity_and_marker": [
+    "The test creates a private directory and records its identity and ownership marker.",
+    "Attempt cleanup after changing the evidence of ownership, then restore safe conditions.",
+    "Refuse removal when ownership cannot be proved and remove only the original, marked directory."
+  ],
+  "rust/src/bin/block-storage-lab/ublk.rs::fio_command_never_saves_verify_state_in_the_caller_directory": [
+    "The I/O tool normally can save verification state in its current directory.",
+    "Build the request for the test target and inspect its options.",
+    "Disable saving verification state there. Running a verification workload must not leave a state file among the caller’s unrelated files."
+  ],
+  "rust/src/bin/block-storage-lab/ublk.rs::installed_fio_accepts_constructed_commands": [
+    "The lab constructs several I/O jobs for a nonexistent target.",
+    "Ask the installed workload tool to parse the generated job options without running the workload.",
+    "The tool must accept the command shapes. This tests compatibility with its parser, not successful reads or writes on a device."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/scenario.rs::scenario_count_repetitions_and_write_budgets_are_exact": [
+    "The device acceptance plan includes ordinary writes and a deliberate exhaustion scenario.",
+    "Count the scenarios, repetitions and planned writes and compare them with the test image capacity.",
+    "Schedule eight scenarios three times each. The exhaustion case must attempt more writes than fit in the log."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/scenario.rs::restart_and_fault_transitions_are_explicit": [
+    "Some live-device scenarios restart or kill the daemon between writing data and checking it.",
+    "Inspect the planned transitions for those scenarios.",
+    "The plan must explicitly request the intended restart or kill and the required verification steps, not merely finish after writing."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/scenario.rs::output_names_never_reuse_owned_paths": [
+    "The lab creates output names for multiple commands in one owned directory.",
+    "Ask the name allocator for successive outputs, including separate output and error files.",
+    "Give each operation its intended distinct names. Later commands must not overwrite evidence from earlier operations."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/scenario.rs::statistics_are_read_from_the_last_structured_log_line": [
+    "The daemon log contains several lines of statistics.",
+    "Extract counters by exact name from the last structured entry and try unmatched fields.",
+    "Read the final reported values, not an earlier value or a field whose name only ends in the requested text."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/scenario.rs::parses_only_required_fio_numeric_fields": [
+    "The lab checks the I/O tool’s structured output for the disk-full scenario.",
+    "Parse a sample job result and try missing jobs or malformed numeric fields.",
+    "Extract the error code and byte count from the required fields; reject unusable data rather than infer successful exhaustion."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/scenario.rs::every_exact_command_shape_has_expected_budget_and_seed": [
+    "The device workload has repeatable random writes and bounded transfer sizes.",
+    "Inspect the arguments for each generated I/O request, including the wraparound passes.",
+    "Preserve the specified seed, direct-I/O setting and transfer budget for the scenario; this does not run the workload itself."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::command_construction_is_exact_and_bounded": [
+    "The device harness constructs requests for formatting and for bounded I/O jobs.",
+    "Inspect the executable, working directory, test target and workload arguments without starting the device.",
+    "Use the owned directory and fixed workload sizes so these requests cannot expand into an unrestricted benchmark."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::fixed_format_worker_preserves_exact_sub_mib_geometry_and_refuses_replacement": [
+    "The format worker receives a new backing path for a volume whose geometry does not round to whole mebibytes.",
+    "Format it, inspect its size and volume description, then attempt to format the occupied path again.",
+    "Preserve the exact backing length and ten segments; refuse to replace the existing image."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::control_preflight_reports_missing_node_with_operator_command": [
+    "The kernel control device is absent from the preflight check.",
+    "Supply the missing-path condition before attempting a workload.",
+    "Explain that the control node is missing and identify the operator action needed. Do not proceed as though device setup succeeded."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::control_preflight_reports_wrong_node_type": [
+    "A file exists at the control path but is not the required type of device.",
+    "Run the preflight check on this incorrect node type.",
+    "Reject it with a diagnostic that distinguishes a wrong type from a missing path. A regular file is not a usable control device."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::control_preflight_reports_inaccessible_node_observations_and_remedy": [
+    "The control node exists but the test user lacks access.",
+    "Give the preflight check the observed node information and a permission error.",
+    "Return permission denied, describe the observations and identify the remedy. Do not report this as a storage-engine failure."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::control_preflight_accepts_accessible_character_device": [
+    "The control path has the expected character-device type and is accessible.",
+    "Give the preflight check those observations before any live-device workload starts.",
+    "Accept this prerequisite. Passing this check alone does not mean a block device was created or tested."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::validates_owned_backing_path_identity_and_size": [
+    "The lab owns a temporary backing file with the expected identity and length.",
+    "Validate it, shorten it to one byte and check the saved backing reference again.",
+    "Accept the intact file but reject it after the size change rather than running the workload on unexpected storage."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::readiness_polls_fake_roots_and_current_exe_child": [
+    "A child writes a readiness announcement while the test supplies fake device directories.",
+    "Let the readiness checker poll the announcement and matching kernel attributes.",
+    "Return device number seven once its identity is established. The fixture tests polling without creating a real kernel block device."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::readiness_validates_identity_before_retrying_permission_denied_access": [
+    "A readiness announcement identifies the expected device but access is initially denied.",
+    "Use a simulated access check that succeeds only after retries.",
+    "Verify identity before retrying access, then return the intended device when permission becomes available."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::readiness_times_out_while_device_access_remains_permission_denied": [
+    "A readiness announcement exists, but the user cannot open the indicated device.",
+    "Keep returning permission denied until the readiness deadline.",
+    "Try more than once, then report a timeout with the pending permission problem. Do not mark the device ready."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::readiness_reports_early_exit_and_timeout": [
+    "A child can disappear before announcing its device or remain alive without announcing it.",
+    "Check readiness for an early exit and for a sleeping child.",
+    "Distinguish the unexpected exit from expiry of the deadline. Neither case supplies a ready device."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::failed_fio_records_both_outputs_before_returning_status_error": [
+    "An I/O command writes a diagnostic to each output stream and exits unsuccessfully.",
+    "Let the harness record its output and process its exit status.",
+    "Keep both diagnostic messages before returning the status error so the cause remains available in the run evidence."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::kill_daemon_requires_and_records_exact_sigkill": [
+    "A controlled crash test owns a daemon child and needs proof of how it stopped.",
+    "Request an unconditional kill and inspect the recorded outcome.",
+    "Require the exact kill signal and clear the managed child after collecting it. A mere nonzero status does not establish this crash condition."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::kill_daemon_rejects_a_different_unsuccessful_exit": [
+    "A fixture child exits unsuccessfully for a reason other than the requested kill.",
+    "Present that exit to the crash-test supervisor.",
+    "Reject it and explain that the expected kill signal was missing. An unrelated daemon failure cannot satisfy this crash test."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::device_identity_states_distinguish_active_stopped_replaced_and_absent": [
+    "The harness must identify its device before deciding whether removal is safe.",
+    "Present simulated kernel observations for an active device, a stopped one, a replacement and a missing device.",
+    "Distinguish all four states; the same numeric device name alone does not prove ownership."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::remove_after_kill_retries_partial_identity_until_stopped_matching": [
+    "After a kill, kernel information can be briefly incomplete while the device stops.",
+    "Supply one partial identity check followed by a matching stopped device.",
+    "Wait and retry before permitting deletion. Only the complete, matching stopped identity is safe to remove."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::remove_after_kill_preserves_last_persistent_ambiguity_without_delete": [
+    "The device identity stays uncertain after a kill.",
+    "Keep returning incomplete observations until the retry allowance runs out.",
+    "Return the last specific inspection error and preserve the resources. Do not delete a device whose identity has not been established."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::remove_after_kill_changed_identity_never_retries_into_deletion": [
+    "A device now has a different identity from the one the lab recorded.",
+    "Supply the changed identity during removal after a kill.",
+    "Refuse deletion immediately and preserve the resources. Retrying until the number appears reusable would risk deleting someone else’s device."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::partially_present_device_identity_is_ambiguous": [
+    "Only part of the identifying device information exists under the simulated kernel paths.",
+    "Ask the harness to classify the device before cleanup.",
+    "Report that the identity is only partially present. Missing fields are not proof that the original device has disappeared."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::cleanup_deletes_recorded_id_for_same_stopped_identity": [
+    "Cleanup has the recorded identity of the test device.",
+    "Supply matching observations showing that the same device has stopped.",
+    "Allow removal of that recorded device and complete cleanup. This tests the decision to delete under controlled observations."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::cleanup_refuses_changed_identity_and_preserves_backing": [
+    "The cleanup routine knows which backing file and device belonged to the test.",
+    "Supply observations showing that the device identity has changed.",
+    "Refuse to delete the device and preserve its backing file rather than acting on the reused device number."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::cleanup_refuses_ambiguous_identity_and_preserves_backing": [
+    "The cleanup routine cannot obtain a definite identity for the device.",
+    "Ask it to clean up with that ambiguity unresolved.",
+    "Return an error and leave the backing file intact. An inconclusive identity check must never authorize deletion."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::preflight_failure_creates_no_evidence_temp_or_device_resource": [
+    "A workload cannot satisfy its prerequisites.",
+    "Run the failing preflight against test-owned paths and inspect them afterwards.",
+    "Report the failure before creating evidence directories, temporary files or device resources. No cleanup of a partially started workload should be necessary."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::readiness_writer_child": [
+    "The readiness test needs a daemon-like child but does not need a real device.",
+    "When enabled, write the path for device seven to the supplied readiness file and sleep.",
+    "The parent can poll a realistic announcement from a live process. Outside the fixture the helper does nothing."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::empty_child": [
+    "The readiness supervisor needs a process that exits before producing an announcement.",
+    "Launch this empty child fixture, which exits without writing a device path.",
+    "The parent can test its early-exit handling. The empty child itself makes no storage assertion."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::unsuccessful_child": [
+    "A supervisor test needs an exit that is neither success nor the requested kill signal.",
+    "When the fixture setting is present, exit with status 23.",
+    "The parent should observe an ordinary nonzero exit to distinguish it from death by signal. Otherwise the fixture returns normally."
+  ],
+  "rust/src/bin/block-storage-lab/ublk_fio/tests.rs::sleeping_child": [
+    "The readiness supervisor needs a process that stays alive without identifying a device.",
+    "When enabled as a child, sleep for 60 seconds and write no announcement.",
+    "The parent can exercise its deadline while the child is still alive. The helper alone does not test a real device."
+  ]
+}
