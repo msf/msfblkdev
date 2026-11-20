@@ -8,7 +8,8 @@ Authored by LLM. Execution plan, 2026-11-19. [ADR-05](../ADR-05-GOAL-3-BACKING-M
 |---|---|
 | Measured | [Per-scenario results](adr05-report.html#matrix): syscall and engine faults, deterministic crash images, checker controls and seeded recovery. [Pre-fix triage](ADR05-TRIAGE-01.md): F01 and F02 confirmed, then repaired at `9f3d309` and `77fc16e`. |
 | Qualified | [Combined arm64 gates](../evidence/adr05-repair-qualification-20261119/README.md) at `adr05-repairs-v1`, evidence tagged `adr05-arm64-qualification-v1`. These tags cover the existing fail-closed policy only. |
-| Decided, not implemented | [ADR-05](../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) selects bounded transient retry and automatic resume. Next: own attempts across timeout/cancel, retry verified reads, then prove ordered mutation/barrier replay before enabling it. |
+| Tested 2026-11-20 | [FSYNC-01](../evidence/adr05-fsync01-20261120/GREEN.md): one opt-in records FLUSH recovered after a simulated loss of two records; a bare sync did not restore either. |
+| Remaining retry work | [ADR-05](../ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) selects bounded transient retry and automatic resume. Next: own attempts across timeout/cancel, retry verified reads, then prove ordered mutation/barrier replay before enabling it. |
 | Still missing | [Unrun scenarios](adr05-report.html#planned), broader engine/cleaner schedules, other native host configurations, and operator-approved medium and application tests. No full ADR delivery or release. |
 
 ## 1. Plan and freeze the contract (historical evaluation baseline)

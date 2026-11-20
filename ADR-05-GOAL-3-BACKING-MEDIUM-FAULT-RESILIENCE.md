@@ -4,7 +4,7 @@ Date: 2026-08-30
 Revised: 2026-11-20
 Author: Miguel Filipe
 Status: open; format-4 transient I/O policy accepted 2026-11-19; other design decisions remain open
-Goal status: fault framework and two engine fixes qualified on the campaign branch; automatic retry not implemented
+Goal status: fault framework and two engine fixes qualified on the campaign branch; one opt-in records-barrier retry tested; default daemon still fails closed
 On-disk format: ADR-08 format 4, released in v2.0. The proposed [portable backing-fault lab](docs/ADR05-FAULT-LAB.md) targets this format.
 Related: [ADR-01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md), [ADR-03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md), [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md), [ADR-06](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md), [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md), [ADR-10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md)
 Consolidates: the 2026-09-12 fault-policy discussion and `DETERMINISTIC_FAULT_TESTING_AND_SIMULATION.md`
@@ -89,6 +89,8 @@ A database writer can get a successful buffered write before the filesystem atte
 2. **Inject lost writeback.** At the records barrier, make at least one covered record absent from persistent storage and return `EIO` exactly once. Keep the preceding flushed history intact. A subsequent bare backing `fsync` must be able to succeed without restoring the missing record. Reject a fixture that misses the target or only changes the return code.
 3. **Require safe resume.** For this one transient error on the same owned backing object, expect one successful client FLUSH only after the engine reissues the retained physical writes in order and syncs them. Capture the attempted offsets, bytes and barrier outcomes. Cut the image at client completion, before clean close or another checkpoint. Recover a copy and verify both new values against the external history. The existing failure latch is safe but does not pass this availability test.
 4. **Calibrate the verdict.** A no-fault control must recover both new values. A deliberately broken sync-only retry must see backing success but fail the same recovery comparison. A missing injection or unexpected harness error is inconclusive, not an engine verdict. An unreadable retained epoch, persistent failure or loss of exclusive ownership must not produce client FLUSH success. Descriptor publication and real filesystem writeback are separate gates.
+
+**Result (2026-11-20).** On arm64 Linux at `067fd12`, `make test-fsync01` passed with library retry explicitly enabled. The bare-sync control recovered both old values despite client success; ordered replay recovered both new values. See the [baseline](evidence/adr05-fsync01-20261120/BASELINE.md) and [replay trace and limits](evidence/adr05-fsync01-20261120/GREEN.md). This does not qualify checkpoint replay or enable retries in the daemon.
 
 ### Detection limits and repair
 

@@ -10,7 +10,7 @@ The latest stable release is [**v2.0**](https://github.com/msf/msfblkdev/release
 | --- | --- | --- |
 | 01–03 | Architecture, basic read/write, minimum credible device | Implemented; regression baseline |
 | 04 | Growable thin-provisioned format | Proposed; not implemented |
-| 05 | Backing I/O faults and recovery | Format-4 fault lab and two fixes qualified on arm64 on this branch; transient retry not implemented |
+| 05 | Backing I/O faults and recovery | Format-4 fault lab and two fixes qualified on arm64; [FSYNC-01 records retry](evidence/adr05-fsync01-20261120/GREEN.md) tested with library opt-in; daemon still fails closed |
 | 06 | Filesystem and database correctness | ext4, XFS and SQLite accepted; RocksDB and PostgreSQL open |
 | 07 | Paged mapping and bounded cache (format 3) | Implemented in v1.2–v1.2.3 |
 | 08 | Segmented log and space reclamation (format 4) | Released in v2.0 |

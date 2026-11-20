@@ -13,6 +13,7 @@
 <body>
 <header><div class="mast"><div class="word"><span class="mark" aria-hidden="true"></span>msfblkdev / field notes</div><nav aria-label="Report sections"><a href="#matrix">Fault ledger</a><a href="#planned">Not run</a><a href="#experiment">Experiment</a><a href="#tests">Tests</a><a href="#repairs">Repairs</a><a href="#next">Next steps</a></nav></div></header>
 <main>
+<aside class="run"><strong>Follow-up · 20 Nov 2026:</strong> The ledger below is the 19 Nov snapshot. Since then, <a href="../evidence/adr05-fsync01-20261120/GREEN.md">FSYNC-01</a> passed for an opt-in client records flush. It does not cover a failed checkpoint descriptor sync.</aside>
 <section class="hero"><div class="eyebrow">Engineering report &nbsp;/&nbsp; ADR-05 &nbsp;/&nbsp; 19 Nov 2026</div>
 <h1>When the backing store fails</h1>
 <p class="lead">A clean checkpoint freed six segments. Failing its descriptor write or final sync freed none. In both fault runs, the client saw the error and recovery returned the bytes it had flushed.</p>
