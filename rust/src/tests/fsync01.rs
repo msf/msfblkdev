@@ -100,7 +100,6 @@ fn fsync01_controls() -> io::Result<()> {
 }
 
 #[test]
-#[ignore = "FSYNC-01 explicit retry qualification; run make test-fsync01"]
 fn fsync01_engine() -> io::Result<()> {
     scenario(Mode::Engine)
 }

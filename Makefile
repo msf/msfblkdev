@@ -122,8 +122,8 @@ test-xfs: build-ext4
 test-rust:
 	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- test
 
-# Opt-in Linux use case: two controls plus the explicit-FLUSH availability contract.
+# Run just the FSYNC-01 controls and explicit-FLUSH regression on Linux.
 .PHONY: test-fsync01
 test-fsync01:
 	@cd rust && cargo test --locked --lib fsync01 --no-run
-	@cd rust && timeout -k 5s 60s cargo test --locked --lib fsync01 -- --include-ignored --nocapture --test-threads=1
+	@cd rust && timeout -k 5s 60s cargo test --locked --lib fsync01 -- --nocapture --test-threads=1
