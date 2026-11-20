@@ -100,7 +100,7 @@ Severe corruption can erase every identifying field. A format-1 bounded scan tha
 
 No local repair exists. A future offline salvage tool may remove a log tail after operator inspection. The operator must choose the cut point and accept possible durable-data loss. Startup never invokes salvage automatically. Salvage is not successful recovery.
 
-Future replication may report corruption out of band without delaying a failed read. [Protocol-Aware Recovery for Consensus-Based Storage](Protocol-Aware-Recovery-for-Consensus-Based-Storage.pdf), Sections 3.3–3.5, requires the correct entry or snapshot version, not an arbitrary peer's value at the same LBA. Repair must not overwrite newer writes. Physical addresses, their bound checksums and local LSNs are not replicated version identities. The report and repair interfaces remain undefined.
+Future replication may report corruption out of band without delaying a failed read. [Protocol-Aware Recovery for Consensus-Based Storage](papers/Protocol-Aware-Recovery-for-Consensus-Based-Storage.pdf), Sections 3.3–3.5, requires the correct entry or snapshot version, not an arbitrary peer's value at the same LBA. Repair must not overwrite newer writes. Physical addresses, their bound checksums and local LSNs are not replicated version identities. The report and repair interfaces remain undefined.
 
 This ADR records the accepted format-4 transient I/O policy and the remaining proposals. A substantial later revision should contain the full replacement model and explicitly identify the superseded sections. Acceptance and implementation must remain separate from historical evidence.
 
