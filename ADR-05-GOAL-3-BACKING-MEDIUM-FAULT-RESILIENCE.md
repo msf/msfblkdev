@@ -1,7 +1,7 @@
 # ADR-05 Fault model, failure handling and fault testing
 
 Date: 2026-08-30
-Revised: 2026-11-19
+Revised: 2026-11-20
 Author: Miguel Filipe
 Status: open; format-4 transient I/O policy accepted 2026-11-19; other design decisions remain open
 Goal status: fault framework and two engine fixes qualified on the campaign branch; automatic retry not implemented
@@ -78,6 +78,17 @@ Keep the device attached across transient I/O faults. Do not return success for 
 - **Ownership and resume.** Keep the ring, backing identity, buffers, iovecs and attempt IDs owned independently of client completion. A successful cancel request is not the original completion. Resume only after terminal completions, exclusive ownership of the same backing object, settled writes/barriers, and consistent mappings and reservations. Otherwise fence, reject new work promptly and require explicit recovery. Quarantine unresolved kernel work even after fencing; no replacement writer may race it. Record attempts, latency, errno, epoch and transition reason, not a presumed cause such as heat.
 
 Implement attempt ownership and deadlines first, then verified read retry, then frozen mutation/barrier replay. Before default enablement, require live one-shot failures that recover, persistent failures that fence, late completions on both sides of timeout, cancellation racing success, and crash cuts at each retry boundary. A planted fsync-only retry must lose the independent history check. The [report](docs/adr05-report.html#planned) separates these required cases from historical results.
+
+### FSYNC-01: a second successful fsync does not repair a lost write
+
+A database writer can get a successful buffered write before the filesystem attempts writeback. If writeback fails, the checkpointer may get `EIO` on `fsync`, then success on a second `fsync` without any data being rewritten. Linux's writeback error sequence improves which open file descriptions see the error; it does not preserve the failed data. Closing and reopening the file is not a way to certify earlier writes. See [LWN on error reporting](https://lwn.net/Articles/724307/), [LWN on the PostgreSQL checkpointer](https://lwn.net/Articles/752063/) and the [PostgreSQL version notes and PANIC policy](https://wiki.postgresql.org/wiki/Fsync_Errors).
+
+[Rebello et al., USENIX ATC 2020, §3.3](https://www.usenix.org/system/files/atc20-rebello.pdf) found that the tested ext4, XFS and Btrfs configurations marked failed data pages clean. Cached contents differed by filesystem; an immediate read could return the intended bytes even though they were not on disk. Format 4 uses direct I/O. This test models the **loss of unsynced bytes and one-shot error report** at its backing boundary. It does not reproduce Linux page-cache or multi-process error reporting.
+
+1. **Establish history.** On a disposable format-4 image, write distinct old values to two LBAs and flush successfully. Overwrite both with distinct new values and record the successful client writes outside the image. Target an explicit client FLUSH of these records, without a checkpoint or intervening successful barrier.
+2. **Inject lost writeback.** At the records barrier, make at least one covered record absent from persistent storage and return `EIO` exactly once. Keep the preceding flushed history intact. A subsequent bare backing `fsync` must be able to succeed without restoring the missing record. Reject a fixture that misses the target or only changes the return code.
+3. **Require safe resume.** For this one transient error on the same owned backing object, expect one successful client FLUSH only after the engine reissues the retained physical writes in order and syncs them. Capture the attempted offsets, bytes and barrier outcomes. Cut the image at client completion, before clean close or another checkpoint. Recover a copy and verify both new values against the external history. The existing failure latch is safe but does not pass this availability test.
+4. **Calibrate the verdict.** A no-fault control must recover both new values. A deliberately broken sync-only retry must see backing success but fail the same recovery comparison. A missing injection or unexpected harness error is inconclusive, not an engine verdict. An unreadable retained epoch, persistent failure or loss of exclusive ownership must not produce client FLUSH success. Descriptor publication and real filesystem writeback are separate gates.
 
 ### Detection limits and repair
 
