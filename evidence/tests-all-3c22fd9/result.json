@@ -1,0 +1,2131 @@
+{
+  "revision": "3c22fd9a4ef453609e981640a83d27bf2d78b1d0",
+  "date": "2026-11-20T23:18:55+00:00",
+  "environment": "Linux 6.18.15+deb13-cloud-arm64 aarch64",
+  "results": {
+    "guest/CHECK-05": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 009-python3.log Command exited 0. Log: 010-python3.log"
+    },
+    "guest/CLOSE-01": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 005-python3.log"
+    },
+    "guest/CLOSE-02": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 005-python3.log"
+    },
+    "guest/CLOSE-03": {
+      "status": "passed",
+      "detail": "Expected the checker to report the missed error. Command exited 1. Log: 006-python3.log"
+    },
+    "guest/PROBE-01": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 004-python3.log"
+    },
+    "guest/PROBE-02": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 004-python3.log"
+    },
+    "guest/PROBE-03": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 004-python3.log"
+    },
+    "guest/REOPEN-03": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 007-python3.log"
+    },
+    "guest/REOPEN-04": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 007-python3.log"
+    },
+    "guest/REOPEN-05": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 007-python3.log"
+    },
+    "guest/REOPEN-06": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 007-python3.log"
+    },
+    "guest/UBLK-01": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 008-python3.log"
+    },
+    "guest/UBLK-02": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 008-python3.log"
+    },
+    "guest/UBLK-03": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 008-python3.log"
+    },
+    "guest/UBLK-04": {
+      "status": "passed",
+      "detail": "Expected the client to detect a missing injection. Command exited 1. Log: 011-python3.log"
+    },
+    "make:test-acceptance/test-acceptance": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 012-make.log"
+    },
+    "make:test-compaction-small/test-compaction-small": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 013-make.log"
+    },
+    "make:test-ext4/test-ext4": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 015-make.log Raw evidence: evidence/ext4-1795217239344977248.log."
+    },
+    "make:test-sqlite/test-sqlite": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 017-make.log Raw evidence: evidence/sqlite-1795217243154360795."
+    },
+    "make:test-ublk-fio/descriptor-close-failpoint": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 018-make.log Raw evidence: evidence/ublk-fio-1795217250742618873-3c22fd9a4ef453609e981640a83d27bf2d78b1d0.log."
+    },
+    "make:test-ublk-fio/exhaustion": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 018-make.log Raw evidence: evidence/ublk-fio-1795217250742618873-3c22fd9a4ef453609e981640a83d27bf2d78b1d0.log."
+    },
+    "make:test-ublk-fio/graceful-restart": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 018-make.log Raw evidence: evidence/ublk-fio-1795217250742618873-3c22fd9a4ef453609e981640a83d27bf2d78b1d0.log."
+    },
+    "make:test-ublk-fio/overwrite": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 018-make.log Raw evidence: evidence/ublk-fio-1795217250742618873-3c22fd9a4ef453609e981640a83d27bf2d78b1d0.log."
+    },
+    "make:test-ublk-fio/random": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 018-make.log Raw evidence: evidence/ublk-fio-1795217250742618873-3c22fd9a4ef453609e981640a83d27bf2d78b1d0.log."
+    },
+    "make:test-ublk-fio/sequential": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 018-make.log Raw evidence: evidence/ublk-fio-1795217250742618873-3c22fd9a4ef453609e981640a83d27bf2d78b1d0.log."
+    },
+    "make:test-ublk-fio/sigkill-restart": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 018-make.log Raw evidence: evidence/ublk-fio-1795217250742618873-3c22fd9a4ef453609e981640a83d27bf2d78b1d0.log."
+    },
+    "make:test-ublk-fio/sustained-overwrite": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 018-make.log Raw evidence: evidence/ublk-fio-1795217250742618873-3c22fd9a4ef453609e981640a83d27bf2d78b1d0.log."
+    },
+    "make:test-xfs/test-xfs": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 020-make.log Raw evidence: evidence/xfs-1795217320267277093.log."
+    },
+    "manual/aged-fio-uniform": {
+      "status": "not run",
+      "detail": "Requires a separate operator-controlled procedure."
+    },
+    "manual/aged-fio-zipf": {
+      "status": "not run",
+      "detail": "Requires a separate operator-controlled procedure."
+    },
+    "manual/vm-boot-320m": {
+      "status": "not run",
+      "detail": "Requires a separate operator-controlled procedure."
+    },
+    "python:tools/adr05-fault-lab/checker/test_check.Checker.test_both_heads_link_discard_growth": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 021-python3.log"
+    },
+    "python:tools/adr05-fault-lab/checker/test_check.Checker.test_damage_metadata": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 021-python3.log"
+    },
+    "python:tools/adr05-fault-lab/checker/test_check.Checker.test_input_size_bound": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 021-python3.log"
+    },
+    "python:tools/adr05-fault-lab/checker/test_check.Checker.test_new_root_frees_segment_still_referenced_by_old_root": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 021-python3.log"
+    },
+    "python:tools/adr05-fault-lab/checker/test_check.Checker.test_overwrite_old_payload": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 021-python3.log"
+    },
+    "python:tools/adr05-fault-lab/checker/test_check.Checker.test_two_distinct_roots_and_unreferenced_damage": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 021-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.CapturedEngineCase.test_retained_format4_image_and_recovered_history": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.LogicalChecker.test_discarded_value_resurrection_on_reopen_lba0": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.LogicalChecker.test_oracle_rejects_invalid_inputs_and_overlarge_uncertainty": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.LogicalChecker.test_per_lba_legal_but_skipped_record_on_reopen": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.LogicalChecker.test_planted_lying_sync_loses_flushed_lba1": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.LogicalChecker.test_planted_wrong_lba_before_reopen": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.LogicalChecker.test_rejected_write_must_never_reappear_on_reopen_lba0": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.LogicalChecker.test_uncertain_write_and_failed_flush_are_not_barriers": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.PhysicalCuts.test_all_four_payload_metadata_survival_cases": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.PhysicalCuts.test_discard_obeys_barriers_and_preserves_other_bytes": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.PhysicalCuts.test_exact_match_and_hit_counts": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.PhysicalCuts.test_limits_and_malformed_plans": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.PhysicalCuts.test_misdirected_io_stale_read_and_disappearance": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.PhysicalCuts.test_sync_floor_tear_and_out_of_order_overlapping_writes": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/adr05-fault-lab/model/test_model.PhysicalCuts.test_uncertain_completion_and_short_read_write": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 022-python3.log"
+    },
+    "python:tools/sqlite/test_baseline.BaselineTest.test_hardware_and_commit_changes_require_correct_policy": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 023-python3.log"
+    },
+    "python:tools/sqlite/test_baseline.BaselineTest.test_invalid_numbers_duplicate_repetition_and_missing_validation_reject": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 023-python3.log"
+    },
+    "python:tools/sqlite/test_baseline.BaselineTest.test_select_and_compare_reports_samples_and_arithmetic": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 023-python3.log"
+    },
+    "python:tools/sqlite/test_baseline.BaselineTest.test_self_comparison_is_explicit_and_overwrite_is_rejected": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 023-python3.log"
+    },
+    "python:tools/sqlite/test_baseline.BaselineTest.test_tampering_and_incomplete_matrix_are_rejected": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 023-python3.log"
+    },
+    "python:tools/sqlite/test_baseline.BaselineTest.test_xfs_baseline_rejects_mixed_filesystems": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 023-python3.log"
+    },
+    "python:tools/tests-all/test_execute.RunnerTest.test_child_only_environment_is_removed": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_execute.RunnerTest.test_guest_requires_permission": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_execute.RunnerTest.test_output_limit_and_timeout": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_execute.RunnerTest.test_partial_matrix": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_execute.RunnerTest.test_rust_output": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_execute.RunnerTest.test_rust_telemetry_and_expected_panic_keep_the_test_identity": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_execute.RunnerTest.test_structured_python_outcomes": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_execute.RunnerTest.test_trace_control_requires_the_planted_mismatch": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_inventory.InventoryTest.test_cases_have_unique_ids_and_explanations": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_inventory.InventoryTest.test_new_functions_are_inventoried_before_any_run": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_inventory.InventoryTest.test_profiles_count_once_but_distinct_filesystems_do_not_merge": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_inventory.InventoryTest.test_shared_modules_and_documentation_keep_their_cargo_target": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_inventory.InventoryTest.test_unattached_rust_test_is_not_silently_lost": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_render.ReportTest.test_counts_use_only_latest_run_and_include_missing_cases": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_render.ReportTest.test_page_links_are_local_and_evidence_is_text_not_markup": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_render.ReportTest.test_unknown_status_cannot_render_as_a_verdict": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_render.ReportTest.test_zero_decided_tests_have_no_rate": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_run.ReportPipeline.test_appendix_alias_keeps_explanation_without_repository_link": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/tests-all/test_run.ReportPipeline.test_runner_failure_replaces_stale_report_with_blocked_observation": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 024-python3.log"
+    },
+    "python:tools/workbench/test_report.ReportTest.test_backing_io_distinguishes_zero_missing_and_flushes": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 025-python3.log"
+    },
+    "python:tools/workbench/test_report.ReportTest.test_bad_latency_counts_and_partial_timing_remain_invalid": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 025-python3.log"
+    },
+    "python:tools/workbench/test_report.ReportTest.test_completed_cases_do_not_upgrade_an_incomplete_batch": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 025-python3.log"
+    },
+    "python:tools/workbench/test_report.ReportTest.test_filter_duplicate_input_and_matrix_readiness": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 025-python3.log"
+    },
+    "python:tools/workbench/test_report.ReportTest.test_full_matrix_preserves_samples_and_unavailable_metrics": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 025-python3.log"
+    },
+    "python:tools/workbench/test_report.ReportTest.test_missing_result_cannot_pass_and_is_visible": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 025-python3.log"
+    },
+    "python:tools/workbench/test_report.ReportTest.test_nonfinite_and_negative_metrics_are_rejected": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 025-python3.log"
+    },
+    "python:tools/workbench/test_report.ReportTest.test_timing_uses_logical_f_requests_and_final_latency_summary": {
+      "status": "passed",
+      "detail": "All test assertions passed.. Command exited 0. Log: 025-python3.log"
+    },
+    "rust:rust:--bin=block-storage-lab/config::tests::validates_arguments": {
+      "status": "passed",
+      "detail": "test config::tests::validates_arguments ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/config::tests::validates_environment_and_defaults": {
+      "status": "passed",
+      "detail": "test config::tests::validates_environment_and_defaults ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/config::tests::validates_sqlite_ext4_arguments_and_defaults": {
+      "status": "passed",
+      "detail": "test config::tests::validates_sqlite_ext4_arguments_and_defaults ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/config::tests::validates_sqlite_xfs_arguments_and_defaults": {
+      "status": "passed",
+      "detail": "test config::tests::validates_sqlite_xfs_arguments_and_defaults ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/database_io::tests::rejects_incomplete_or_non_block_aligned_counters": {
+      "status": "passed",
+      "detail": "test database_io::tests::rejects_incomplete_or_non_block_aligned_counters ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/database_io::tests::uses_data_sectors_instead_of_flush_inflated_write_completions": {
+      "status": "passed",
+      "detail": "test database_io::tests::uses_data_sectors_instead_of_flush_inflated_write_completions ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/database_snapshot::tests::snapshot_json_preserves_reader_fields": {
+      "status": "passed",
+      "detail": "test database_snapshot::tests::snapshot_json_preserves_reader_fields ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/database_snapshot::tests::validates_snapshot_environment": {
+      "status": "passed",
+      "detail": "test database_snapshot::tests::validates_snapshot_environment ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/evidence::tests::evidence_files_are_create_new": {
+      "status": "passed",
+      "detail": "test evidence::tests::evidence_files_are_create_new ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::commands::tests::cleanup_refuses_unexpected_entries_before_removing_backing": {
+      "status": "passed",
+      "detail": "test ext4::commands::tests::cleanup_refuses_unexpected_entries_before_removing_backing ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::commands::tests::failed_and_timed_out_commands_preserve_output_and_reap_children": {
+      "status": "passed",
+      "detail": "test ext4::commands::tests::failed_and_timed_out_commands_preserve_output_and_reap_children ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::commands::tests::isolation_preserves_explicit_observer_values_and_removes_inherited_defaults": {
+      "status": "passed",
+      "detail": "test ext4::commands::tests::isolation_preserves_explicit_observer_values_and_removes_inherited_defaults ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::commands::tests::runtime_preflight_requires_an_existing_private_owned_directory": {
+      "status": "passed",
+      "detail": "test ext4::commands::tests::runtime_preflight_requires_an_existing_private_owned_directory ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::commands::tests::suite_deadline_prevents_spawning_another_command": {
+      "status": "passed",
+      "detail": "test ext4::commands::tests::suite_deadline_prevents_spawning_another_command ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::lifecycle::tests::readiness_never_accepts_arbitrary_devices_or_extra_output": {
+      "status": "passed",
+      "detail": "test ext4::lifecycle::tests::readiness_never_accepts_arbitrary_devices_or_extra_output ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::lifecycle::tests::sqlite_format_attaches_the_ledger_explicitly": {
+      "status": "passed",
+      "detail": "test ext4::lifecycle::tests::sqlite_format_attaches_the_ledger_explicitly ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::request_evidence::tests::requires_complete_consistent_request_and_discovery_counts": {
+      "status": "passed",
+      "detail": "test ext4::request_evidence::tests::requires_complete_consistent_request_and_discovery_counts ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::request_evidence::tests::totals_include_hints_but_exclude_shutdown_cancellations": {
+      "status": "passed",
+      "detail": "test ext4::request_evidence::tests::totals_include_hints_but_exclude_shutdown_cancellations ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::request_evidence::tests::validates_unmap_ranges_and_matches_kernel_write_sectors": {
+      "status": "passed",
+      "detail": "test ext4::request_evidence::tests::validates_unmap_ranges_and_matches_kernel_write_sectors ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::hardware::tests::records_arm_cpu_fields_without_inventing_a_model_name": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::hardware::tests::records_arm_cpu_fields_without_inventing_a_model_name ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::hardware::tests::records_stable_hardware_not_free_memory_or_frequency": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::hardware::tests::records_stable_hardware_not_free_memory_or_frequency ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::matrix::tests::full_matrix_is_exact_and_unique": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::matrix::tests::full_matrix_is_exact_and_unique ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::matrix::tests::selector_accepts_only_matrix_members": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::matrix::tests::selector_accepts_only_matrix_members ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::parser::tests::kv_parser_retains_zero_and_infinite_coarse_timings_as_unavailable": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::parser::tests::kv_parser_retains_zero_and_infinite_coarse_timings_as_unavailable ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::parser::tests::speedtest_parser_requires_all_main_subtests_and_marks_zero_unavailable": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::parser::tests::speedtest_parser_requires_all_main_subtests_and_marks_zero_unavailable ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::runner::tests::failed_and_timeout_json_preserve_status": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::runner::tests::failed_and_timeout_json_preserve_status ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::summary::tests::expected_set_is_exact": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::summary::tests::expected_set_is_exact ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::summary::tests::identity_is_stable": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::summary::tests::identity_is_stable ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::summary::tests::manifest_tracks_attempts_and_terminal_identities": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::summary::tests::manifest_tracks_attempts_and_terminal_identities ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::summary::tests::summary_preserves_reported_throughput_exactly": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::summary::tests::summary_preserves_reported_throughput_exactly ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::summary::tests::summary_rejects_results_from_another_filesystem": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::summary::tests::summary_rejects_results_from_another_filesystem ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::summary::tests::timeout_preserves_partial_suite_counts": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::summary::tests::timeout_preserves_partial_suite_counts ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::telemetry::tests::explicit_failure_from_any_connection_fails": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::telemetry::tests::explicit_failure_from_any_connection_fails ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::telemetry::tests::only_long_wal_case_requires_selected_connection_auto_checkpoints": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::telemetry::tests::only_long_wal_case_requires_selected_connection_auto_checkpoints ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::telemetry::tests::paired_snapshots_and_process_are_exact": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::telemetry::tests::paired_snapshots_and_process_are_exact ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::telemetry::tests::reference_requires_process_but_forbids_snapshots": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::telemetry::tests::reference_requires_process_but_forbids_snapshots ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::telemetry::tests::rejects_missing_duplicate_decreasing_and_invalid_snapshot_records": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::telemetry::tests::rejects_missing_duplicate_decreasing_and_invalid_snapshot_records ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::telemetry::tests::speedtest_delete_profile_needs_no_generator_or_automatic_checkpoint": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::telemetry::tests::speedtest_delete_profile_needs_no_generator_or_automatic_checkpoint ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::tests::block_and_ledger_deltas_are_monotonic_and_exact": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::tests::block_and_ledger_deltas_are_monotonic_and_exact ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::tests::commands_and_typed_profiles_are_exact": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::tests::commands_and_typed_profiles_are_exact ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::tests::matrix_commands_cover_tools_access_sizes_and_transactions": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::tests::matrix_commands_cover_tools_access_sizes_and_transactions ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::tests::matrix_result_uses_generic_schema_and_explicit_scope": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::tests::matrix_result_uses_generic_schema_and_explicit_scope ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::tests::only_daemon_commands_receive_the_cumulative_budget_path": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::tests::only_daemon_commands_receive_the_cumulative_budget_path ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::tests::process_duration_arithmetic_uses_in_process_headline": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::tests::process_duration_arithmetic_uses_in_process_headline ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::tests::sqlite_database_commands_pin_tmpdir_and_database_parent": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::tests::sqlite_database_commands_pin_tmpdir_and_database_parent ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::sqlite::tests::validation_parser_is_exact_and_read_only_command_is_pinned": {
+      "status": "passed",
+      "detail": "test ext4::sqlite::tests::validation_parser_is_exact_and_read_only_command_is_pinned ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::tests::acceptance_plan_has_four_unmounted_checks_and_clean_restart": {
+      "status": "passed",
+      "detail": "test ext4::tests::acceptance_plan_has_four_unmounted_checks_and_clean_restart ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ext4::workload::tests::workload_verifies_exact_contents_and_rejects_corruption": {
+      "status": "passed",
+      "detail": "test ext4::workload::tests::workload_verifies_exact_contents_and_rejects_corruption ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/filesystem::tests::effective_options_come_from_the_recorded_mountinfo_entry": {
+      "status": "passed",
+      "detail": "test filesystem::tests::effective_options_come_from_the_recorded_mountinfo_entry ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/filesystem::tests::filesystem_commands_keep_defaults_and_checks_read_only": {
+      "status": "passed",
+      "detail": "test filesystem::tests::filesystem_commands_keep_defaults_and_checks_read_only ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/filesystem::tests::filesystem_selects_helper_and_worker_commands": {
+      "status": "passed",
+      "detail": "test filesystem::tests::filesystem_selects_helper_and_worker_commands ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/fs_support::tests::filesystem_selection_preserves_ext4_rejection_of_xfs_mounts": {
+      "status": "passed",
+      "detail": "test fs_support::tests::filesystem_selection_preserves_ext4_rejection_of_xfs_mounts ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/fs_support::tests::mount_checks_reject_wrong_source_aliases_and_nested_mounts": {
+      "status": "passed",
+      "detail": "test fs_support::tests::mount_checks_reject_wrong_source_aliases_and_nested_mounts ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/fs_support::tests::only_generated_directory_names_are_accepted": {
+      "status": "passed",
+      "detail": "test fs_support::tests::only_generated_directory_names_are_accepted ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/fs_support::tests::parses_mountinfo_escapes_and_rejects_malformed_records": {
+      "status": "passed",
+      "detail": "test fs_support::tests::parses_mountinfo_escapes_and_rejects_malformed_records ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::descendant_leaf_child": {
+      "status": "passed",
+      "detail": "test process_tests::descendant_leaf_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::descendant_parent_child": {
+      "status": "passed",
+      "detail": "test process_tests::descendant_parent_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::managed_child_drop_reaps_the_process": {
+      "status": "passed",
+      "detail": "test process_tests::managed_child_drop_reaps_the_process ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::managed_child_supports_exact_kill": {
+      "status": "passed",
+      "detail": "test process_tests::managed_child_supports_exact_kill ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::managed_child_supports_explicit_term_and_cleanup": {
+      "status": "passed",
+      "detail": "test process_tests::managed_child_supports_explicit_term_and_cleanup ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::normal_child": {
+      "status": "passed",
+      "detail": "test process_tests::normal_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::normal_exit_is_reported": {
+      "status": "passed",
+      "detail": "test process_tests::normal_exit_is_reported ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::sleeping_child": {
+      "status": "passed",
+      "detail": "test process_tests::sleeping_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::timeout_cleans_descendant_process_group": {
+      "status": "passed",
+      "detail": "test process_tests::timeout_cleans_descendant_process_group ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/process_tests::timeout_is_reported": {
+      "status": "passed",
+      "detail": "test process_tests::timeout_is_reported ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/suite::tests::classifies_and_formats_timings": {
+      "status": "passed",
+      "detail": "test suite::tests::classifies_and_formats_timings ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/suite::tests::parses_only_test_entries": {
+      "status": "passed",
+      "detail": "test suite::tests::parses_only_test_entries ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk::tests::expected_geometry_matches_the_ublk_acceptance_shape": {
+      "status": "passed",
+      "detail": "test ublk::tests::expected_geometry_matches_the_ublk_acceptance_shape ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk::tests::ext4_geometry_is_validated_independently_of_fio_geometry": {
+      "status": "passed",
+      "detail": "test ublk::tests::ext4_geometry_is_validated_independently_of_fio_geometry ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk::tests::fio_command_never_saves_verify_state_in_the_caller_directory": {
+      "status": "passed",
+      "detail": "test ublk::tests::fio_command_never_saves_verify_state_in_the_caller_directory ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk::tests::installed_fio_accepts_constructed_commands": {
+      "status": "passed",
+      "detail": "test ublk::tests::installed_fio_accepts_constructed_commands ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk::tests::owned_directory_requires_its_original_identity_and_marker": {
+      "status": "passed",
+      "detail": "test ublk::tests::owned_directory_requires_its_original_identity_and_marker ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk::tests::parses_only_exact_canonical_device_paths": {
+      "status": "passed",
+      "detail": "test ublk::tests::parses_only_exact_canonical_device_paths ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk::tests::validates_parameterized_sysfs_geometry_and_identity": {
+      "status": "passed",
+      "detail": "test ublk::tests::validates_parameterized_sysfs_geometry_and_identity ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::scenario::tests::every_exact_command_shape_has_expected_budget_and_seed": {
+      "status": "passed",
+      "detail": "test ublk_fio::scenario::tests::every_exact_command_shape_has_expected_budget_and_seed ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::scenario::tests::output_names_never_reuse_owned_paths": {
+      "status": "passed",
+      "detail": "test ublk_fio::scenario::tests::output_names_never_reuse_owned_paths ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::scenario::tests::parses_only_required_fio_numeric_fields": {
+      "status": "passed",
+      "detail": "test ublk_fio::scenario::tests::parses_only_required_fio_numeric_fields ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::scenario::tests::restart_and_fault_transitions_are_explicit": {
+      "status": "passed",
+      "detail": "test ublk_fio::scenario::tests::restart_and_fault_transitions_are_explicit ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::scenario::tests::scenario_count_repetitions_and_write_budgets_are_exact": {
+      "status": "passed",
+      "detail": "test ublk_fio::scenario::tests::scenario_count_repetitions_and_write_budgets_are_exact ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::scenario::tests::statistics_are_read_from_the_last_structured_log_line": {
+      "status": "passed",
+      "detail": "test ublk_fio::scenario::tests::statistics_are_read_from_the_last_structured_log_line ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::cleanup_deletes_recorded_id_for_same_stopped_identity": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::cleanup_deletes_recorded_id_for_same_stopped_identity ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::cleanup_refuses_ambiguous_identity_and_preserves_backing": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::cleanup_refuses_ambiguous_identity_and_preserves_backing ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::cleanup_refuses_changed_identity_and_preserves_backing": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::cleanup_refuses_changed_identity_and_preserves_backing ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::command_construction_is_exact_and_bounded": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::command_construction_is_exact_and_bounded ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::control_preflight_accepts_accessible_character_device": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::control_preflight_accepts_accessible_character_device ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::control_preflight_reports_inaccessible_node_observations_and_remedy": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::control_preflight_reports_inaccessible_node_observations_and_remedy ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::control_preflight_reports_missing_node_with_operator_command": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::control_preflight_reports_missing_node_with_operator_command ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::control_preflight_reports_wrong_node_type": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::control_preflight_reports_wrong_node_type ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::device_identity_states_distinguish_active_stopped_replaced_and_absent": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::device_identity_states_distinguish_active_stopped_replaced_and_absent ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::empty_child": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::empty_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::failed_fio_records_both_outputs_before_returning_status_error": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::failed_fio_records_both_outputs_before_returning_status_error ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::fixed_format_worker_preserves_exact_sub_mib_geometry_and_refuses_replacement": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::fixed_format_worker_preserves_exact_sub_mib_geometry_and_refuses_replacement ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::kill_daemon_rejects_a_different_unsuccessful_exit": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::kill_daemon_rejects_a_different_unsuccessful_exit ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::kill_daemon_requires_and_records_exact_sigkill": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::kill_daemon_requires_and_records_exact_sigkill ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::partially_present_device_identity_is_ambiguous": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::partially_present_device_identity_is_ambiguous ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::preflight_failure_creates_no_evidence_temp_or_device_resource": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::preflight_failure_creates_no_evidence_temp_or_device_resource ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::readiness_polls_fake_roots_and_current_exe_child": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::readiness_polls_fake_roots_and_current_exe_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::readiness_reports_early_exit_and_timeout": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::readiness_reports_early_exit_and_timeout ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::readiness_times_out_while_device_access_remains_permission_denied": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::readiness_times_out_while_device_access_remains_permission_denied ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::readiness_validates_identity_before_retrying_permission_denied_access": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::readiness_validates_identity_before_retrying_permission_denied_access ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::readiness_writer_child": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::readiness_writer_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::remove_after_kill_changed_identity_never_retries_into_deletion": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::remove_after_kill_changed_identity_never_retries_into_deletion ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::remove_after_kill_preserves_last_persistent_ambiguity_without_delete": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::remove_after_kill_preserves_last_persistent_ambiguity_without_delete ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::remove_after_kill_retries_partial_identity_until_stopped_matching": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::remove_after_kill_retries_partial_identity_until_stopped_matching ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::sleeping_child": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::sleeping_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::unsuccessful_child": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::unsuccessful_child ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-lab/ublk_fio::tests::validates_owned_backing_path_identity_and_size": {
+      "status": "passed",
+      "detail": "test ublk_fio::tests::validates_owned_backing_path_identity_and_size ... ok. Command exited 0. Log: 026-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-mount/fs_support::tests::filesystem_selection_preserves_ext4_rejection_of_xfs_mounts": {
+      "status": "passed",
+      "detail": "test fs_support::tests::filesystem_selection_preserves_ext4_rejection_of_xfs_mounts ... ok. Command exited 0. Log: 027-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-mount/fs_support::tests::mount_checks_reject_wrong_source_aliases_and_nested_mounts": {
+      "status": "passed",
+      "detail": "test fs_support::tests::mount_checks_reject_wrong_source_aliases_and_nested_mounts ... ok. Command exited 0. Log: 027-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-mount/fs_support::tests::only_generated_directory_names_are_accepted": {
+      "status": "passed",
+      "detail": "test fs_support::tests::only_generated_directory_names_are_accepted ... ok. Command exited 0. Log: 027-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-mount/fs_support::tests::parses_mountinfo_escapes_and_rejects_malformed_records": {
+      "status": "passed",
+      "detail": "test fs_support::tests::parses_mountinfo_escapes_and_rejects_malformed_records ... ok. Command exited 0. Log: 027-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-mount/tests::formatter_uses_only_the_system_binary_and_pinned_device": {
+      "status": "passed",
+      "detail": "test tests::formatter_uses_only_the_system_binary_and_pinned_device ... ok. Command exited 0. Log: 027-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-mount/tests::helper_rejects_paths_options_and_arbitrary_device_names": {
+      "status": "passed",
+      "detail": "test tests::helper_rejects_paths_options_and_arbitrary_device_names ... ok. Command exited 0. Log: 027-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-mount/tests::helper_requires_kernel_ownership_unprivileged_flag_and_exact_geometry": {
+      "status": "passed",
+      "detail": "test tests::helper_requires_kernel_ownership_unprivileged_flag_and_exact_geometry ... ok. Command exited 0. Log: 027-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-mount/tests::inherited_descriptors_survive_exec_without_reusing_standard_io": {
+      "status": "passed",
+      "detail": "test tests::inherited_descriptors_survive_exec_without_reusing_standard_io ... ok. Command exited 0. Log: 027-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/request_counts::tests::capacity_and_counter_overflow_cannot_report_complete_evidence": {
+      "status": "passed",
+      "detail": "test request_counts::tests::capacity_and_counter_overflow_cannot_report_complete_evidence ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/request_counts::tests::counts_each_flag_combination_including_discovery_and_unknown_requests": {
+      "status": "passed",
+      "detail": "test request_counts::tests::counts_each_flag_combination_including_discovery_and_unknown_requests ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/request_counts::tests::report_propagates_output_failures": {
+      "status": "passed",
+      "detail": "test request_counts::tests::report_propagates_output_failures ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/request_counts::tests::totals_decode_operations_and_exclude_cancelled_requests": {
+      "status": "passed",
+      "detail": "test request_counts::tests::totals_decode_operations_and_exclude_cancelled_requests ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::accepts_fua_writes_but_rejects_fua_reads_flushes_and_unknown_flags": {
+      "status": "passed",
+      "detail": "test tests::accepts_fua_writes_but_rejects_fua_reads_flushes_and_unknown_flags ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::adapter_targets_exact_lba_and_flushes_with_stale_descriptor_geometry": {
+      "status": "passed",
+      "detail": "test tests::adapter_targets_exact_lba_and_flushes_with_stale_descriptor_geometry ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::cache_budget_reaches_engine_and_fua_persists_across_mapping_pages": {
+      "status": "passed",
+      "detail": "test tests::cache_budget_reaches_engine_and_fua_persists_across_mapping_pages ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::configures_exact_v07_target_parameters": {
+      "status": "passed",
+      "detail": "test tests::configures_exact_v07_target_parameters ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::configures_single_queue_with_derived_depth": {
+      "status": "passed",
+      "detail": "test tests::configures_single_queue_with_derived_depth ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::configures_unprivileged_control_without_user_recovery": {
+      "status": "passed",
+      "detail": "test tests::configures_unprivileged_control_without_user_recovery ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::daemon_shutdown_propagates_each_error": {
+      "status": "passed",
+      "detail": "test tests::daemon_shutdown_propagates_each_error ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::decodes_only_exact_supported_requests": {
+      "status": "passed",
+      "detail": "test tests::decodes_only_exact_supported_requests ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::discard_and_write_zeroes_unmap_blocks_and_persist": {
+      "status": "passed",
+      "detail": "test tests::discard_and_write_zeroes_unmap_blocks_and_persist ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::exclusive_backing_lock_tracks_the_inode_and_owner_process": {
+      "status": "passed",
+      "detail": "test tests::exclusive_backing_lock_tracks_the_inode_and_owner_process ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::failfast_read_hints_preserve_results_and_geometry_checks": {
+      "status": "passed",
+      "detail": "test tests::failfast_read_hints_preserve_results_and_geometry_checks ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::fatal_engine_error_is_completed_before_post_failure_work_is_rejected": {
+      "status": "passed",
+      "detail": "test tests::fatal_engine_error_is_completed_before_post_failure_work_is_rejected ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::fetched_requests_complete_once_without_shutdown_or_post_failure_engine_io": {
+      "status": "passed",
+      "detail": "test tests::fetched_requests_complete_once_without_shutdown_or_post_failure_engine_io ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::format_new_honors_partial_fill_that_default_rejects": {
+      "status": "passed",
+      "detail": "test tests::format_new_honors_partial_fill_that_default_rejects ... info event=format logical_bytes=134217728 raw_bytes=134217728 segment_bytes=8388608 min_logical_fill_percent=50 expected_max_logical_fill_percent=51\nok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::format_new_never_overwrites_an_existing_path": {
+      "status": "passed",
+      "detail": "test tests::format_new_never_overwrites_an_existing_path ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::format_new_rejects_invalid_or_insufficient_space_before_file_io": {
+      "status": "passed",
+      "detail": "test tests::format_new_rejects_invalid_or_insufficient_space_before_file_io ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::format_new_sizes_formats_and_opens_exact_image": {
+      "status": "passed",
+      "detail": "test tests::format_new_sizes_formats_and_opens_exact_image ... info event=format logical_bytes=134217728 raw_bytes=335544320 segment_bytes=16777216 min_logical_fill_percent=100 expected_max_logical_fill_percent=100\nok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::format_requires_logical_and_raw_sizes_and_defaults_to_full_logical_fill": {
+      "status": "passed",
+      "detail": "test tests::format_requires_logical_and_raw_sizes_and_defaults_to_full_logical_fill ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::invalid_optional_ledger_fails_before_backing_creation": {
+      "status": "passed",
+      "detail": "test tests::invalid_optional_ledger_fails_before_backing_creation ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::latched_enospc_preserves_errno_and_fails_the_queue": {
+      "status": "passed",
+      "detail": "test tests::latched_enospc_preserves_errno_and_fails_the_queue ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::maps_engine_capacity_and_fatal_errors_to_stable_errno": {
+      "status": "passed",
+      "detail": "test tests::maps_engine_capacity_and_fatal_errors_to_stable_errno ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::metadata_hint_preserves_read_write_decoding_and_validation": {
+      "status": "passed",
+      "detail": "test tests::metadata_hint_preserves_read_write_decoding_and_validation ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::multi_block_request_splits_into_consecutive_logical_blocks": {
+      "status": "passed",
+      "detail": "test tests::multi_block_request_splits_into_consecutive_logical_blocks ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::parses_explicit_commands": {
+      "status": "passed",
+      "detail": "test tests::parses_explicit_commands ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::readiness_line_is_explicitly_flushed_and_flush_errors_are_returned": {
+      "status": "passed",
+      "detail": "test tests::readiness_line_is_explicitly_flushed_and_flush_errors_are_returned ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::rejects_a_short_libublk_buffer_without_engine_io": {
+      "status": "passed",
+      "detail": "test tests::rejects_a_short_libublk_buffer_without_engine_io ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::rejects_duplicate_sizes_byte_flags_aliases_and_forced_segments": {
+      "status": "passed",
+      "detail": "test tests::rejects_duplicate_sizes_byte_flags_aliases_and_forced_segments ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::rejects_invalid_arguments_and_negative_delete_ids": {
+      "status": "passed",
+      "detail": "test tests::rejects_invalid_arguments_and_negative_delete_ids ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::serve_config_validation_and_depth_derivation": {
+      "status": "passed",
+      "detail": "test tests::serve_config_validation_and_depth_derivation ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::shutdown_reports_queue_and_close_errors": {
+      "status": "passed",
+      "detail": "test tests::shutdown_reports_queue_and_close_errors ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::shutdown_waits_for_in_flight_work_before_stopping": {
+      "status": "passed",
+      "detail": "test tests::shutdown_waits_for_in_flight_work_before_stopping ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::signal_state_stops_new_work_and_handler_is_restored": {
+      "status": "passed",
+      "detail": "test tests::signal_state_stops_new_work_and_handler_is_restored ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--bin=block-storage-ublk/tests::stop_control_uses_recorded_id_on_stop_thread": {
+      "status": "passed",
+      "detail": "test tests::stop_control_uses_recorded_id_on_stop_thread ... ok. Command exited 0. Log: 028-cargo.log"
+    },
+    "rust:rust:--doc/io_accounting::PendingOperation": {
+      "status": "passed",
+      "detail": "test src/io_accounting.rs - io_accounting::PendingOperation (line 275) - compile fail ... ok. Command exited 0. Log: 029-cargo.log"
+    },
+    "rust:rust:--lib/accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch": {
+      "status": "passed",
+      "detail": "test accounted_io::fault_plan::adr05_seam::backing_enospc_at_checkpoint_b_final_fsync_must_latch ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/accounted_io::fault_plan::adr05_seam::completed_fsync_can_report_uncertain_completion_and_latch_volume": {
+      "status": "passed",
+      "detail": "test accounted_io::fault_plan::adr05_seam::completed_fsync_can_report_uncertain_completion_and_latch_volume ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/accounted_io::fault_plan::adr05_seam::format_no_hit_is_byte_identical_and_enospc_stops_before_first_root": {
+      "status": "passed",
+      "detail": "test accounted_io::fault_plan::adr05_seam::format_no_hit_is_byte_identical_and_enospc_stops_before_first_root ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/accounted_io::fault_plan::adr05_seam::open_io_and_zero_byte_read_fail_without_image_changes": {
+      "status": "passed",
+      "detail": "test accounted_io::fault_plan::adr05_seam::open_io_and_zero_byte_read_fail_without_image_changes ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/accounted_io::fault_plan::adr05_seam::pre_io_capacity_enospc_keeps_volume_usable": {
+      "status": "passed",
+      "detail": "test accounted_io::fault_plan::adr05_seam::pre_io_capacity_enospc_keeps_volume_usable ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/accounted_io::fault_plan::adr05_seam::writev_short_releases_no_bytes_and_charges_existing_failure_path": {
+      "status": "passed",
+      "detail": "test accounted_io::fault_plan::adr05_seam::writev_short_releases_no_bytes_and_charges_existing_failure_path ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::budget::tests::division_is_proportional_floored_and_rejects_oversubscription": {
+      "status": "passed",
+      "detail": "test format_v4::budget::tests::division_is_proportional_floored_and_rejects_oversubscription ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::data_record::tests::data_record_after_a_link_starts_its_segment": {
+      "status": "passed",
+      "detail": "test format_v4::data_record::tests::data_record_after_a_link_starts_its_segment ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::data_record::tests::every_payload_count_round_trips_from_both_segment_positions": {
+      "status": "passed",
+      "detail": "test format_v4::data_record::tests::every_payload_count_round_trips_from_both_segment_positions ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::data_record::tests::rejects_duplicate_out_of_range_unused_and_misframed_footers": {
+      "status": "passed",
+      "detail": "test format_v4::data_record::tests::rejects_duplicate_out_of_range_unused_and_misframed_footers ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::descriptor::tests::descriptor_fields_have_exact_offsets_and_checksum": {
+      "status": "passed",
+      "detail": "test format_v4::descriptor::tests::descriptor_fields_have_exact_offsets_and_checksum ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::descriptor::tests::descriptor_rejects_malformed_fields_without_panic": {
+      "status": "passed",
+      "detail": "test format_v4::descriptor::tests::descriptor_rejects_malformed_fields_without_panic ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::descriptor::tests::equal_lsn_roots_must_match_and_growth_may_differ": {
+      "status": "passed",
+      "detail": "test format_v4::descriptor::tests::equal_lsn_roots_must_match_and_growth_may_differ ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::format_plan::tests::format_plan_caps_fill_at_the_logical_size_and_respects_table_reach": {
+      "status": "passed",
+      "detail": "test format_v4::format_plan::tests::format_plan_caps_fill_at_the_logical_size_and_respects_table_reach ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::format_plan::tests::format_plan_rejects_invalid_sizes_targets_and_insufficient_capacity": {
+      "status": "passed",
+      "detail": "test format_v4::format_plan::tests::format_plan_rejects_invalid_sizes_targets_and_insufficient_capacity ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::format_plan::tests::format_plan_selects_largest_qualifying_size": {
+      "status": "passed",
+      "detail": "test format_v4::format_plan::tests::format_plan_selects_largest_qualifying_size ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::geometry::tests::geometry_derives_segments_pages_and_tree_shape": {
+      "status": "passed",
+      "detail": "test format_v4::geometry::tests::geometry_derives_segments_pages_and_tree_shape ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::geometry::tests::geometry_rejects_bounds_and_growth_is_monotonic": {
+      "status": "passed",
+      "detail": "test format_v4::geometry::tests::geometry_rejects_bounds_and_growth_is_monotonic ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::heads::tests::append_plan_matches_hand_counted_packing": {
+      "status": "passed",
+      "detail": "test format_v4::heads::tests::append_plan_matches_hand_counted_packing ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::heads::tests::head_cursor_reserves_the_link_slot_and_restarts_after_a_link": {
+      "status": "passed",
+      "detail": "test format_v4::heads::tests::head_cursor_reserves_the_link_slot_and_restarts_after_a_link ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::heads::tests::opening_a_new_user_head_does_not_create_capacity_while_the_reserve_is_in_debt": {
+      "status": "passed",
+      "detail": "test format_v4::heads::tests::opening_a_new_user_head_does_not_create_capacity_while_the_reserve_is_in_debt ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::heads::tests::reserve_and_user_availability_follow_the_plan": {
+      "status": "passed",
+      "detail": "test format_v4::heads::tests::reserve_and_user_availability_follow_the_plan ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::index_page::tests::index_page_has_exact_layout_for_both_levels": {
+      "status": "passed",
+      "detail": "test format_v4::index_page::tests::index_page_has_exact_layout_for_both_levels ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::index_page::tests::index_page_rejects_malformed_children_levels_and_identity": {
+      "status": "passed",
+      "detail": "test format_v4::index_page::tests::index_page_rejects_malformed_children_levels_and_identity ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::mapping_index::tests::snapshot_updates_dirty_their_direct_page_and_parents": {
+      "status": "passed",
+      "detail": "test format_v4::mapping_index::tests::snapshot_updates_dirty_their_direct_page_and_parents ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::mapping_page::tests::mapping_framing_survives_only_body_damage": {
+      "status": "passed",
+      "detail": "test format_v4::mapping_page::tests::mapping_framing_survives_only_body_damage ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::mapping_page::tests::mapping_snapshot_keeps_the_format_3_layout_with_a_format_4_header": {
+      "status": "passed",
+      "detail": "test format_v4::mapping_page::tests::mapping_snapshot_keeps_the_format_3_layout_with_a_format_4_header ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::mapping_page::tests::rejects_malformed_snapshots_and_reserved_address_bit": {
+      "status": "passed",
+      "detail": "test format_v4::mapping_page::tests::rejects_malformed_snapshots_and_reserved_address_bit ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::reclaim::scheduler::tests::continuous_requests_cannot_postpone_the_maximum_interval": {
+      "status": "passed",
+      "detail": "test format_v4::reclaim::scheduler::tests::continuous_requests_cannot_postpone_the_maximum_interval ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::reclaim::scheduler::tests::idle_wait_is_distinct_from_the_maintenance_deadline": {
+      "status": "passed",
+      "detail": "test format_v4::reclaim::scheduler::tests::idle_wait_is_distinct_from_the_maintenance_deadline ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::reclaim::scheduler::tests::rejects_an_idle_wait_longer_than_the_interval": {
+      "status": "passed",
+      "detail": "test format_v4::reclaim::scheduler::tests::rejects_an_idle_wait_longer_than_the_interval - should panic ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::reservation::tests::reservation_counts_payloads_footers_snapshots_and_crossings": {
+      "status": "passed",
+      "detail": "test format_v4::reservation::tests::reservation_counts_payloads_footers_snapshots_and_crossings ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::reservation::tests::reservation_covers_all_small_dirty_sets_and_pressure_schedules": {
+      "status": "passed",
+      "detail": "test format_v4::reservation::tests::reservation_covers_all_small_dirty_sets_and_pressure_schedules ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::segment_table::tests::flags_pack_state_and_head_exactly_and_reject_invalid_bits": {
+      "status": "passed",
+      "detail": "test format_v4::segment_table::tests::flags_pack_state_and_head_exactly_and_reject_invalid_bits ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::segment_table::tests::last_partial_page_and_boundary_entries_round_trip": {
+      "status": "passed",
+      "detail": "test format_v4::segment_table::tests::last_partial_page_and_boundary_entries_round_trip ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::segment_table::tests::table_page_has_exact_parallel_arrays_and_round_trips": {
+      "status": "passed",
+      "detail": "test format_v4::segment_table::tests::table_page_has_exact_parallel_arrays_and_round_trips ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::segment_table::tests::table_page_rejects_malformed_entries_identity_and_padding": {
+      "status": "passed",
+      "detail": "test format_v4::segment_table::tests::table_page_rejects_malformed_entries_identity_and_padding ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::segments::tests::allocation_takes_the_lowest_free_segment_and_skips_pending_discards": {
+      "status": "passed",
+      "detail": "test format_v4::segments::tests::allocation_takes_the_lowest_free_segment_and_skips_pending_discards ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::segments::tests::conservation_detects_dangling_references": {
+      "status": "passed",
+      "detail": "test format_v4::segments::tests::conservation_detects_dangling_references ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::segments::tests::freeing_needs_two_publications_and_republishes_pending_state_after_fallback": {
+      "status": "passed",
+      "detail": "test format_v4::segments::tests::freeing_needs_two_publications_and_republishes_pending_state_after_fallback ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::segments::tests::table_pages_track_dirty_state_metadata_references_and_growth": {
+      "status": "passed",
+      "detail": "test format_v4::segments::tests::table_pages_track_dirty_state_metadata_references_and_growth ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::small_records::tests::backing_growth_is_monotonic_and_validated_beyond_the_header_checksum": {
+      "status": "passed",
+      "detail": "test format_v4::small_records::tests::backing_growth_is_monotonic_and_validated_beyond_the_header_checksum ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::small_records::tests::discard_ranges_round_trip_at_both_ends_and_reject_invalid_ranges": {
+      "status": "passed",
+      "detail": "test format_v4::small_records::tests::discard_ranges_round_trip_at_both_ends_and_reject_invalid_ranges ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::small_records::tests::segment_link_round_trips_and_rejects_self_and_out_of_range_targets": {
+      "status": "passed",
+      "detail": "test format_v4::small_records::tests::segment_link_round_trips_and_rejects_self_and_out_of_range_targets ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::tests::frame_rule_follows_predecessor_inside_a_segment_and_restarts_after_a_link": {
+      "status": "passed",
+      "detail": "test format_v4::tests::frame_rule_follows_predecessor_inside_a_segment_and_restarts_after_a_link ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::tests::frame_rule_rejects_backward_chains_descriptor_blocks_and_multi_block_metadata": {
+      "status": "passed",
+      "detail": "test format_v4::tests::frame_rule_rejects_backward_chains_descriptor_blocks_and_multi_block_metadata ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::tests::header_has_exact_bytes_and_every_kind_round_trips": {
+      "status": "passed",
+      "detail": "test format_v4::tests::header_has_exact_bytes_and_every_kind_round_trips ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::tests::metadata_trailer_separates_framing_from_body_integrity": {
+      "status": "passed",
+      "detail": "test format_v4::tests::metadata_trailer_separates_framing_from_body_integrity ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/format_v4::tests::rejects_versions_kinds_padding_truncation_and_corruption": {
+      "status": "passed",
+      "detail": "test format_v4::tests::rejects_versions_kinds_padding_truncation_and_corruption ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::budget_is_reserved_before_io_and_never_refunded": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::budget_is_reserved_before_io_and_never_refunded ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::create_rejects_zero_budget_and_existing_path": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::create_rejects_zero_budget_and_existing_path ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::dropped_guard_marks_unknown_completion_incomplete": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::dropped_guard_marks_unknown_completion_incomplete ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::exact_budget_ceiling_is_admitted": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::exact_budget_ceiling_is_admitted ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::new_writer_refuses_abandoned_pending_work_without_repair": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::new_writer_refuses_abandoned_pending_work_without_repair ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::new_writer_refuses_odd_epoch_without_repair": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::new_writer_refuses_odd_epoch_without_repair ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::only_one_writer_holds_the_lease": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::only_one_writer_holds_the_lease ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::readers_see_pending_and_exact_completions": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::readers_see_pending_and_exact_completions ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::reservation_and_completion_overflow_are_fail_closed": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::reservation_and_completion_overflow_are_fail_closed ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::subprocess_reader_sees_updates": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::subprocess_reader_sees_updates ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/io_accounting::tests::zero_length_io_is_rejected": {
+      "status": "passed",
+      "detail": "test io_accounting::tests::zero_length_io_is_rejected ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/logging::tests::each_level_permits_exactly_the_records_at_or_below_it": {
+      "status": "passed",
+      "detail": "test logging::tests::each_level_permits_exactly_the_records_at_or_below_it ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/logging::tests::level_names_round_trip_through_parsing": {
+      "status": "passed",
+      "detail": "test logging::tests::level_names_round_trip_through_parsing ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::clock::tests::dirty_slots_are_skipped_and_scan_is_bounded": {
+      "status": "passed",
+      "detail": "test mapping_cache::clock::tests::dirty_slots_are_skipped_and_scan_is_bounded ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::clock::tests::one_slot_and_bitset_word_boundaries": {
+      "status": "passed",
+      "detail": "test mapping_cache::clock::tests::one_slot_and_bitset_word_boundaries ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::clock::tests::rejects_inconsistent_slot_event": {
+      "status": "passed",
+      "detail": "test mapping_cache::clock::tests::rejects_inconsistent_slot_event - should panic ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::clock::tests::rejects_zero_capacity": {
+      "status": "passed",
+      "detail": "test mapping_cache::clock::tests::rejects_zero_capacity ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::clock::tests::second_chances_access_and_cursor_wrap": {
+      "status": "passed",
+      "detail": "test mapping_cache::clock::tests::second_chances_access_and_cursor_wrap ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::budget_rounding_minimum_and_page_cap": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::budget_rounding_minimum_and_page_cap ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::cancelled_miss_does_not_evict_or_consume_a_slot": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::cancelled_miss_does_not_evict_or_consume_a_slot ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::default_budgets_choose_largest_fitting_capacity": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::default_budgets_choose_largest_fitting_capacity ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::deterministic_churn_matches_reference_mapping_without_allocation_growth": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::deterministic_churn_matches_reference_mapping_without_allocation_growth ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::dirty_protection_publication_and_retry_have_exact_counters": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::dirty_protection_publication_and_retry_have_exact_counters ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::dirty_updates_pressure_retry_iteration_and_snapshots_do_not_allocate": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::dirty_updates_pressure_retry_iteration_and_snapshots_do_not_allocate ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::hashmap_churn_stays_preallocated_across_capacity_boundaries": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::hashmap_churn_stays_preallocated_across_capacity_boundaries ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::invalid_updates_and_loads_preserve_contents_and_dirty_state": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::invalid_updates_and_loads_preserve_contents_and_dirty_state ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::mapping_layout_and_empty_cache": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::mapping_layout_and_empty_cache ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::rejects_invalid_geometry_capacity_and_size_overflow": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::rejects_invalid_geometry_capacity_and_size_overflow ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::sorted_dirty_pages_and_prefetch_are_bounded_and_allocation_free": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::sorted_dirty_pages_and_prefetch_are_bounded_and_allocation_free ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/mapping_cache::tests::synthetic_zero_page_is_a_clean_miss_then_a_hit": {
+      "status": "passed",
+      "detail": "test mapping_cache::tests::synthetic_zero_page_is_a_clean_miss_then_a_hit ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::actual_short_backing_read_marks_accounting_incomplete": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::actual_short_backing_read_marks_accounting_incomplete ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::checkpoint_load_accounts_reads_and_skips_unmapped_pages": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::checkpoint_load_accounts_reads_and_skips_unmapped_pages ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::checkpoint_publish_preserves_the_old_root_until_all_writes_succeed": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::checkpoint_publish_preserves_the_old_root_until_all_writes_succeed ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::exact_budget_exhaustion_rejects_write_before_backing_modification": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::exact_budget_exhaustion_rejects_write_before_backing_modification ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::failed_pressure_publication_counts_completed_io_without_counting_publication": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::failed_pressure_publication_counts_completed_io_without_counting_publication ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::format_accounts_table_page_descriptors_and_barriers": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::format_accounts_table_page_descriptors_and_barriers ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::open_write_read_and_close_account_exact_deltas": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::open_write_read_and_close_account_exact_deltas ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::public_accounting_apis_count_format_open_write_checkpoint_and_close": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::public_accounting_apis_count_format_open_write_checkpoint_and_close ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::record_io_failure_latches_before_mapping_publication": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::record_io_failure_latches_before_mapping_publication ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::accounting_integration::unknown_accounted_opcode_is_rejected_and_marks_totals_incomplete": {
+      "status": "passed",
+      "detail": "test tests::accounting_integration::unknown_accounted_opcode_is_rejected_and_marks_totals_incomplete ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::allocations::detects_allocations": {
+      "status": "passed",
+      "detail": "test tests::allocations::detects_allocations ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_batches::batched_checkpoint_survives_sigkill_before_root_publication": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_batches::batched_checkpoint_survives_sigkill_before_root_publication ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_batches::checkpoint_batches_preserve_records_and_exact_io_at_chunk_boundaries": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_batches::checkpoint_batches_preserve_records_and_exact_io_at_chunk_boundaries ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_batches::missing_snapshot_blocks_do_not_publish_later_out_of_order_records": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_batches::missing_snapshot_blocks_do_not_publish_later_out_of_order_records ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_batches::short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_batches::short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::checkpoints_before_buffered_group_exceeding_replay_bound": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::checkpoints_before_buffered_group_exceeding_replay_bound ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::close_persists_snapshot_index_page_and_descriptor": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::close_persists_snapshot_index_page_and_descriptor ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::close_without_mapping_changes_does_not_publish_checkpoint": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::close_without_mapping_changes_does_not_publish_checkpoint ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::equal_lsn_checkpoints_must_describe_one_checkpoint": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::equal_lsn_checkpoints_must_describe_one_checkpoint ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::falls_back_from_corrupted_newest_descriptor_and_replays_tail": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::falls_back_from_corrupted_newest_descriptor_and_replays_tail ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::falls_back_from_corrupted_newest_index_page_and_replays_tail": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::falls_back_from_corrupted_newest_index_page_and_replays_tail ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::flush_persists_data_without_advancing_checkpoint": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::flush_persists_data_without_advancing_checkpoint ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::log_full_write_does_not_publish_live_checkpoint": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::log_full_write_does_not_publish_live_checkpoint ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::payload_damage_after_flush_is_local_to_the_mapped_version": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::payload_damage_after_flush_is_local_to_the_mapped_version ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::reconstructs_every_recovery_cursor_from_replayed_state": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::reconstructs_every_recovery_cursor_from_replayed_state ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::rejects_invalid_checkpoint_after_bytes_before_touching_backing": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::rejects_invalid_checkpoint_after_bytes_before_touching_backing ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::checkpoint_replay::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation": {
+      "status": "passed",
+      "detail": "test tests::checkpoint_replay::rejects_two_unusable_checkpoint_roots_without_panic_or_mutation ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::cleaner_thread::a_failed_cleaner_read_latches_the_volume_and_leaves_the_backing_consistent": {
+      "status": "passed",
+      "detail": "test tests::cleaner_thread::a_failed_cleaner_read_latches_the_volume_and_leaves_the_backing_consistent ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::cleaner_thread::aged_quarter_full_volume_closes_publishes_and_reopens": {
+      "status": "passed",
+      "detail": "test tests::cleaner_thread::aged_quarter_full_volume_closes_publishes_and_reopens ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::cleaner_thread::close_with_a_window_read_outstanding_joins_the_cleaner_and_keeps_every_block": {
+      "status": "passed",
+      "detail": "test tests::cleaner_thread::close_with_a_window_read_outstanding_joins_the_cleaner_and_keeps_every_block ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::cleaner_thread::delayed_cleaner_reads_make_the_writer_wait_and_wake_it_through_the_descriptor": {
+      "status": "passed",
+      "detail": "test tests::cleaner_thread::delayed_cleaner_reads_make_the_writer_wait_and_wake_it_through_the_descriptor ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::cleaner_thread::idle_maintenance_between_writes_never_starves_the_writer_or_treadmills": {
+      "status": "passed",
+      "detail": "test tests::cleaner_thread::idle_maintenance_between_writes_never_starves_the_writer_or_treadmills ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::cleaner_thread::pressure_blocks_on_the_delayed_report_instead_of_failing": {
+      "status": "passed",
+      "detail": "test tests::cleaner_thread::pressure_blocks_on_the_delayed_report_instead_of_failing ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::cleaner_thread::scheduled_idle_and_due_ticks_run_and_the_workload_never_starves": {
+      "status": "passed",
+      "detail": "test tests::cleaner_thread::scheduled_idle_and_due_ticks_run_and_the_workload_never_starves ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_geometry::format_three_images_are_rejected_without_modification": {
+      "status": "passed",
+      "detail": "test tests::format_geometry::format_three_images_are_rejected_without_modification ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_geometry::format_validates_geometry_boundaries": {
+      "status": "passed",
+      "detail": "test tests::format_geometry::format_validates_geometry_boundaries ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_geometry::format_writes_valid_empty_checkpoint_roots": {
+      "status": "passed",
+      "detail": "test tests::format_geometry::format_writes_valid_empty_checkpoint_roots ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_geometry::open_reconstructs_empty_volume_and_requires_matching_roots": {
+      "status": "passed",
+      "detail": "test tests::format_geometry::open_reconstructs_empty_volume_and_requires_matching_roots ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_geometry::public_cache_configuration_reports_requested_and_effective_capacity": {
+      "status": "passed",
+      "detail": "test tests::format_geometry::public_cache_configuration_reports_requested_and_effective_capacity ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_geometry::xxh3_matches_persistent_format_vectors": {
+      "status": "passed",
+      "detail": "test tests::format_geometry::xxh3_matches_persistent_format_vectors ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_v4_protocol::bounded_recovery_publishes_one_root_after_replaying_windows": {
+      "status": "passed",
+      "detail": "test tests::format_v4_protocol::bounded_recovery_publishes_one_root_after_replaying_windows ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_v4_protocol::format_writes_initial_table_page_and_two_equal_roots": {
+      "status": "passed",
+      "detail": "test tests::format_v4_protocol::format_writes_initial_table_page_and_two_equal_roots ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_v4_protocol::link_fsync_precedes_every_write_into_the_new_segment": {
+      "status": "passed",
+      "detail": "test tests::format_v4_protocol::link_fsync_precedes_every_write_into_the_new_segment ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_v4_protocol::publication_moves_snapshots_index_and_table_pages_and_older_root_remains_a_fallback": {
+      "status": "passed",
+      "detail": "test tests::format_v4_protocol::publication_moves_snapshots_index_and_table_pages_and_older_root_remains_a_fallback ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_v4_protocol::recovery_merges_both_heads_by_global_lsn_and_follows_durable_links": {
+      "status": "passed",
+      "detail": "test tests::format_v4_protocol::recovery_merges_both_heads_by_global_lsn_and_follows_durable_links ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_v4_protocol::replay_cursor_skips_intact_old_metadata_but_not_damaged_framing": {
+      "status": "passed",
+      "detail": "test tests::format_v4_protocol::replay_cursor_skips_intact_old_metadata_but_not_damaged_framing ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::format_v4_protocol::torn_data_footer_ends_the_prefix_but_torn_metadata_fails_closed": {
+      "status": "passed",
+      "detail": "test tests::format_v4_protocol::torn_data_footer_ends_the_prefix_but_torn_metadata_fails_closed ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::fsync01::fsync01_controls": {
+      "status": "passed",
+      "detail": "test tests::fsync01::fsync01_controls ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::fsync01::fsync01_engine": {
+      "status": "passed",
+      "detail": "test tests::fsync01::fsync01_engine ... info event=records_replay through_lsn=5 attempt=2 barrier_errno=5 records=2 blocks=4\ninfo event=records_replay_done through_lsn=5 attempt=2 elapsed_ms=51 success=true errno=None\nok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::io_uring::destroys_ring_before_returning_permanent_wait_error": {
+      "status": "passed",
+      "detail": "test tests::io_uring::destroys_ring_before_returning_permanent_wait_error ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::io_uring::direct_io_uring_write_survives_fsync_and_reopen": {
+      "status": "passed",
+      "detail": "test tests::io_uring::direct_io_uring_write_survives_fsync_and_reopen ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::io_uring::waits_when_submission_succeeds_before_completion_exists": {
+      "status": "passed",
+      "detail": "test tests::io_uring::waits_when_submission_succeeds_before_completion_exists ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::mapping_prefetch::nonsequential_misses_do_not_prefetch": {
+      "status": "passed",
+      "detail": "test tests::mapping_prefetch::nonsequential_misses_do_not_prefetch ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::mapping_prefetch::prefetch_preserves_dirty_and_resident_pages_and_stops_at_nonadjacent_pointers": {
+      "status": "passed",
+      "detail": "test tests::mapping_prefetch::prefetch_preserves_dirty_and_resident_pages_and_stops_at_nonadjacent_pointers ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::mapping_prefetch::short_prefetch_read_exposes_no_mapping_or_payload": {
+      "status": "passed",
+      "detail": "test tests::mapping_prefetch::short_prefetch_read_exposes_no_mapping_or_payload ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::mapping_prefetch::sorted_snapshots_prefetch_in_one_read_in_cold_and_full_caches": {
+      "status": "passed",
+      "detail": "test tests::mapping_prefetch::sorted_snapshots_prefetch_in_one_read_in_cold_and_full_caches ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::mapping_prefetch::speculative_corruption_is_not_installed_and_demand_corruption_still_fails": {
+      "status": "passed",
+      "detail": "test tests::mapping_prefetch::speculative_corruption_is_not_installed_and_demand_corruption_still_fails ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::packed_writes::incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes": {
+      "status": "passed",
+      "detail": "test tests::packed_writes::incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::packed_writes::packed_buffers_cross_record_boundaries_with_one_log_flush": {
+      "status": "passed",
+      "detail": "test tests::packed_writes::packed_buffers_cross_record_boundaries_with_one_log_flush ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::packed_writes::packed_record_recovers_all_mappings_after_a_partial_in_memory_update": {
+      "status": "passed",
+      "detail": "test tests::packed_writes::packed_record_recovers_all_mappings_after_a_partial_in_memory_update ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::packed_writes::preflight_checkpoint_crashes_preserve_the_previous_complete_group": {
+      "status": "passed",
+      "detail": "test tests::packed_writes::preflight_checkpoint_crashes_preserve_the_previous_complete_group ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::packed_writes::pressure_is_resolved_before_a_group_and_overlapping_dirty_pages_need_no_checkpoint": {
+      "status": "passed",
+      "detail": "test tests::packed_writes::pressure_is_resolved_before_a_group_and_overlapping_dirty_pages_need_no_checkpoint ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::packed_writes::removing_a_range_keeps_the_remaining_payloads_reachable_without_allocating": {
+      "status": "passed",
+      "detail": "test tests::packed_writes::removing_a_range_keeps_the_remaining_payloads_reachable_without_allocating ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::packed_writes::sorting_buffer_preserves_payload_locations_and_coalesced_values_without_allocating": {
+      "status": "passed",
+      "detail": "test tests::packed_writes::sorting_buffer_preserves_payload_locations_and_coalesced_values_without_allocating ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::buffered_write_is_volatile_until_flush_across_sigkill": {
+      "status": "passed",
+      "detail": "test tests::process_crash::buffered_write_is_volatile_until_flush_across_sigkill ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::crash_test_modes_select_smoke_and_exhaustive_work": {
+      "status": "passed",
+      "detail": "test tests::process_crash::crash_test_modes_select_smoke_and_exhaustive_work ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_after_checkpoint_records_fsync_boundary": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_after_checkpoint_records_fsync_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_after_descriptor_fsync_boundary": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_after_descriptor_fsync_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_after_descriptor_write_boundary": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_after_descriptor_write_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_after_index_page_write_boundary": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_after_index_page_write_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_after_kill_at_log_fsync_boundary": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_after_kill_at_log_fsync_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_after_kill_at_mapping_publication_boundary": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_after_kill_at_mapping_publication_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_after_kill_at_record_write_boundary": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_after_kill_at_record_write_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_after_uncaught_unwinding_panic_without_close": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_after_uncaught_unwinding_panic_without_close ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_multiple_flushed_writes_and_overwrites_after_sigkill": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_multiple_flushed_writes_and_overwrites_after_sigkill ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::process_crash::recover_one_flushed_write_after_sigkill_without_close": {
+      "status": "passed",
+      "detail": "test tests::process_crash::recover_one_flushed_write_after_sigkill_without_close ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::backing_discard_can_be_disabled": {
+      "status": "passed",
+      "detail": "test tests::reclaim::backing_discard_can_be_disabled ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::backing_growth_adds_free_segments_and_is_idempotent_by_bound": {
+      "status": "passed",
+      "detail": "test tests::reclaim::backing_growth_adds_free_segments_and_is_idempotent_by_bound ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::cleaner_follows_backing_growth_at_runtime_and_after_replay": {
+      "status": "passed",
+      "detail": "test tests::reclaim::cleaner_follows_backing_growth_at_runtime_and_after_replay ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data": {
+      "status": "passed",
+      "detail": "test tests::reclaim::descriptor_survival::failed_final_sync_preserves_flushed_data ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched": {
+      "status": "passed",
+      "detail": "test tests::reclaim::entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::fallback_to_the_older_root_replays_a_link_into_a_pending_segment": {
+      "status": "passed",
+      "detail": "test tests::reclaim::fallback_to_the_older_root_replays_a_link_into_a_pending_segment ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::growth_record_survives_sigkill_at_both_boundaries": {
+      "status": "passed",
+      "detail": "test tests::reclaim::growth_record_survives_sigkill_at_both_boundaries ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::overwrites_beyond_capacity_reuse_segments_and_keep_latest_values": {
+      "status": "passed",
+      "detail": "test tests::reclaim::overwrites_beyond_capacity_reuse_segments_and_keep_latest_values ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::pressure_publishes_a_metadata_only_victim_without_reopen": {
+      "status": "passed",
+      "detail": "test tests::reclaim::pressure_publishes_a_metadata_only_victim_without_reopen ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn": {
+      "status": "passed",
+      "detail": "test tests::reclaim::proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::relocation_accounts_for_dirty_pages_between_nonadjacent_source_pages": {
+      "status": "passed",
+      "detail": "test tests::reclaim::relocation_accounts_for_dirty_pages_between_nonadjacent_source_pages ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::relocation_splits_records_that_need_more_pages_than_the_cache": {
+      "status": "passed",
+      "detail": "test tests::reclaim::relocation_splits_records_that_need_more_pages_than_the_cache ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::steady_state_writes_reads_and_maintenance_allocate_nothing": {
+      "status": "passed",
+      "detail": "test tests::reclaim::steady_state_writes_reads_and_maintenance_allocate_nothing ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy": {
+      "status": "passed",
+      "detail": "test tests::reclaim::user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim::victim_left_with_only_current_metadata_is_released_after_the_next_publication": {
+      "status": "passed",
+      "detail": "test tests::reclaim::victim_left_with_only_current_metadata_is_released_after_the_next_publication ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::reclaim_crash::relocation_and_barrier_crashes_keep_a_consistent_prefix_and_a_usable_volume": {
+      "status": "passed",
+      "detail": "test tests::reclaim_crash::relocation_and_barrier_crashes_keep_a_consistent_prefix_and_a_usable_volume ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::records_retry::discard_invalidates_an_otherwise_replayable_records_epoch": {
+      "status": "passed",
+      "detail": "test tests::records_retry::discard_invalidates_an_otherwise_replayable_records_epoch ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::records_retry::enabling_mid_epoch_does_not_replay_an_incomplete_history": {
+      "status": "passed",
+      "detail": "test tests::records_retry::enabling_mid_epoch_does_not_replay_an_incomplete_history ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::records_retry::one_shot_report_after_sync_replays_without_another_log_append": {
+      "status": "passed",
+      "detail": "test tests::records_retry::one_shot_report_after_sync_replays_without_another_log_append ... info event=records_replay through_lsn=2 attempt=2 barrier_errno=5 records=1 blocks=2\ninfo event=records_replay_done through_lsn=2 attempt=2 elapsed_ms=55 success=true errno=None\nok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::records_retry::persistent_records_barrier_error_fences_after_one_retry": {
+      "status": "passed",
+      "detail": "test tests::records_retry::persistent_records_barrier_error_fences_after_one_retry ... info event=records_replay through_lsn=2 attempt=2 barrier_errno=5 records=1 blocks=2\ninfo event=records_replay_done through_lsn=2 attempt=2 elapsed_ms=55 success=false errno=Some(5)\nok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::records_retry::records_capacity_sync_fails_closed_before_evicting_retained_bytes": {
+      "status": "passed",
+      "detail": "test tests::records_retry::records_capacity_sync_fails_closed_before_evicting_retained_bytes ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::records_retry::records_retry_requires_exclusive_lock_and_heap_headroom": {
+      "status": "passed",
+      "detail": "test tests::records_retry::records_retry_requires_exclusive_lock_and_heap_headroom ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::seeded_dst::generated_and_replayed_histories_match_and_reject_misdirection": {
+      "status": "passed",
+      "detail": "test tests::seeded_dst::generated_and_replayed_histories_match_and_reject_misdirection ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::seeded_dst::plan::v1_wire_format_and_bounds": {
+      "status": "passed",
+      "detail": "test tests::seeded_dst::plan::v1_wire_format_and_bounds ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::invalid_gap_stops_replay_and_clears_the_rest_of_both_open_segments": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::invalid_gap_stops_replay_and_clears_the_rest_of_both_open_segments ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::recover_after_each_stale_tail_clear_batch_boundary": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::recover_after_each_stale_tail_clear_batch_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::recover_after_stale_tail_fsync_boundary": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::recover_after_stale_tail_fsync_boundary ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::recovery_accepts_every_format_four_payload_count": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::recovery_accepts_every_format_four_payload_count ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::rejects_invalid_footer_above_maximum_payloads": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::rejects_invalid_footer_above_maximum_payloads ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::rejects_invalid_footer_declaring_position_beyond_its_segment": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::rejects_invalid_footer_declaring_position_beyond_its_segment ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::rejects_invalid_footer_with_duplicate_lbas": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::rejects_invalid_footer_with_duplicate_lbas ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::rejects_invalid_footer_with_nonzero_unused_checksum": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::rejects_invalid_footer_with_nonzero_unused_checksum ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::rejects_invalid_footer_with_nonzero_unused_lba": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::rejects_invalid_footer_with_nonzero_unused_lba ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::rejects_invalid_footer_with_out_of_range_lba": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::rejects_invalid_footer_with_out_of_range_lba ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::rejects_invalid_footer_with_zero_payloads": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::rejects_invalid_footer_with_zero_payloads ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::stale_tail::stale_tail_clear_leaves_the_partial_trailing_segment_alone": {
+      "status": "passed",
+      "detail": "test tests::stale_tail::stale_tail_clear_leaves_the_partial_trailing_segment_alone ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::failed_write_is_not_published": {
+      "status": "passed",
+      "detail": "test tests::volume_write::failed_write_is_not_published ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::log_full_write_leaves_last_successful_value_readable_after_reopen": {
+      "status": "passed",
+      "detail": "test tests::volume_write::log_full_write_leaves_last_successful_value_readable_after_reopen ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::multiple_lbas_read_correctly_before_and_after_reopen": {
+      "status": "passed",
+      "detail": "test tests::volume_write::multiple_lbas_read_correctly_before_and_after_reopen ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::out_of_range_write_leaves_mapping_and_cursors_unchanged": {
+      "status": "passed",
+      "detail": "test tests::volume_write::out_of_range_write_leaves_mapping_and_cursors_unchanged ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen": {
+      "status": "passed",
+      "detail": "test tests::volume_write::overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::public_operations_complete_v0_4_acceptance": {
+      "status": "passed",
+      "detail": "test tests::volume_write::public_operations_complete_v0_4_acceptance ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::raw_footer_linkage_and_lsns_are_contiguous_inside_a_segment": {
+      "status": "passed",
+      "detail": "test tests::volume_write::raw_footer_linkage_and_lsns_are_contiguous_inside_a_segment ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::repeated_overwrite_returns_only_latest_value": {
+      "status": "passed",
+      "detail": "test tests::volume_write::repeated_overwrite_returns_only_latest_value ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::volume_write::write_block_appends_complete_raw_record_and_publishes_mapping": {
+      "status": "passed",
+      "detail": "test tests::volume_write::write_block_appends_complete_raw_record_and_publishes_mapping ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::write_buffer::checkpoint_index_round_trips_across_direct_pages": {
+      "status": "passed",
+      "detail": "test tests::write_buffer::checkpoint_index_round_trips_across_direct_pages ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::write_buffer::duplicate_lba_in_one_window_coalesces_to_the_latest_value": {
+      "status": "passed",
+      "detail": "test tests::write_buffer::duplicate_lba_in_one_window_coalesces_to_the_latest_value ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::write_buffer::enospc_is_returned_by_the_offending_write_not_a_later_flush": {
+      "status": "passed",
+      "detail": "test tests::write_buffer::enospc_is_returned_by_the_offending_write_not_a_later_flush ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::write_buffer::read_after_write_without_flush_returns_the_buffered_value": {
+      "status": "passed",
+      "detail": "test tests::write_buffer::read_after_write_without_flush_returns_the_buffered_value ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::write_buffer::release_stats_report_batch_occupancy_and_footer_ratio": {
+      "status": "passed",
+      "detail": "test tests::write_buffer::release_stats_report_batch_occupancy_and_footer_ratio ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::write_buffer::releases_at_record_boundaries_and_replays_multi_record_windows": {
+      "status": "passed",
+      "detail": "test tests::write_buffer::releases_at_record_boundaries_and_replays_multi_record_windows ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:rust:--lib/tests::write_buffer::short_backing_write_fails_the_release_without_publishing": {
+      "status": "passed",
+      "detail": "test tests::write_buffer::short_backing_write_fails_the_release_without_publishing ... ok. Command exited 0. Log: 030-cargo.log"
+    },
+    "rust:tools/blockcheck:--lib/payload::tests::rejects_other_lba_seed_and_damage": {
+      "status": "passed",
+      "detail": "test payload::tests::rejects_other_lba_seed_and_damage ... ok. Command exited 0. Log: 031-cargo.log"
+    },
+    "rust:tools/blockcheck:--lib/payload::tests::round_trips_its_own_payload": {
+      "status": "passed",
+      "detail": "test payload::tests::round_trips_its_own_payload ... ok. Command exited 0. Log: 031-cargo.log"
+    },
+    "rust:tools/blockcheck:--lib/payload::tests::zero_block_is_zero": {
+      "status": "passed",
+      "detail": "test payload::tests::zero_block_is_zero ... ok. Command exited 0. Log: 031-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/correct_target_passes_before_and_after_recovery": {
+      "status": "passed",
+      "detail": "test correct_target_passes_before_and_after_recovery ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/data_from_another_lba_is_detected_without_a_crash": {
+      "status": "passed",
+      "detail": "test data_from_another_lba_is_detected_without_a_crash ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/discarded_data_returning_after_recovery_is_detected": {
+      "status": "passed",
+      "detail": "test discarded_data_returning_after_recovery_is_detected ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/durable_data_lost_after_recovery_is_detected": {
+      "status": "passed",
+      "detail": "test durable_data_lost_after_recovery_is_detected ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/fault_scheduled_after_the_last_request_never_occurs": {
+      "status": "passed",
+      "detail": "test fault_scheduled_after_the_last_request_never_occurs ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/random_runs_detect_each_fault": {
+      "status": "passed",
+      "detail": "test random_runs_detect_each_fault ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/random_runs_pass_on_a_correct_target": {
+      "status": "passed",
+      "detail": "test random_runs_pass_on_a_correct_target ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/recovery_reads_every_lba_before_rewriting": {
+      "status": "passed",
+      "detail": "test recovery_reads_every_lba_before_rewriting ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/rejected_write_becoming_visible_is_detected_after_recovery": {
+      "status": "passed",
+      "detail": "test rejected_write_becoming_visible_is_detected_after_recovery ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/rejects_invalid_geometry_and_ranges": {
+      "status": "passed",
+      "detail": "test rejects_invalid_geometry_and_ranges ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/second_uncertain_write_before_recovery_marks_the_run_incomplete": {
+      "status": "passed",
+      "detail": "test second_uncertain_write_before_recovery_marks_the_run_incomplete ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/uncertain_write_is_accepted_when_it_survives": {
+      "status": "passed",
+      "detail": "test uncertain_write_is_accepted_when_it_survives ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "rust:tools/blockcheck:--test=checker_faults/uncertain_write_that_recovery_retired_cannot_return_later": {
+      "status": "passed",
+      "detail": "test uncertain_write_that_recovery_retired_cannot_return_later ... ok. Command exited 0. Log: 032-cargo.log"
+    },
+    "script/tools/sqlite/test-standalone.sh": {
+      "status": "passed",
+      "detail": "Command exited 0. Log: 033-bash.log"
+    },
+    "seed/replay": {
+      "status": "passed",
+      "detail": "Two generated runs and a saved-plan replay matched byte for byte. Command exited 0. Log: 036-cargo.log"
+    },
+    "seed/sweep": {
+      "status": "passed",
+      "detail": "32 seeds, four verified rounds per seed. Command exited 0. Log: 068-cargo.log"
+    },
+    "sqlite:ext4/kv-long-wal-checkpoint-stress/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-long-wal-checkpoint-stress/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-read-large/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-read-large/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-read-large/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-read-small/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-read-small/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-read-small/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-update-large-per-op-commit/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-update-large-per-op-commit/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-update-large-per-op-commit/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-update-large-single-transaction/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-update-large-single-transaction/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-random-update-large-single-transaction/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-read-large/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-read-large/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-read-large/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-read-small/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-read-small/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-read-small/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-update-small-per-op-commit/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-update-small-per-op-commit/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-update-small-per-op-commit/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-update-small-single-transaction/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-update-small-single-transaction/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/kv-sequential-update-small-single-transaction/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/speedtest-main/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/speedtest-main/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:ext4/speedtest-main/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 070-make.log Raw evidence: evidence/sqlite-1795217415521238354."
+    },
+    "sqlite:xfs/kv-long-wal-checkpoint-stress/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-long-wal-checkpoint-stress/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-read-large/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-read-large/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-read-large/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-read-small/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-read-small/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-read-small/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-update-large-per-op-commit/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-update-large-per-op-commit/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-update-large-per-op-commit/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-update-large-single-transaction/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-update-large-single-transaction/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-random-update-large-single-transaction/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-read-large/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-read-large/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-read-large/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-read-small/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-read-small/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-read-small/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-update-small-per-op-commit/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-update-small-per-op-commit/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-update-small-per-op-commit/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-update-small-single-transaction/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-update-small-single-transaction/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/kv-sequential-update-small-single-transaction/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/speedtest-main/delete-extra": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/speedtest-main/wal-full": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "sqlite:xfs/speedtest-main/wal-normal": {
+      "status": "passed",
+      "detail": "3/3 repetitions passed. Command exited 0. Log: 072-make.log Raw evidence: evidence/sqlite-1795217530208875915."
+    },
+    "traces/lose-discard": {
+      "status": "passed",
+      "detail": "lose-discard detected=['logical', 'kill', 336] reduced_epochs=[['w336:17', 'd336', 'f', 'kill']]. Command exited 0. Log: 074-python3.log"
+    },
+    "traces/misdirect-write": {
+      "status": "passed",
+      "detail": "misdirect-write detected=['logical', 'kill', 336] reduced_epochs=[['w336:17', 'f', 'kill']]. Command exited 0. Log: 074-python3.log"
+    },
+    "traces/seed-19-small": {
+      "status": "passed",
+      "detail": "seed-19-small profile=small epochs=4 verified_lbas_per_epoch=680 PASS. Command exited 0. Log: 074-python3.log"
+    },
+    "traces/seed-19-wide": {
+      "status": "passed",
+      "detail": "seed-19-wide profile=wide epochs=4 verified_lbas_per_epoch=680 PASS. Command exited 0. Log: 074-python3.log"
+    },
+    "traces/seed-20261119-small": {
+      "status": "passed",
+      "detail": "seed-20261119-small profile=small epochs=4 verified_lbas_per_epoch=680 PASS. Command exited 0. Log: 074-python3.log"
+    },
+    "traces/seed-20261119-wide": {
+      "status": "passed",
+      "detail": "seed-20261119-wide profile=wide epochs=4 verified_lbas_per_epoch=680 PASS. Command exited 0. Log: 074-python3.log"
+    },
+    "traces/seed-701-small": {
+      "status": "passed",
+      "detail": "seed-701-small profile=small epochs=4 verified_lbas_per_epoch=680 PASS. Command exited 0. Log: 074-python3.log"
+    },
+    "traces/seed-701-wide": {
+      "status": "passed",
+      "detail": "seed-701-wide profile=wide epochs=4 verified_lbas_per_epoch=680 PASS. Command exited 0. Log: 074-python3.log"
+    }
+  }
+}
