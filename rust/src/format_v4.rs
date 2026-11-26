@@ -6,6 +6,7 @@ use std::io;
 use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
 pub(crate) mod budget;
+pub(crate) mod check;
 pub(crate) mod checkpoint_load;
 pub(crate) mod checkpoint_publish;
 pub(crate) mod data_record;

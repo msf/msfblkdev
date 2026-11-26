@@ -23,6 +23,7 @@ pub use format_v4::HeadId;
 pub use format_v4::budget::{
     DEFAULT_HEAP_PROPORTION_PPM, HeapBudget, HeapBudgetOptions, MINIMUM_HEAP_BYTES,
 };
+pub use format_v4::check::{CheckReport, Finding, Severity, check};
 pub use format_v4::descriptor::CheckpointSlot;
 pub use format_v4::format_plan::{DEFAULT_FORMAT_WRITE_BUFFER_BYTES, FormatPlan, plan_format};
 pub use format_v4::log::LogWrites;

@@ -12,6 +12,7 @@ use std::{
 
 /// The daemon has printed this text since V0.8; the ublk lab compares it exactly.
 pub(crate) const BACKING_LOCKED_MESSAGE: &str = "backing file is already locked";
+const BACKING_OWNED_MESSAGE: &str = "backing is owned by a live volume";
 
 /// What holds a volume: a regular file or a block device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,8 +24,10 @@ pub enum BackingKind {
 /// How an opener shares the backing with other openers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OpenMode {
-    /// Reads and writes. Excludes every other `Live` opener.
+    /// Reads and writes. Excludes every other `Live` and `Check` opener.
     Live,
+    /// Reads only. Excludes `Live` openers, so the backing stays offline while it is checked.
+    Check,
     /// Reads only and claims nothing, so it can read a backing that a `Live` opener serves.
     Inspect,
 }
@@ -61,7 +64,7 @@ impl Drop for Claim {
 pub(crate) fn open(path: &Path, mode: OpenMode) -> io::Result<Opened> {
     let kind = kind_of(&std::fs::metadata(path)?)?;
     let exclusive = match (kind, mode) {
-        (BackingKind::BlockDevice, OpenMode::Live) => libc::O_EXCL,
+        (BackingKind::BlockDevice, OpenMode::Live | OpenMode::Check) => libc::O_EXCL,
         _ => 0,
     };
     let file = OpenOptions::new()
@@ -69,7 +72,7 @@ pub(crate) fn open(path: &Path, mode: OpenMode) -> io::Result<Opened> {
         .write(mode == OpenMode::Live)
         .custom_flags(libc::O_DIRECT | libc::O_CLOEXEC | exclusive)
         .open(path)
-        .map_err(device_busy)?;
+        .map_err(|error| device_busy(error, mode))?;
     // The path can name another file after the first lookup; trust only the open descriptor.
     if kind_of(&file.metadata()?)? != kind {
         return Err(io::Error::new(
@@ -77,14 +80,18 @@ pub(crate) fn open(path: &Path, mode: OpenMode) -> io::Result<Opened> {
             "backing changed kind while it was opened",
         ));
     }
-    if (kind, mode) != (BackingKind::RegularFile, OpenMode::Live) {
-        return Ok(Opened {
-            file,
-            kind,
-            claim: Claim(None),
-        });
-    }
-    lock(&file, libc::LOCK_EX)?;
+    let operation = match (kind, mode) {
+        (BackingKind::RegularFile, OpenMode::Live) => libc::LOCK_EX,
+        (BackingKind::RegularFile, OpenMode::Check) => libc::LOCK_SH,
+        _ => {
+            return Ok(Opened {
+                file,
+                kind,
+                claim: Claim(None),
+            });
+        }
+    };
+    lock(&file, operation)?;
     let claim = Claim(Some(file.try_clone()?));
     Ok(Opened { file, kind, claim })
 }
@@ -103,11 +110,15 @@ fn kind_of(metadata: &std::fs::Metadata) -> io::Result<BackingKind> {
     ))
 }
 
-fn device_busy(error: io::Error) -> io::Error {
+fn device_busy(error: io::Error, mode: OpenMode) -> io::Error {
     if error.raw_os_error() != Some(libc::EBUSY) {
         return error;
     }
-    io::Error::new(io::ErrorKind::ResourceBusy, "backing device is in use")
+    let message = match mode {
+        OpenMode::Check => BACKING_OWNED_MESSAGE,
+        OpenMode::Live | OpenMode::Inspect => "backing device is in use",
+    };
+    io::Error::new(io::ErrorKind::ResourceBusy, message)
 }
 
 fn lock(file: &File, operation: libc::c_int) -> io::Result<()> {
@@ -119,10 +130,12 @@ fn lock(file: &File, operation: libc::c_int) -> io::Result<()> {
     if error.kind() != io::ErrorKind::WouldBlock {
         return Err(error);
     }
-    Err(io::Error::new(
-        io::ErrorKind::WouldBlock,
-        BACKING_LOCKED_MESSAGE,
-    ))
+    let message = if operation == libc::LOCK_EX {
+        BACKING_LOCKED_MESSAGE
+    } else {
+        BACKING_OWNED_MESSAGE
+    };
+    Err(io::Error::new(io::ErrorKind::WouldBlock, message))
 }
 
 /// Size facts about an open backing.

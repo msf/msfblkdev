@@ -1,6 +1,9 @@
-//! ADR-11: the read-only view against images the engine wrote.
+//! ADR-11: the read-only view and the offline check against images the engine wrote.
 use super::*;
-use crate::{RootStatus, SelectionMode, VolumeView};
+use crate::format_v4::{
+    RecordKind, data_record::DataRecord, decode_metadata_record, segment_table::SegmentState,
+};
+use crate::{CheckReport, Finding, RootStatus, SelectionMode, Severity, VolumeView};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -58,6 +61,19 @@ fn churned_image() -> io::Result<TemporaryBacking> {
     Ok(backing)
 }
 
+fn run_check(path: &Path) -> io::Result<(CheckReport, Vec<Finding>)> {
+    let mut findings = Vec::new();
+    let report = crate::check(path, &mut |finding| findings.push(finding.clone()))?;
+    Ok((report, findings))
+}
+
+fn assert_clean(path: &Path) -> io::Result<CheckReport> {
+    let (report, findings) = run_check(path)?;
+    assert!(findings.is_empty(), "{findings:#?}");
+    assert_eq!((report.errors, report.warnings), (0, 0));
+    Ok(report)
+}
+
 fn assert_valid_roots(view: &VolumeView) {
     for root in &view.roots {
         assert!(matches!(root, RootStatus::Valid { .. }), "{root:?}");
@@ -102,10 +118,17 @@ fn view_agrees_with_space_usage_after_a_clean_close() -> io::Result<()> {
 }
 
 #[test]
-fn view_leaves_the_image_byte_identical() -> io::Result<()> {
+fn info_and_check_leave_the_image_byte_identical() -> io::Result<()> {
     let backing = churned_image()?;
     let before = std::fs::read(&backing.0)?;
     crate::open_readonly(&backing.0)?;
+    let report = assert_clean(&backing.0)?;
+    assert!(
+        report.segments_walked > 0 && report.payloads > 0,
+        "{report:?}"
+    );
+    assert_eq!(report.mapped_blocks, u64::from(VOLUME_BLOCKS));
+    assert!(!report.has_tail());
     assert!(
         std::fs::read(&backing.0)? == before,
         "inspection changed the image"
@@ -114,7 +137,7 @@ fn view_leaves_the_image_byte_identical() -> io::Result<()> {
 }
 
 #[test]
-fn view_summarizes_the_tail_that_open_live_replays() -> io::Result<()> {
+fn check_validates_and_reports_the_tail_that_open_live_replays() -> io::Result<()> {
     let backing = churned_image()?;
     let mut volume = open_live_with_options(&backing.0, options())?;
     for lba in 0..4 {
@@ -128,38 +151,43 @@ fn view_summarizes_the_tail_that_open_live_replays() -> io::Result<()> {
     let view = crate::open_readonly(&backing.0)?;
     let user = &view.tail[HeadId::User.index()];
     assert!(user.records >= 2, "{:?}", view.tail);
+    let report = assert_clean(&backing.0)?;
+    assert!(report.has_tail());
+    assert_eq!(report.tail, view.tail);
 
     let mut volume = open_live_with_options(&backing.0, options())?;
     let mut actual = [0; BLOCK_SIZE];
     volume.read_block(0, &mut actual)?;
     assert!(actual == value(0, 99));
     volume.close()?;
-    let view = crate::open_readonly(&backing.0)?;
-    assert!(
-        view.tail.iter().all(|tail| tail.records == 0),
-        "{:?}",
-        view.tail
-    );
+    assert!(!assert_clean(&backing.0)?.has_tail());
     Ok(())
 }
 
 #[test]
-fn view_reads_a_backing_that_open_live_owns() -> io::Result<()> {
+fn check_refuses_a_backing_that_open_live_owns_and_info_reads_it() -> io::Result<()> {
     let backing = churned_image()?;
     let volume = open_live_with_options(&backing.0, options())?;
+    let Err(error) = run_check(&backing.0) else {
+        panic!("check ran on a live backing");
+    };
+    assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
     assert_valid_roots(&crate::open_readonly(&backing.0)?);
     drop(volume);
+    assert_clean(&backing.0)?;
     Ok(())
 }
 
 #[test]
-fn view_rejects_a_backing_that_is_not_format_4() -> io::Result<()> {
+fn inspection_rejects_a_backing_that_is_not_format_4() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     backing.create_sized(64 * BLOCK_SIZE as u64)?;
-    let Err(error) = crate::open_readonly(&backing.0) else {
-        panic!("a zeroed backing opened");
-    };
-    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    for result in [
+        crate::open_readonly(&backing.0).map(|_| ()),
+        run_check(&backing.0).map(|_| ()),
+    ] {
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
     Ok(())
 }
 
@@ -181,6 +209,81 @@ fn newest_descriptor(path: &Path) -> io::Result<CheckpointDescriptor> {
     } else {
         green
     })
+}
+
+/// One block of each structure the selected root uses, named for the failure message.
+fn structure_blocks(path: &Path, view: &VolumeView) -> io::Result<Vec<(&'static str, u32)>> {
+    let descriptor = newest_descriptor(path)?;
+    let geometry = descriptor.geometry()?;
+    let index = descriptor.direct_pages[0];
+    let mapping = read_u32(&read_raw(path, index)?, 40);
+    let page = read_raw(path, mapping)?;
+    // A cold LBA: written once, so its payload sits in a sealed segment.
+    let (lba, payload) = (HOT_BLOCKS..VOLUME_BLOCKS)
+        .map(|lba| (lba, read_u32(&page, 40 + lba as usize * 4)))
+        .find(|&(_, block)| {
+            let segment = geometry
+                .segment_of(block)
+                .expect("mapped block in a segment");
+            view.segments[segment as usize].state == SegmentState::Sealed
+        })
+        .ok_or_else(|| io::Error::other("no cold payload in a sealed segment"))?;
+    let footer = (payload + 1..payload + 340)
+        .find(|&block| {
+            read_raw(path, block).is_ok_and(|bytes| {
+                DataRecord::decode(&bytes, geometry, descriptor.volume_id)
+                    .is_ok_and(|record| record.lba_ids.contains(&lba))
+            })
+        })
+        .ok_or_else(|| io::Error::other("payload has no footer"))?;
+    let segment = geometry.segment_of(payload)?;
+    let seal_lsn = view.segments[segment as usize].seal_lsn;
+    let start = geometry.segment_start(segment)?;
+    let link = (start..start + SEGMENT_BLOCKS)
+        .find(|&block| {
+            read_raw(path, block).is_ok_and(|bytes| {
+                decode_metadata_record(&bytes, geometry, descriptor.volume_id).is_ok_and(
+                    |(header, _)| {
+                        header.kind == RecordKind::SegmentLink && Some(header.lsn) == seal_lsn
+                    },
+                )
+            })
+        })
+        .ok_or_else(|| io::Error::other("sealed segment has no link"))?;
+    Ok(vec![
+        ("descriptor", descriptor.slot.block()),
+        ("index page", index),
+        ("mapping page", mapping),
+        ("table page", descriptor.table_pages[0]),
+        ("live payload", payload),
+        ("data footer", footer),
+        ("segment link", link),
+    ])
+}
+
+#[test]
+fn check_detects_one_fault_in_each_structure() -> io::Result<()> {
+    let backing = churned_image()?;
+    assert_clean(&backing.0)?;
+    let view = crate::open_readonly(&backing.0)?;
+    for (structure, block) in structure_blocks(&backing.0, &view)? {
+        let damaged = TemporaryBacking::new()?;
+        std::fs::copy(&backing.0, &damaged.0)?;
+        let mut bytes = read_raw(&damaged.0, block)?;
+        bytes[2000] ^= 0x10;
+        OpenOptions::new()
+            .write(true)
+            .open(&damaged.0)?
+            .write_all_at(&bytes, u64::from(block) * BLOCK_SIZE as u64)?;
+        let (report, findings) = run_check(&damaged.0)?;
+        assert!(report.errors > 0, "{structure} at block {block}: no error");
+        let named = findings.iter().any(|finding| {
+            finding.severity == Severity::Error
+                && (finding.block == Some(u64::from(block)) || structure == "data footer")
+        });
+        assert!(named, "{structure} at block {block}: {findings:#?}");
+    }
+    Ok(())
 }
 
 #[test]
@@ -236,5 +339,6 @@ fn view_never_reports_damage_while_a_writer_publishes() -> io::Result<()> {
     }
     writer.join().expect("writer thread")?;
     assert!(views > 0);
+    assert_clean(&backing.0)?;
     Ok(())
 }
