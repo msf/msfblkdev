@@ -4,4 +4,5 @@
 /rust/target/
 /evidence/*.log
 /evidence/sqlite-*/
+/evidence/test-all-*
 /tools/blockcheck/target/

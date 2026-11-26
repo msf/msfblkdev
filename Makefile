@@ -13,6 +13,24 @@ lint-rust:
 test:
 	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- test
 
+# Every step below, in order of required access; skips what the host cannot run.
+# Writes evidence/test-all-<time>/summary.md. See README "Running every test".
+.PHONY: test-all test-blockcheck-checker test-python
+test-all:
+	@bash scripts/test-all.sh
+
+# The independent raw-device checker is a separate crate. These tests use an
+# in-memory target; the planned device suite is not part of this target.
+test-blockcheck-checker:
+	@cargo test --locked --manifest-path tools/blockcheck/Cargo.toml
+
+# Workbench report, SQLite baseline and ADR-05 image-checker tools. The checker
+# needs the system XXH3 library (libxxhash0 on Debian).
+test-python:
+	@python3 -m unittest discover -s tools/workbench -p 'test_*.py'
+	@python3 -m unittest discover -s tools/sqlite -p 'test_*.py'
+	@cd tools/adr05-fault-lab/checker && python3 -B -m unittest
+
 # Linux, opt-in: one disposable regular file. The timeout covers I/O, not compilation.
 .PHONY: test-compaction-small
 test-compaction-small:
