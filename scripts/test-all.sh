@@ -98,7 +98,7 @@ preflight() {
     return 0
   fi
   printf '`make %s` failed: %s (see %s.log)' "${target}" \
-    "$(grep -v '^\s*$' "${log}" | tail -n 2 | paste -sd ' ' -)" "${target}"
+    "$(grep -v -e '^\s*$' -e '^make' "${log}" | tail -n 1)" "${target}"
   return 1
 }
 
@@ -165,15 +165,11 @@ for step in sqlite-probe:test-sqlite:ext4 sqlite-ext4:test-sqlite-ext4:ext4 sqli
   else run_step "${name}" 30m none "make ${target}" -- make --no-print-directory "${target}"; fi
 done
 
-# 5. KVM guest prerequisite probe. Its recipe is pinned to one host kernel.
-if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
-  skip_step vm-boot-probe 'bash tools/vm/boot-probe.sh' 'no read/write access to /dev/kvm'
-elif [[ ! -r "${ROOT}/tools/build/vm/initramfs.gz" ]]; then
-  skip_step vm-boot-probe 'bash tools/vm/boot-probe.sh' \
-    'guest image not built. Fix: `bash tools/vm/setup.sh` (requires host kernel 7.0.0-31-generic)'
-else
-  run_step vm-boot-probe 5m none 'bash tools/vm/boot-probe.sh' -- bash tools/vm/boot-probe.sh
-fi
+# Disabled: the KVM guest boot probe (bash tools/vm/boot-probe.sh, ADR-10). It boots a tiny
+# memory-bounded guest and checks that ublk_drv, ext4 and XFS load with swap off. It does not test
+# this repository's code. It prepares the deferred comparison of this device against LVM thin
+# provisioning (and LVM-VDO) inside memory-bounded VMs. Re-enable it with that comparison: today
+# its image recipe accepts only host kernel 7.0.0-31-generic, so it skips on almost every host.
 
 verdict=PASS
 [[ "${skipped}" != 0 ]] && verdict=INCOMPLETE
