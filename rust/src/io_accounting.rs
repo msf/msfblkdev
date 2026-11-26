@@ -200,6 +200,15 @@ pub struct Writer {
     mapping: Mapping,
 }
 
+impl Drop for Writer {
+    fn drop(&mut self) {
+        // The lease attaches to the open file description, which a child that another thread
+        // forks keeps until it execs; closing our descriptor alone can leave the lease held.
+        // A failed unlock needs no handling: the close that follows releases it too.
+        let _ = unlock(&self.mapping.file);
+    }
+}
+
 impl Writer {
     /// Opens a clean ledger and takes its nonblocking lifetime writer lease.
     ///
