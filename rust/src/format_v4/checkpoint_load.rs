@@ -86,7 +86,7 @@ pub(crate) fn load(
     Err(invalid_data("no valid format-4 checkpoint"))
 }
 
-fn load_candidate(
+pub(crate) fn load_candidate(
     io: &mut BackingIo,
     backing: &File,
     descriptor: &CheckpointDescriptor,

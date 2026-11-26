@@ -38,7 +38,7 @@ pub(crate) struct Recovered {
 }
 
 /// Walks both head chains, yielding records in global LSN order.
-struct Walker {
+pub(crate) struct Walker {
     heads: [Head; 2],
     expected: u64,
     stop_lsn: u64,
@@ -46,7 +46,7 @@ struct Walker {
 }
 
 impl Walker {
-    fn new(heads: [Head; 2], first_lsn: u64, stop_lsn: u64) -> Self {
+    pub(crate) fn new(heads: [Head; 2], first_lsn: u64, stop_lsn: u64) -> Self {
         Self {
             heads,
             expected: first_lsn,
@@ -55,7 +55,7 @@ impl Walker {
         }
     }
 
-    fn next(
+    pub(crate) fn next(
         &mut self,
         io: &mut BackingIo,
         backing: &File,
@@ -91,7 +91,12 @@ impl Walker {
     }
 
     /// The chain continues in `segment` after a link; drop any probe made at the old position.
-    fn follow_link(&mut self, id: HeadId, segment: u32, geometry: Geometry) -> io::Result<()> {
+    pub(crate) fn follow_link(
+        &mut self,
+        id: HeadId,
+        segment: u32,
+        geometry: Geometry,
+    ) -> io::Result<()> {
         self.heads[id.index()].open(segment, geometry)?;
         self.probes[id.index()] = None;
         Ok(())

@@ -1,10 +1,11 @@
 //! Opening a backing: its kind, the ownership claim of each opener, and host allocation.
 use std::{
     fs::{File, OpenOptions},
-    io,
+    io::{self, Seek, SeekFrom},
+    ops::Range,
     os::{
         fd::AsRawFd,
-        unix::fs::{FileTypeExt, OpenOptionsExt},
+        unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt},
     },
     path::Path,
 };
@@ -24,11 +25,14 @@ pub enum BackingKind {
 pub(crate) enum OpenMode {
     /// Reads and writes. Excludes every other `Live` opener.
     Live,
+    /// Reads only and claims nothing, so it can read a backing that a `Live` opener serves.
+    Inspect,
 }
 
 /// An open backing and the claim its opener holds.
 pub(crate) struct Opened {
     pub(crate) file: File,
+    pub(crate) kind: BackingKind,
     pub(crate) claim: Claim,
 }
 
@@ -56,9 +60,9 @@ impl Drop for Claim {
 /// with `O_EXCL`, which the kernel enforces for every path to the device and against mounts.
 pub(crate) fn open(path: &Path, mode: OpenMode) -> io::Result<Opened> {
     let kind = kind_of(&std::fs::metadata(path)?)?;
-    let exclusive = match kind {
-        BackingKind::BlockDevice => libc::O_EXCL,
-        BackingKind::RegularFile => 0,
+    let exclusive = match (kind, mode) {
+        (BackingKind::BlockDevice, OpenMode::Live) => libc::O_EXCL,
+        _ => 0,
     };
     let file = OpenOptions::new()
         .read(true)
@@ -73,15 +77,16 @@ pub(crate) fn open(path: &Path, mode: OpenMode) -> io::Result<Opened> {
             "backing changed kind while it was opened",
         ));
     }
-    if kind == BackingKind::BlockDevice {
+    if (kind, mode) != (BackingKind::RegularFile, OpenMode::Live) {
         return Ok(Opened {
             file,
+            kind,
             claim: Claim(None),
         });
     }
     lock(&file, libc::LOCK_EX)?;
     let claim = Claim(Some(file.try_clone()?));
-    Ok(Opened { file, claim })
+    Ok(Opened { file, kind, claim })
 }
 
 fn kind_of(metadata: &std::fs::Metadata) -> io::Result<BackingKind> {
@@ -118,4 +123,61 @@ fn lock(file: &File, operation: libc::c_int) -> io::Result<()> {
         io::ErrorKind::WouldBlock,
         BACKING_LOCKED_MESSAGE,
     ))
+}
+
+/// Size facts about an open backing.
+pub(crate) struct Extent {
+    /// File length or device size.
+    pub(crate) bytes: u64,
+    /// `st_blocks` × 512; `None` for a device.
+    pub(crate) host_allocated_bytes: Option<u64>,
+}
+
+pub(crate) fn extent(mut file: &File, kind: BackingKind) -> io::Result<Extent> {
+    let bytes = file.seek(SeekFrom::End(0))?;
+    let host_allocated_bytes = match kind {
+        BackingKind::RegularFile => Some(file.metadata()?.blocks() * 512),
+        BackingKind::BlockDevice => None,
+    };
+    Ok(Extent {
+        bytes,
+        host_allocated_bytes,
+    })
+}
+
+/// Bytes of `range` that hold data in a regular file, from `SEEK_DATA` and `SEEK_HOLE`.
+/// Moves the file offset; every engine read and write is positional.
+pub(crate) fn allocated_bytes_in(file: &File, range: Range<u64>) -> io::Result<u64> {
+    let mut allocated = 0;
+    let mut position = range.start;
+    // Bounded by the range: each iteration passes one data extent or stops.
+    while position < range.end {
+        let Some(data) = seek(file, position, libc::SEEK_DATA)? else {
+            break;
+        };
+        if data >= range.end {
+            break;
+        }
+        let hole = seek(file, data, libc::SEEK_HOLE)?.unwrap_or(range.end);
+        let end = hole.min(range.end);
+        allocated += end - data;
+        position = end;
+    }
+    Ok(allocated)
+}
+
+/// `lseek`; `None` when no data follows `offset` (`ENXIO`).
+fn seek(file: &File, offset: u64, whence: libc::c_int) -> io::Result<Option<u64>> {
+    let offset = libc::off_t::try_from(offset)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "offset exceeds off_t"))?;
+    // SAFETY: lseek only reads the valid descriptor and changes its file offset.
+    let result = unsafe { libc::lseek(file.as_raw_fd(), offset, whence) };
+    if let Ok(position) = u64::try_from(result) {
+        return Ok(Some(position));
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ENXIO) {
+        return Ok(None);
+    }
+    Err(error)
 }

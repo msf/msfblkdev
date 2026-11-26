@@ -12,15 +12,29 @@ const TABLE_COUNT_OFFSET: usize = INDIRECT_OFFSET + INDIRECT_POINTERS * 4;
 const TABLE_OFFSET: usize = TABLE_COUNT_OFFSET + 4;
 const PADDING_OFFSET: usize = TABLE_OFFSET + TABLE_POINTERS * 4;
 
+/// One of the two checkpoint descriptors, in backing blocks 0 and 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub(crate) enum CheckpointSlot {
+pub enum CheckpointSlot {
     Green = 0,
     Blue = 1,
 }
 
 impl CheckpointSlot {
-    pub(crate) const BOTH: [Self; 2] = [Self::Green, Self::Blue];
+    pub const BOTH: [Self; 2] = [Self::Green, Self::Blue];
+
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Green => "green",
+            Self::Blue => "blue",
+        }
+    }
+
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self as usize
+    }
 
     pub(crate) fn other(self) -> Self {
         match self {

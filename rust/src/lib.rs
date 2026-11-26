@@ -19,15 +19,21 @@ pub mod logging;
 
 use accounted_io::{BackingIo, submit_exact};
 pub use backing::BackingKind;
+pub use format_v4::HeadId;
 pub use format_v4::budget::{
     DEFAULT_HEAP_PROPORTION_PPM, HeapBudget, HeapBudgetOptions, MINIMUM_HEAP_BYTES,
 };
+pub use format_v4::descriptor::CheckpointSlot;
 pub use format_v4::format_plan::{DEFAULT_FORMAT_WRITE_BUFFER_BYTES, FormatPlan, plan_format};
 pub use format_v4::log::LogWrites;
 pub use format_v4::metrics::{MappingIo, MappingStats, SpaceUsage};
+pub use format_v4::readonly::{
+    BackingInfo, LogTotals, RootStatus, SegmentView, TailSummary, VolumeView, open_readonly,
+};
 pub use format_v4::reclaim::ReclaimStats;
 pub use format_v4::reclaim::scheduler::{DEFAULT_IDLE_WAIT, DEFAULT_MAXIMUM_INTERVAL, Scheduler};
 pub use format_v4::reclaim::select::SelectionMode;
+pub use format_v4::segment_table::SegmentState;
 pub use format_v4::storage::FormatOptions;
 pub use format_v4::volume::Volume;
 pub use format_v4::volume::reclaim::{BackingDiscard, MaintenanceStep};
@@ -529,7 +535,7 @@ fn wait_exact_with(
 /// The volume owns the backing until it is dropped: a regular file is locked with
 /// `flock(LOCK_EX)` and a block device is opened with `O_EXCL`. A second owner fails with
 /// `ErrorKind::WouldBlock` (file) or `ErrorKind::ResourceBusy` (device). Recovery replays the tail
-/// and writes to the backing.
+/// and writes to the backing. Use [`open_readonly`] to inspect a backing without writing or claiming it.
 pub fn open_live(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
     open_live_with_options(backing_path, VolumeOpenOptions::default())
 }

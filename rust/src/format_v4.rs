@@ -20,6 +20,7 @@ pub(crate) mod mapping_page;
 pub(crate) mod mapping_state;
 pub(crate) mod metrics;
 pub(crate) mod page_read;
+pub(crate) mod readonly;
 pub(crate) mod reclaim;
 pub(crate) mod recovery;
 pub(crate) mod reservation;
@@ -85,21 +86,25 @@ impl RecordKind {
     }
 }
 
+/// One of the two append heads of the log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
-pub(crate) enum HeadId {
+pub enum HeadId {
+    /// Client writes.
     User = 0,
+    /// Payloads the cleaner relocates.
     Relocation = 1,
 }
 
 impl HeadId {
-    pub(crate) const ALL: [Self; 2] = [Self::User, Self::Relocation];
+    pub const ALL: [Self; 2] = [Self::User, Self::Relocation];
 
     pub(crate) const fn index(self) -> usize {
         self as usize
     }
 
-    pub(crate) fn name(self) -> &'static str {
+    #[must_use]
+    pub fn name(self) -> &'static str {
         match self {
             Self::User => "user",
             Self::Relocation => "relocation",

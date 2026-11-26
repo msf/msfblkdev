@@ -13,16 +13,31 @@ const STATE_MASK: u8 = 0x07;
 const RESERVED_MASK: u8 = 0x78;
 const HEAD_MASK: u8 = 0x80;
 
+/// The persistent state of one segment (ADR-08).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub(crate) enum SegmentState {
+pub enum SegmentState {
+    /// Holds nothing; the allocator may open it.
     Free = 0,
+    /// A head appends to it.
     Open = 1,
+    /// Closed by a `SegmentLink`; may hold live payloads and current metadata.
     Sealed = 2,
+    /// Holds nothing live, but becomes free only at the next checkpoint publication.
     PendingFree = 3,
 }
 
 impl SegmentState {
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Free => "free",
+            Self::Open => "open",
+            Self::Sealed => "sealed",
+            Self::PendingFree => "pending-free",
+        }
+    }
+
     fn from_bits(bits: u8) -> io::Result<Self> {
         match bits {
             0 => Ok(Self::Free),
@@ -33,7 +48,8 @@ impl SegmentState {
         }
     }
 
-    pub(crate) const fn has_seal(self) -> bool {
+    #[must_use]
+    pub const fn has_seal(self) -> bool {
         matches!(self, Self::Sealed | Self::PendingFree)
     }
 }
