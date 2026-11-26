@@ -292,7 +292,7 @@ The code lives in these files:
 - `rust/src/bin/blkctl.rs`: argument parsing and output.
 
 Ownership. `open_live()` claims a regular file with `flock(LOCK_EX | LOCK_NB)` and a block device
-with `O_EXCL`, before recovery (BUG-2, one host). The claim is released with `LOCK_UN` when the
+with `O_EXCL`, before recovery. The claim is released with `LOCK_UN` when the
 volume is dropped. Without the explicit unlock, a child that another thread forks keeps the lock
 until it execs, and an immediate reopen in the same process fails. The daemon's own lock is gone,
 and a second daemon prints the same `backing file is already locked` error as before. `check`

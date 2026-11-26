@@ -43,20 +43,6 @@ Related, not yet a bug: segments start at block 2, so they sit 8 KiB off natural
 device with a `discard_granularity` above 4 KiB may ignore the unaligned head and tail of each
 segment discard. Measure on a real device before changing the layout.
 
-## BUG-2 Nothing protects a backing shared by several hosts
-
-Found 2026-11-25. Status: open; out of scope until the
-[distributed design](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) needs shared backing.
-
-On one host, `open_live()` claims the backing before recovery: `flock(LOCK_EX | LOCK_NB)` on a
-regular file and `O_EXCL` on a block device (ADR-11). Neither claim reaches another host.
-
-An on-disk lock with an expiration LSN doesn't work by itself. The LSN advances only when the owner
-writes, so an idle owner and a dead owner look the same. A lease needs wall-clock heartbeat writes
-(ZFS `multihost` does this with periodic uberblock writes and an import delay; from memory, not
-re-read). Even then, an owner that pauses past its lease can resume and write. Only fencing at the
-device, such as NVMe or SCSI persistent reservations, stops a stale owner.
-
 ## TODO-1 Make the engine deterministic for a given seed
 
 Found 2026-11-25. Status: open.
