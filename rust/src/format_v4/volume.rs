@@ -48,6 +48,8 @@ pub struct Volume {
     pub(crate) actual_backing_blocks: u64,
     pub(crate) reclaim: reclaim::Reclaim,
     pub(crate) failed: bool,
+    /// Declared last so that it is released after the cleaner thread has stopped.
+    _claim: crate::backing::Claim,
 }
 
 /// Segment-state slots to preallocate: room for growth to `growth_capacity_bytes`, or twice
@@ -84,7 +86,7 @@ pub(crate) fn open_with_io(
     make_io: impl FnOnce() -> io::Result<BackingIo>,
 ) -> io::Result<Volume> {
     options.validate()?;
-    let (backing, actual_backing_blocks) = storage::open_backing(path)?;
+    let (backing, actual_backing_blocks, claim) = storage::open_backing(path)?;
     let mut backing_io = make_io()?;
     let loaded = checkpoint_load::load(
         &mut backing_io,
@@ -171,6 +173,7 @@ pub(crate) fn open_with_io(
         actual_backing_blocks,
         reclaim,
         failed: false,
+        _claim: claim,
     };
     // Replay may have applied a growth record after the cleaner was spawned.
     volume.update_cleaner_geometry()?;

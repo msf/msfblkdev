@@ -45,12 +45,11 @@ impl Epoch {
 
 impl Volume {
     /// Opt in to one ordered replay after a terminal EIO on an explicit records flush.
-    /// The caller must already own the backing exclusively, including during open/recovery.
+    /// `open_live` claims the backing exclusively before recovery, and the claim lasts until drop.
     /// The backing must honor successful barriers and report writeback loss no later than the
     /// affected barrier. If an EIO can describe an earlier, discarded epoch, replay is unsafe.
     /// Requesting direct I/O does not establish this contract. Leave retry off if it is unknown.
-    /// Holds an advisory exclusive lock until drop; does not support the I/O ledger or hang
-    /// deadlines. Requires room in the volume heap for one maximum record and its extents.
+    /// Does not support the I/O ledger or hang deadlines. Requires room in the volume heap for one maximum record and its extents.
     /// The first successful client flush establishes a baseline. Epochs containing metadata
     /// or relocation I/O use the default fail-closed policy until another flush succeeds.
     pub fn enable_records_flush_retry(&mut self) -> io::Result<()> {
@@ -66,7 +65,6 @@ impl Volume {
         if self.budget.total_bytes - self.budget.allocated_bytes() < HEAP_BYTES as u64 {
             return Err(invalid_input("insufficient heap for retained records"));
         }
-        self.backing.try_lock()?;
         self.records_epoch = Some(Epoch {
             blocks: Vec::with_capacity(BLOCKS),
             extents: Vec::with_capacity(EXTENTS),

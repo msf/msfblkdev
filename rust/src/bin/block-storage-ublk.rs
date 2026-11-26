@@ -25,10 +25,8 @@ use libublk::sys::{
 };
 use libublk::{BufDesc, UblkError, UblkFlags, UblkIORes};
 use std::ffi::{OsStr, OsString};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io;
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -52,6 +50,8 @@ const MAX_REQUEST_BLOCKS: u32 = 338;
 const MIN_QUEUE_DEPTH: u16 = 1;
 // ublk_cmd.h caps queue depth at 4096 (UBLK_MAX_QUEUE_DEPTH).
 const MAX_QUEUE_DEPTH: u16 = 4096;
+/// The engine's claim error; the ublk lab compares the daemon's stderr with it exactly.
+#[cfg(test)]
 const BACKING_LOCKED_MESSAGE: &str = "backing file is already locked";
 const QUEUE_RUNNING_IDLE: u8 = 0;
 const QUEUE_RUNNING_IN_FLIGHT: u8 = 1;
@@ -226,35 +226,6 @@ impl Drop for InFlightRequest<'_> {
         self.0
             .queue_phase
             .store(QUEUE_RUNNING_IDLE, Ordering::Release);
-    }
-}
-
-#[derive(Debug)]
-struct BackingLock {
-    _backing: File,
-}
-
-impl BackingLock {
-    fn acquire(path: &Path) -> io::Result<Self> {
-        let backing = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(libc::O_CLOEXEC)
-            .open(path)?;
-        // SAFETY: flock only reads the valid file descriptor and lock operation flags.
-        if unsafe { libc::flock(backing.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(Self { _backing: backing });
-        }
-
-        let error = io::Error::last_os_error();
-        if error.kind() == io::ErrorKind::WouldBlock {
-            Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                BACKING_LOCKED_MESSAGE,
-            ))
-        } else {
-            Err(error)
-        }
     }
 }
 
@@ -1311,7 +1282,15 @@ fn serve(
     ledger_path: Option<&OsStr>,
 ) -> io::Result<()> {
     let accounting = io_ledger::open_optional(ledger_path)?;
-    let _backing_lock = BackingLock::acquire(backing_path)?;
+    // The engine claims the backing; a second daemon fails here, before any log output.
+    let volume = match accounting {
+        Some(writer) => block_storage::open_live_with_accounting(
+            backing_path,
+            config.volume_open_options(),
+            writer,
+        )?,
+        None => block_storage::open_live_with_options(backing_path, config.volume_open_options())?,
+    };
     log_info!(
         "event=serve_config max_request_bytes={} inflight_memory_bytes={} depth={} buffer_memory_bytes={} write_buffer_bytes={} heap_ppm={} heap_bytes={:?} cleaner_bytes={:?} growth_capacity_bytes={:?} backing_discard={:?} idle_wait_us={} max_maintenance_interval_ms={}",
         config.max_request_bytes,
@@ -1331,16 +1310,7 @@ fn serve(
     let drain = Arc::new(DrainState::new());
     let readiness_error = Arc::new(Mutex::new(None));
     let state = Arc::new(Mutex::new(QueueState {
-        volume: Some(match accounting {
-            Some(writer) => block_storage::open_live_with_accounting(
-                backing_path,
-                config.volume_open_options(),
-                writer,
-            )?,
-            None => {
-                block_storage::open_live_with_options(backing_path, config.volume_open_options())?
-            }
-        }),
+        volume: Some(volume),
         result: None,
     }));
     if let Ok(guard) = state.lock()
@@ -1694,13 +1664,13 @@ mod tests {
     }
 
     #[test]
-    fn exclusive_backing_lock_tracks_the_inode_and_owner_process() -> io::Result<()> {
+    fn live_open_claims_the_backing_inode_until_its_owner_exits() -> io::Result<()> {
         const CHILD_BACKING_ENV: &str = "BLOCK_STORAGE_LOCK_TEST_BACKING";
         const HANDSHAKE: &str = "backing-locked";
         const TIMEOUT: Duration = Duration::from_secs(10);
 
         if let Some(path) = std::env::var_os(CHILD_BACKING_ENV) {
-            let _lock = BackingLock::acquire(Path::new(&path))?;
+            let _volume = block_storage::open_live(Path::new(&path))?;
             println!("{HANDSHAKE}");
             io::stdout().flush()?;
             let mut input = [0; 1];
@@ -1708,15 +1678,15 @@ mod tests {
             return Ok(());
         }
 
-        let backing = TemporaryBacking::new()?;
+        let backing = TemporaryBacking::formatted(256)?;
         let alias = TemporaryLink(backing.0.with_extension("same-inode"));
         hard_link(&backing.0, &alias.0)?;
-        let different_backing = TemporaryBacking::new()?;
+        let different_backing = TemporaryBacking::formatted(256)?;
 
         let child = Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
-                "tests::exclusive_backing_lock_tracks_the_inode_and_owner_process",
+                "tests::live_open_claims_the_backing_inode_until_its_owner_exits",
                 "--nocapture",
             ])
             .env(CHILD_BACKING_ENV, &backing.0)
@@ -1763,10 +1733,12 @@ mod tests {
             .recv_timeout(TIMEOUT)
             .map_err(|_| io::Error::other("timed out waiting for lock owner handshake"))??;
 
-        let competing_error = BackingLock::acquire(&alias.0).unwrap_err();
+        let Err(competing_error) = block_storage::open_live(&alias.0) else {
+            panic!("a second owner opened the locked backing");
+        };
         assert_eq!(competing_error.kind(), io::ErrorKind::WouldBlock);
         assert_eq!(competing_error.to_string(), BACKING_LOCKED_MESSAGE);
-        let different_lock = BackingLock::acquire(&different_backing.0)?;
+        let different_owner = block_storage::open_live(&different_backing.0)?;
 
         drop(child.child.stdin.take());
         let status = wait_for_child_exit(&mut child.child, TIMEOUT)?;
@@ -1778,8 +1750,8 @@ mod tests {
             .join()
             .map_err(|_| io::Error::other("lock owner output reader panicked"))??;
 
-        let released_lock = BackingLock::acquire(&alias.0)?;
-        drop((released_lock, different_lock));
+        let released = block_storage::open_live(&alias.0)?;
+        drop((released, different_owner));
         Ok(())
     }
 

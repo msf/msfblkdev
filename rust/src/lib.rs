@@ -9,6 +9,7 @@ use std::path::Path;
 use xxhash_rust::xxh3::Xxh3;
 
 mod accounted_io;
+mod backing;
 mod format_v4;
 mod mapping_cache;
 mod wakeup;
@@ -17,6 +18,7 @@ pub mod io_accounting;
 pub mod logging;
 
 use accounted_io::{BackingIo, submit_exact};
+pub use backing::BackingKind;
 pub use format_v4::budget::{
     DEFAULT_HEAP_PROPORTION_PPM, HeapBudget, HeapBudgetOptions, MINIMUM_HEAP_BYTES,
 };
@@ -522,13 +524,18 @@ fn wait_exact_with(
 }
 
 /// Opens a format-4 volume to serve requests, with the default replay bound, heap budget and
-/// cache share. Recovery replays the tail and writes to the backing.
+/// cache share.
+///
+/// The volume owns the backing until it is dropped: a regular file is locked with
+/// `flock(LOCK_EX)` and a block device is opened with `O_EXCL`. A second owner fails with
+/// `ErrorKind::WouldBlock` (file) or `ErrorKind::ResourceBusy` (device). Recovery replays the tail
+/// and writes to the backing.
 pub fn open_live(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
     open_live_with_options(backing_path, VolumeOpenOptions::default())
 }
 
 /// Opens a format-4 volume to serve requests with the supplied replay, buffer, cache and heap
-/// configuration.
+/// configuration. Ownership is as for [`open_live`].
 pub fn open_live_with_options(
     backing_path: impl AsRef<Path>,
     options: VolumeOpenOptions,
@@ -537,6 +544,7 @@ pub fn open_live_with_options(
 }
 
 /// Opens a formatted volume to serve requests and accounts its engine-submitted backing I/O.
+/// Ownership is as for [`open_live`].
 ///
 /// Host-filesystem metadata operations used to open and inspect the backing file
 /// are outside this accounting scope.

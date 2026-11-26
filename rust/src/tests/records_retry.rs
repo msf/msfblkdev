@@ -63,19 +63,18 @@ fn records_capacity_sync_fails_closed_before_evicting_retained_bytes() -> io::Re
 }
 
 #[test]
-fn records_retry_requires_exclusive_lock_and_heap_headroom() -> io::Result<()> {
+fn records_retry_runs_under_the_live_claim_and_requires_heap_headroom() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 8, 12, TINY_SEGMENT_BLOCKS)?;
     let mut volume = open_live(&backing.0)?;
+    // Replay relies on exclusive ownership; the live claim already excludes other lockers.
     let other = File::open(&backing.0)?;
-    other.try_lock()?;
-    let budget = volume.heap_budget();
-    assert_eq!(
-        volume.enable_records_flush_retry().unwrap_err().kind(),
-        io::ErrorKind::WouldBlock
-    );
-    assert_eq!(volume.heap_budget(), budget);
+    assert!(matches!(
+        other.try_lock(),
+        Err(std::fs::TryLockError::WouldBlock)
+    ));
     drop(other);
+    let budget = volume.heap_budget();
     volume.enable_records_flush_retry()?;
     assert!(volume.heap_budget().supporting_bytes > budget.supporting_bytes);
     assert!(volume.heap_budget().allocated_bytes() <= budget.total_bytes);

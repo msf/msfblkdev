@@ -35,7 +35,7 @@ impl Fixture {
             },
             None,
         )?;
-        let (file, _) = storage::open_backing(&backing.0)?;
+        let (file, _, _claim) = storage::open_backing(&backing.0)?;
         Ok(Self {
             backing,
             file,
@@ -605,7 +605,7 @@ fn link_fsync_precedes_every_write_into_the_new_segment() -> io::Result<()> {
     let reader = unsafe { io_accounting::Reader::create(&ledger.0, 1 << 30)? };
     // SAFETY: same ledger, same ownership; the writer is dropped before the reader.
     let writer = unsafe { io_accounting::Writer::open(&ledger.0)? };
-    let (file, blocks) = storage::open_backing(&backing.0)?;
+    let (file, blocks, _claim) = storage::open_backing(&backing.0)?;
     let mut io = BackingIo::new(Some(writer))?;
     let mut log =
         checkpoint_load::load(&mut io, &file, blocks, |geometry| geometry.segment_count)?.log;
