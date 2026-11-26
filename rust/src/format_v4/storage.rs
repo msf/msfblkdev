@@ -9,7 +9,7 @@ use super::{
 use crate::{
     AlignedBlock, BLOCK_SIZE, MAX_VOLUME_BLOCKS,
     accounted_io::{BackingIo, submit_exact},
-    backing::{self, Claim, OpenMode, Opened},
+    backing::{self, BackingKind, Claim, OpenMode, Opened},
     invalid_input, io_accounting, random_volume_id,
 };
 use io_uring::{opcode, types};
@@ -30,18 +30,19 @@ pub struct FormatOptions {
 }
 
 /// Opens and claims the backing for writing; see [`crate::open_live`] for the claim.
-/// Returns the backing, its whole blocks and the claim, which must outlive every use of it.
-pub(crate) fn open_backing(path: &Path) -> io::Result<(File, u64, Claim)> {
+/// Returns the backing, its whole blocks, its kind and the claim, which must outlive every use
+/// of the backing.
+pub(crate) fn open_backing(path: &Path) -> io::Result<(File, u64, BackingKind, Claim)> {
     let Opened {
         file: mut backing,
+        kind,
         claim,
-        ..
     } = backing::open(path, OpenMode::Live)?;
     let bytes = backing.seek(SeekFrom::End(0))?;
     if !bytes.is_multiple_of(BLOCK_SIZE as u64) {
         return Err(invalid_input("backing size is not block aligned"));
     }
-    Ok((backing, bytes / BLOCK_SIZE as u64, claim))
+    Ok((backing, bytes / BLOCK_SIZE as u64, kind, claim))
 }
 
 /// Writes the initial segment table pages into segment 0 and both descriptors.
@@ -69,7 +70,7 @@ pub(crate) fn format_with_io(
     {
         return Err(invalid_input("invalid volume size"));
     }
-    let (backing, backing_blocks, _claim) = open_backing(path)?;
+    let (backing, backing_blocks, _, _claim) = open_backing(path)?;
     let blocks_per_segment = if options.blocks_per_segment == 0 {
         (crate::plan_format(volume_bytes, backing_blocks * BLOCK_SIZE as u64, 100)?.segment_bytes
             / BLOCK_SIZE as u64) as u32

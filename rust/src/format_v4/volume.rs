@@ -11,14 +11,14 @@ use super::{
     recovery, storage,
 };
 use crate::{
-    AlignedBlock, BLOCK_SIZE, ReleaseIovecs, ReleaseStats, ReleaseTrigger, VolumeOpenOptions,
-    WriteBackBuffer,
+    AlignedBlock, BLOCK_SIZE, BackingKind, ReleaseIovecs, ReleaseStats, ReleaseTrigger,
+    VolumeOpenOptions, WriteBackBuffer,
     accounted_io::BackingIo,
     invalid_data, invalid_input, io_accounting,
     mapping_cache::{ENTRIES_PER_PAGE, Snapshot},
     payload_checksum, read_block_exact,
 };
-use std::{fs::File, io, os::unix::fs::MetadataExt, path::Path};
+use std::{fs::File, io, path::Path};
 
 mod discard;
 mod growth;
@@ -31,6 +31,7 @@ const WRITE_BUFFER_DEVICE_DIVISOR: u64 = 4;
 
 pub struct Volume {
     pub(crate) backing: File,
+    backing_kind: BackingKind,
     pub(crate) backing_io: BackingIo,
     pub(crate) log: Log,
     pub(crate) mapping: MappingState,
@@ -86,7 +87,7 @@ pub(crate) fn open_with_io(
     make_io: impl FnOnce() -> io::Result<BackingIo>,
 ) -> io::Result<Volume> {
     options.validate()?;
-    let (backing, actual_backing_blocks, claim) = storage::open_backing(path)?;
+    let (backing, actual_backing_blocks, backing_kind, claim) = storage::open_backing(path)?;
     let mut backing_io = make_io()?;
     let loaded = checkpoint_load::load(
         &mut backing_io,
@@ -130,6 +131,7 @@ pub(crate) fn open_with_io(
     let reserve = Reserve::compute(geometry, sizing.capacity as u64);
     let reclaim = reclaim::Reclaim::new(
         &backing,
+        backing_kind,
         geometry,
         log.volume_id,
         cleaner_shape,
@@ -150,6 +152,7 @@ pub(crate) fn open_with_io(
     )?;
     let mut volume = Volume {
         backing,
+        backing_kind,
         backing_io,
         log,
         mapping: MappingState {
@@ -278,7 +281,7 @@ impl Volume {
 
     pub fn space_usage(&self) -> io::Result<SpaceUsage> {
         let geometry = self.log.geometry;
-        let metadata = self.backing.metadata()?;
+        let extent = crate::backing::extent(&self.backing, self.backing_kind)?;
         let segments = &self.log.segments;
         let mut used_blocks = 0;
         let mut metadata_blocks = 2_u64;
@@ -292,9 +295,10 @@ impl Volume {
         Ok(SpaceUsage {
             volume_bytes: u64::from(geometry.volume_blocks) * BLOCK_SIZE as u64,
             live_bytes: self.live_blocks * BLOCK_SIZE as u64,
-            backing_bytes: metadata.len(),
+            backing_bytes: extent.bytes,
             provisioned_bytes: geometry.backing_blocks * BLOCK_SIZE as u64,
-            allocated_bytes: metadata.blocks() * 512,
+            // A device is wholly dedicated to the volume, so all of it counts as allocated.
+            allocated_bytes: extent.host_allocated_bytes.unwrap_or(extent.bytes),
             metadata_bytes: metadata_blocks * BLOCK_SIZE as u64,
             log_capacity_bytes: u64::from(geometry.segment_count) * segment_bytes,
             log_used_bytes: used_blocks * BLOCK_SIZE as u64,

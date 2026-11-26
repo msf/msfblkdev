@@ -65,7 +65,8 @@ enum ScanState {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BackingDiscard {
     Off,
-    /// `fallocate(PUNCH_HOLE | KEEP_SIZE)` on regular files after durable release.
+    /// After durable release: `fallocate(PUNCH_HOLE | KEEP_SIZE)` on a regular file,
+    /// `BLKDISCARD` on a block device.
     #[default]
     HolePunch,
 }
@@ -89,6 +90,7 @@ pub(crate) struct Reclaim {
 impl Reclaim {
     pub(crate) fn new(
         backing: &File,
+        backing_kind: crate::BackingKind,
         geometry: Geometry,
         volume_id: u64,
         shape: CleanerShape,
@@ -107,7 +109,13 @@ impl Reclaim {
         let cleaner_view = Box::new(View::new(geometry)?);
         let spare_view = Box::new(View::new(geometry)?);
         Ok(Self {
-            cleaner: CleanerHandle::spawn(backing, geometry, volume_id, cleaner_view)?,
+            cleaner: CleanerHandle::spawn(
+                backing,
+                backing_kind,
+                geometry,
+                volume_id,
+                cleaner_view,
+            )?,
             spare_view: Some(spare_view),
             view_checkpoint_lsn: None,
             pool,
@@ -433,12 +441,14 @@ impl Volume {
                 match result {
                     Ok(()) => self.reclaim.stats.discards_issued += 1,
                     Err(error) => {
-                        // A free segment holds no live data, so a failed punch costs only space.
+                        // A free segment holds no live data, so a failed discard costs only
+                        // space. Every reason is logged: a device without discard support
+                        // fails with EOPNOTSUPP and would otherwise lose discard silently.
                         self.reclaim.stats.discards_failed += 1;
                         self.reclaim.discard_disabled = true;
-                        if error.raw_os_error() != Some(libc::EOPNOTSUPP) {
-                            crate::log_info!("event=backing_discard_disabled error={error}");
-                        }
+                        crate::log_info!(
+                            "event=backing_discard_disabled segment={segment} error={error}"
+                        );
                     }
                 }
             }

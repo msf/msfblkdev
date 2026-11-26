@@ -5,7 +5,7 @@ use super::{
     ProposalBuffer, View,
     scanner::{ScanContext, ScanCursor, ScanReport, Scanner},
 };
-use crate::{BLOCK_SIZE, format_v4::Geometry, wakeup::Wakeup};
+use crate::{BLOCK_SIZE, BackingKind, format_v4::Geometry, wakeup::Wakeup};
 use std::{
     fs::File,
     io,
@@ -84,6 +84,7 @@ pub(crate) struct CleanerHandle {
 
 struct Cleaner {
     backing: File,
+    backing_kind: BackingKind,
     geometry: Geometry,
     volume_id: u64,
     scanner: Scanner,
@@ -100,6 +101,7 @@ struct Cleaner {
 impl CleanerHandle {
     pub(crate) fn spawn(
         backing: &File,
+        backing_kind: BackingKind,
         geometry: Geometry,
         volume_id: u64,
         view: Box<View>,
@@ -110,6 +112,7 @@ impl CleanerHandle {
         let wakeup = Wakeup::new()?;
         let mut cleaner = Cleaner {
             backing: backing.try_clone()?,
+            backing_kind,
             geometry,
             volume_id,
             scanner: Scanner::new()?,
@@ -273,12 +276,18 @@ impl Cleaner {
         }
     }
 
-    /// `fallocate(PUNCH_HOLE | KEEP_SIZE)` over the whole segment through the cleaner's ring.
-    /// Discards are neither reads nor writes, so the accounting ledger does not see them.
+    /// Releases the whole segment: a hole punch through the cleaner's ring on a regular file,
+    /// a blocking `BLKDISCARD` on a block device. Discards are neither reads nor writes, so the
+    /// accounting ledger does not see them.
     fn discard(&mut self, segment: u32) -> io::Result<()> {
         let start = u64::from(self.geometry.segment_start(segment)?) * BLOCK_SIZE as u64;
         let length = u64::from(self.geometry.blocks_per_segment) * BLOCK_SIZE as u64;
-        let result = self.scanner.punch_hole(&self.backing, start, length);
+        let result = match self.backing_kind {
+            BackingKind::RegularFile => self.scanner.punch_hole(&self.backing, start, length),
+            BackingKind::BlockDevice => {
+                crate::backing::discard_device_range(&self.backing, start, length)
+            }
+        };
         #[cfg(any(test, feature = "test-failpoints"))]
         crate::pause_at_test_failpoint("backing-discard-complete")?;
         result

@@ -158,6 +158,20 @@ pub(crate) fn extent(mut file: &File, kind: BackingKind) -> io::Result<Extent> {
     })
 }
 
+/// `BLKDISCARD` from `linux/fs.h`: `_IO(0x12, 119)`. The libc crate doesn't define it.
+const BLKDISCARD: libc::Ioctl = 0x1277;
+
+/// Tells a block device that `length` bytes at `start` hold no data. Later reads of the range
+/// may return zeroes or the old bytes, depending on the device.
+pub(crate) fn discard_device_range(file: &File, start: u64, length: u64) -> io::Result<()> {
+    let range = [start, length];
+    // SAFETY: BLKDISCARD reads two u64 values, start and length, from the valid array.
+    if unsafe { libc::ioctl(file.as_raw_fd(), BLKDISCARD, range.as_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Bytes of `range` that hold data in a regular file, from `SEEK_DATA` and `SEEK_HOLE`.
 /// Moves the file offset; every engine read and write is positional.
 pub(crate) fn allocated_bytes_in(file: &File, range: Range<u64>) -> io::Result<u64> {

@@ -3,9 +3,10 @@ use crate::format_v4::{RecordKind, small_records::BackingGrowth};
 use std::io::{Seek, SeekFrom};
 
 impl Volume {
-    /// The backing file's current length, which an operator may have grown.
+    /// The backing's current size, which an operator may have grown: a file's length or a
+    /// device's size.
     pub fn backing_len(&self) -> io::Result<u64> {
-        Ok(self.backing.metadata()?.len())
+        (&self.backing).seek(SeekFrom::End(0))
     }
 
     /// Claims an externally grown backing up to `new_backing_bytes`. Idempotent by target
@@ -23,7 +24,7 @@ impl Volume {
         if new_blocks < geometry.backing_blocks {
             return Err(invalid_input("backing cannot shrink"));
         }
-        let actual = self.backing.try_clone()?.seek(SeekFrom::End(0))? / BLOCK_SIZE as u64;
+        let actual = self.backing_len()? / BLOCK_SIZE as u64;
         if actual < new_blocks {
             return Err(invalid_input(
                 "actual backing is shorter than the requested bound",
