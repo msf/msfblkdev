@@ -20,7 +20,7 @@ The table shows how much of each ADR is in the code. The percentages are estimat
 | [08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) | Segmented log and space reclamation | ~90%, released in v2.0 | Open: aged SQLite A/F; crash tests for the existing discard and windowed-recovery failpoints. Dropped: Delivery 0 simulator, one-head and multi-victim experiments, bounded selection scan, `BLKDISCARD` for block-device backing. |
 | [09](ADR-09-RELOCATION-COMPRESSION.md) | Compression at relocation | **Not implemented** | Deferred draft. Format 4 already rejects the reserved record kind 6 and mapping bit 31. |
 | [10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) | Workbench tests and reports | ~70% | Done: reporting CLI, test matrix, pinned tool recipes, KVM boot probe, blockcheck checker library. Open: blockcheck device runs. Deferred: the comparison against LVM thin provisioning and LVM-VDO in memory-bounded VMs; the KVM boot probe is kept for it. Dropped: the v1.x historical comparison, the TMD-WORKBENCH layers. |
-| [11](ADR-11-BLKCTL-INSPECTION-TOOL.md) | `blkctl` volume inspection and offline check | ~90% | Done: `open_live` with its ownership claim, `open_readonly`, `blkctl info` and `blkctl check`, which the filesystem lab runs after each clean stop. Open: the 500 GiB `info` timing (after TODO-2) and runs on a block-device backing (after BUG-1). |
+| [11](ADR-11-BLKCTL-INSPECTION-TOOL.md) | `blkctl` volume inspection and offline check | ~90% | Done: `open_live` with its ownership claim, `open_readonly`, `blkctl info` and `blkctl check`, which the filesystem lab runs after each clean stop. Open: the 500 GiB `info` timing on NVMe and runs on a block-device backing (after BUG-1). |
 
 Not implemented:
 
@@ -311,14 +311,14 @@ The summary is `evidence/test-all-<time>/summary.md`. The link `evidence/test-al
 | Step | Make target | Requires | Creates |
 | --- | --- | --- | --- |
 | lint | `lint` | Rust with `rustfmt` and `clippy` | nothing |
-| unit | `test` | Rust | nothing (381 tests) |
+| unit | `test` | Rust | nothing (383 tests) |
 | blockcheck | `test-blockcheck-checker` | Rust | nothing; the checker uses an in-memory target |
 | python-tools | `test-python` | `python3`, `libxxhash0` for the ADR-05 image checker | nothing |
 | compaction-small | `test-compaction-small` | Rust | 185 MiB regular-file backing in a temporary directory |
 | fault-dst | `test-dst` | Rust, `python3` | regular-file backing; runs the ADR-05 medium-model controls and checkpoint-descriptor survival |
 | fsync01 | `test-fsync01` | Rust | regular-file backing; lost-writeback controls and the opt-in flush retry |
 | fault-seed | `test-fault-seed` | Rust | regular-file backing; runs seed 42, replays its saved plan, and requires an identical trace |
-| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (381 tests in crash mode) |
+| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (383 tests in crash mode) |
 | ublk-fio | `test-ublk-fio` | ublk access, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume) |
 | ext4, xfs | `test-ext4`, `test-xfs` | the above, mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
 | sqlite-standalone | none: `bash tools/sqlite/test-standalone.sh` | `make setup-sqlite` | SQLite files under `/tmp` |

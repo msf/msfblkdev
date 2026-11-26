@@ -66,7 +66,8 @@ live block to the segment that holds it.
 
 That volume has 390,096 mapping pages of 336 entries, so `info` reads about 1.5 GiB in 4 KiB blocksA volume with unmapped pages reads less, because a zero index pointer has no page.
 
-See on BUGS.md, TODO-2 on speeding this up. Not in scope for this change.
+The checkpoint walk reads 64 pages per io_uring submission; see
+[Implementation notes](#implementation-notes) for the measurements.
 Do not run tests with a 500GiB volume, this was just to demonstrate our expectation of behaviour.
 
 ### What does `open_readonly()` return?
@@ -301,8 +302,7 @@ a live volume owns the backing, and `open_live()` can't start while `check` runs
 nothing.
 
 `open_readonly()` reuses the engine's checkpoint loader (`checkpoint_load::load_candidate`) for the
-walk and the replay walker for the tail summary. It reads one block per request, so TODO-2 still
-applies. It returns `InvalidData` when no root validates, `InvalidInput` when the backing isn't a
+walk and the replay walker for the tail summary. It returns `InvalidData` when no root validates, `InvalidInput` when the backing isn't a
 format-4 backing, and `ErrorKind::Other` after three restarts. `blkctl info` maps `InvalidData` to
 exit 4 and every other error to exit 8. `VolumeView` also has `totals()`, which derives the
 used, live, metadata, dead and free counts in one place for `info` and the tests.
@@ -339,6 +339,26 @@ What we tested, on 2026-11-26 with tmpfs backing on Linux 7.0:
 
 What we didn't test: a block-device backing, and the 5-second target on a 500 GiB volume.
 
+Checkpoint load, added 2026-11-26. `open_live()` and `open_readonly()` share the loader, which
+reads index, table and mapping pages in batches of `READ_BATCH_BLOCKS` (64): it queues one read
+per page into reused aligned buffers, sorts each batch by block, and waits for the whole batch in
+one submission. The ring has 64 entries. With the I/O ledger or a test fault seam attached, reads
+still go one at a time, because those count operations one by one. We measured a 50 GiB volume
+with every one of its 39,010 mapping pages present, on a 30 GiB tmpfs backing (median of 7):
+
+| Reads per submission | `open_readonly` | `open_live` |
+|---|---|---|
+| 1 (before) | 0.164 s | 0.184 s |
+| 8 | 0.074 s | 0.087 s |
+| 32 | 0.063 s | 0.078 s |
+| 64 | 0.061 s | 0.077 s |
+| 1024 | 0.060 s | 0.076 s |
+
+Gains stop near 32 because tmpfs has no device latency; the rest is checksum and decode time.
+Scaled linearly to 500 GiB (390,096 pages) that is about 0.6 s on tmpfs. On NVMe the old walk
+waited for one read at a time; with 64 in flight we expect device time well under the 5-second
+target, but we haven't measured it (`rust/examples/checkpoint_load_bench.rs` reproduces the run).
+
 ## Open questions
 
 - A 500 GiB volume with 32 MiB segments has 16,000 segments, which makes a long `--segments` table. A compact map with one character per segment may serve better.
@@ -348,7 +368,7 @@ What we didn't test: a block-device backing, and the 5-second target on a 500 Gi
 1. Done: rename the `open` family to `open_live` and add `open_readonly()` with the walk above.
 2. Done: add `blkctl info` and `--segments`, with the tests above.
 3. Done: add `blkctl check`.
-4. Measure `info` on a fully mapped 500 GiB volume on local NVMe after TODO-2 batches the walk.
+4. Measure `info` on a fully mapped 500 GiB volume on local NVMe.
 5. Run both commands on a block-device backing after BUG-1.
 
 ## Appendix: FAQ

@@ -64,33 +64,6 @@ Steps: list every source; seed hashers and any random choice from the volume ID;
 to the engine; make the points where cleaner results reach the writer deterministic in a test mode;
 let format take an explicit volume ID.
 
-## TODO-2 Checkpoint load reads one block at a time
-
-Found 2026-11-26. Status: open.
-
-Startup reads every page that the selected root references, one block per round trip. Each read
-goes through `read_block_exact` and `submit_exact`, which submit one request and wait for it before
-the next. This covers the indirect and direct index pages and the segment table pages
-(`rust/src/format_v4/checkpoint_load.rs:105-175`) and every mapping page in `validate_snapshots`
-(`checkpoint_load.rs:252-286`). The engine's ring has 2 entries (`rust/src/accounted_io.rs:18`).
-
-A fully mapped 500 GiB volume has 390,096 mapping pages, so startup waits for about 390,000
-sequential reads. We estimate tens of seconds on NVMe; not measured.
-
-Proposed fix: run the same pipeline in batches of `N` pages:
-
-1. Take the next `N` page IDs.
-2. Look up their physical blocks in the mapping index and skip zero pointers.
-3. Sort the batch by physical block.
-4. Submit `N` reads at once and wait for all of them.
-5. Decode and validate each page, then add its entries to the live counts.
-
-The counters only add, so completion order doesn't matter. Index pages load first, in the same
-batched way, because mapping page pointers come from them. The ring needs at least `N` entries,
-and the loader needs `N` aligned block buffers.
-
-`open_readonly()` (ADR-11) needs the same walk; `open_live()` should reuse it.
-
 ## Checked, not a bug: on-disk format version
 
 Checked 2026-11-25. Every metadata block already carries the format version, and the code rejects
