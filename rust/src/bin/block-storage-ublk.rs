@@ -26,7 +26,8 @@ use libublk::sys::{
 use libublk::{BufDesc, UblkError, UblkFlags, UblkIORes};
 use std::ffi::{OsStr, OsString};
 use std::fs::OpenOptions;
-use std::io;
+use std::io::{self, Seek};
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -362,7 +363,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] [--heap-ppm N] [--heap-bytes N] [--cleaner-bytes N] [--growth-capacity-bytes N] [--backing-discard off|punch] [--idle-wait-us N] [--max-maintenance-interval-ms N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N [--min-logical-fill-factor PERCENT]",
+                "usage: {} serve <backing> <device-id> [--max-request-bytes N] [--inflight-memory-bytes N] [--write-buffer-bytes N] [--mapping-cache-bytes N] [--heap-ppm N] [--heap-bytes N] [--cleaner-bytes N] [--growth-capacity-bytes N] [--backing-discard off|punch] [--idle-wait-us N] [--max-maintenance-interval-ms N] | delete <device-id> | format <new-regular-file> --size-mib N --prealloc-mib N [--min-logical-fill-factor PERCENT] | format <block-device> --size-mib N --block-device [--min-logical-fill-factor PERCENT]",
                 PathBuf::from(&program).display()
             ),
         )
@@ -402,9 +403,19 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> io::Result<CliCommand
     Ok(command)
 }
 
+/// Where `format` writes the volume.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FormatTarget {
+    /// Creates a sparse regular file of this length. Never touches an existing path.
+    NewFile { backing_bytes: u64 },
+    /// Formats an existing block device in place and uses all of it. The explicit flag keeps a
+    /// mistyped path from overwriting a device.
+    BlockDevice,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FormatSizes {
-    backing_bytes: u64,
+    target: FormatTarget,
     volume_bytes: u64,
     min_logical_fill: u8,
 }
@@ -418,7 +429,12 @@ fn parse_format_sizes(
     let mut backing_bytes = None;
     let mut volume_bytes = None;
     let mut min_logical_fill = None;
+    let mut block_device = false;
     while let Some(flag) = args.next() {
+        if flag == "--block-device" && !block_device {
+            block_device = true;
+            continue;
+        }
         let value = args.next().ok_or_else(usage)?;
         let size = match flag.to_str() {
             Some("--prealloc-mib") => &mut backing_bytes,
@@ -444,8 +460,13 @@ fn parse_format_sizes(
         }
         *size = Some(parse_bytes(&value)?.checked_mul(MIB).ok_or_else(usage)?);
     }
+    let target = match (backing_bytes, block_device) {
+        (Some(backing_bytes), false) => FormatTarget::NewFile { backing_bytes },
+        (None, true) => FormatTarget::BlockDevice,
+        _ => return Err(usage()),
+    };
     Ok(FormatSizes {
-        backing_bytes: backing_bytes.ok_or_else(usage)?,
+        target,
         volume_bytes: volume_bytes.ok_or_else(usage)?,
         min_logical_fill: min_logical_fill.unwrap_or(100),
     })
@@ -1442,21 +1463,35 @@ fn delete(device_id: i32) -> io::Result<()> {
         .map_err(ublk_error)
 }
 
-fn format_new(
+fn format_backing(
     backing_path: &Path,
     sizes: FormatSizes,
     ledger_path: Option<&OsStr>,
 ) -> io::Result<()> {
-    let FormatSizes {
-        backing_bytes,
-        volume_bytes,
-        min_logical_fill,
-    } = sizes;
-    let plan = block_storage::plan_format(volume_bytes, backing_bytes, min_logical_fill)?;
-    let blocks_per_segment = u32::try_from(plan.segment_bytes / u64::from(LOGICAL_BLOCK_BYTES))
-        .expect("supported segment size fits in u32 blocks");
-    let options = block_storage::FormatOptions { blocks_per_segment };
+    match sizes.target {
+        FormatTarget::NewFile { backing_bytes } => {
+            format_new_file(backing_path, backing_bytes, sizes, ledger_path)
+        }
+        FormatTarget::BlockDevice => format_device(backing_path, sizes, ledger_path),
+    }
+}
+
+fn format_new_file(
+    backing_path: &Path,
+    backing_bytes: u64,
+    sizes: FormatSizes,
+    ledger_path: Option<&OsStr>,
+) -> io::Result<()> {
+    let plan =
+        block_storage::plan_format(sizes.volume_bytes, backing_bytes, sizes.min_logical_fill)?;
     let accounting = io_ledger::open_optional(ledger_path)?;
+    if std::fs::metadata(backing_path).is_ok_and(|metadata| metadata.file_type().is_block_device())
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the backing is a block device; format it in place with --block-device",
+        ));
+    }
     let backing = OpenOptions::new()
         .read(true)
         .write(true)
@@ -1464,23 +1499,9 @@ fn format_new(
         .open(backing_path)?;
     let format_error = match backing
         .set_len(backing_bytes)
-        .and_then(|()| match accounting {
-            Some(writer) => block_storage::format_with_options_and_accounting(
-                backing_path,
-                volume_bytes,
-                options,
-                writer,
-            ),
-            None => block_storage::format_with_options(backing_path, volume_bytes, options),
-        }) {
-        Ok(()) => {
-            log_info!(
-                "event=format logical_bytes={volume_bytes} raw_bytes={backing_bytes} segment_bytes={} min_logical_fill_percent={min_logical_fill} expected_max_logical_fill_percent={}",
-                plan.segment_bytes,
-                plan.expected_max_logical_fill
-            );
-            return Ok(());
-        }
+        .and_then(|()| format_planned(backing_path, backing_bytes, sizes, plan, accounting))
+    {
+        Ok(()) => return Ok(()),
         Err(error) => error,
     };
 
@@ -1491,6 +1512,58 @@ fn format_new(
             "{format_error}; failed to remove newly created backing file: {cleanup_error}"
         ))),
     }
+}
+
+/// Formats an existing block device in place. A failure leaves the device as it is: it isn't
+/// ours to remove. The engine opens it with `O_EXCL`, so a mounted or held device is refused.
+fn format_device(
+    device_path: &Path,
+    sizes: FormatSizes,
+    ledger_path: Option<&OsStr>,
+) -> io::Result<()> {
+    if !std::fs::metadata(device_path)?
+        .file_type()
+        .is_block_device()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--block-device needs a block device path",
+        ));
+    }
+    let device_bytes = std::fs::File::open(device_path)?.seek(io::SeekFrom::End(0))?;
+    let plan =
+        block_storage::plan_format(sizes.volume_bytes, device_bytes, sizes.min_logical_fill)?;
+    let accounting = io_ledger::open_optional(ledger_path)?;
+    format_planned(device_path, device_bytes, sizes, plan, accounting)
+}
+
+fn format_planned(
+    backing_path: &Path,
+    backing_bytes: u64,
+    sizes: FormatSizes,
+    plan: block_storage::FormatPlan,
+    accounting: Option<block_storage::io_accounting::Writer>,
+) -> io::Result<()> {
+    let blocks_per_segment = u32::try_from(plan.segment_bytes / u64::from(LOGICAL_BLOCK_BYTES))
+        .expect("supported segment size fits in u32 blocks");
+    let options = block_storage::FormatOptions { blocks_per_segment };
+    let volume_bytes = sizes.volume_bytes;
+    match accounting {
+        Some(writer) => block_storage::format_with_options_and_accounting(
+            backing_path,
+            volume_bytes,
+            options,
+            writer,
+        )?,
+        None => block_storage::format_with_options(backing_path, volume_bytes, options)?,
+    }
+    log_info!(
+        "event=format logical_bytes={volume_bytes} raw_bytes={backing_bytes} segment_bytes={} min_logical_fill_percent={} expected_max_logical_fill_percent={}",
+        plan.segment_bytes,
+        sizes.min_logical_fill,
+        plan.expected_max_logical_fill
+    );
+    Ok(())
 }
 
 fn run() -> io::Result<()> {
@@ -1506,7 +1579,7 @@ fn run() -> io::Result<()> {
         CliCommand::Format {
             backing_path,
             sizes,
-        } => format_new(&backing_path, sizes, ledger_path.as_deref()),
+        } => format_backing(&backing_path, sizes, ledger_path.as_deref()),
     }
 }
 
@@ -1872,7 +1945,9 @@ mod tests {
             full,
             FormatSizes {
                 volume_bytes: 4 << 20,
-                backing_bytes: 512 << 20,
+                target: FormatTarget::NewFile {
+                    backing_bytes: 512 << 20
+                },
                 min_logical_fill: 100
             }
         );
@@ -1943,9 +2018,12 @@ mod tests {
     fn format_new_sizes_formats_and_opens_exact_image() -> io::Result<()> {
         let backing = TemporaryPath::new()?;
         let sizes = format_args(&["--size-mib", "128", "--prealloc-mib", "320"])?;
-        let plan = block_storage::plan_format(sizes.volume_bytes, sizes.backing_bytes, 100)?;
-        format_new(&backing.0, sizes, None)?;
-        assert_eq!(std::fs::metadata(&backing.0)?.len(), sizes.backing_bytes);
+        let FormatTarget::NewFile { backing_bytes } = sizes.target else {
+            panic!("--prealloc-mib selects a new file");
+        };
+        let plan = block_storage::plan_format(sizes.volume_bytes, backing_bytes, 100)?;
+        format_backing(&backing.0, sizes, None)?;
+        assert_eq!(std::fs::metadata(&backing.0)?.len(), backing_bytes);
         let volume = block_storage::open_live(&backing.0)?;
         assert_eq!(
             u64::from(volume.volume_blocks()) * u64::from(LOGICAL_BLOCK_BYTES),
@@ -1959,7 +2037,7 @@ mod tests {
     fn format_new_honors_partial_fill_that_default_rejects() -> io::Result<()> {
         let backing = TemporaryPath::new()?;
         let full = format_args(&["--size-mib", "128", "--prealloc-mib", "128"])?;
-        assert!(format_new(&backing.0, full, None).is_err());
+        assert!(format_backing(&backing.0, full, None).is_err());
         assert!(!backing.0.exists());
         let partial = format_args(&[
             "--size-mib",
@@ -1969,7 +2047,7 @@ mod tests {
             "--min-logical-fill-factor",
             "50",
         ])?;
-        format_new(&backing.0, partial, None)?;
+        format_backing(&backing.0, partial, None)?;
         let volume = block_storage::open_live(&backing.0)?;
         assert_eq!(volume.space_usage()?.segment_bytes, 8 << 20);
         volume.close()
@@ -1981,8 +2059,38 @@ mod tests {
         std::fs::write(&backing.0, b"preserve me")?;
 
         let sizes = format_args(&["--prealloc-mib", "512", "--size-mib", "128"])?;
-        let error = format_new(&backing.0, sizes, None).unwrap_err();
+        let error = format_backing(&backing.0, sizes, None).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&backing.0)?, b"preserve me");
+        Ok(())
+    }
+
+    #[test]
+    fn block_device_format_replaces_the_raw_size_and_excludes_it() {
+        assert_eq!(
+            format_args(&["--block-device", "--size-mib", "4"]).unwrap(),
+            FormatSizes {
+                volume_bytes: 4 << 20,
+                target: FormatTarget::BlockDevice,
+                min_logical_fill: 100
+            }
+        );
+        for invalid in [
+            &["--block-device", "--size-mib", "4", "--prealloc-mib", "512"][..],
+            &["--block-device", "--block-device", "--size-mib", "4"],
+            &["--block-device"],
+        ] {
+            assert!(format_args(invalid).is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn block_device_format_refuses_a_regular_file_and_leaves_it_unchanged() -> io::Result<()> {
+        let backing = TemporaryBacking::new()?;
+        std::fs::write(&backing.0, b"preserve me")?;
+        let sizes = format_args(&["--block-device", "--size-mib", "128"])?;
+        let error = format_backing(&backing.0, sizes, None).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(std::fs::read(&backing.0)?, b"preserve me");
         Ok(())
     }
@@ -1998,13 +2106,13 @@ mod tests {
             (128 << 20, 128 << 20),
         ] {
             let sizes = FormatSizes {
-                backing_bytes,
+                target: FormatTarget::NewFile { backing_bytes },
                 volume_bytes,
                 min_logical_fill: 100,
             };
             for path in [&missing.0, &sentinel.0] {
                 // Planning must win over both a missing ledger and an existing destination.
-                let error = format_new(path, sizes, Some(missing.0.as_os_str())).unwrap_err();
+                let error = format_backing(path, sizes, Some(missing.0.as_os_str())).unwrap_err();
                 assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
             }
             assert!(!missing.0.exists());
@@ -2018,7 +2126,8 @@ mod tests {
         let backing = TemporaryPath::new()?;
         let missing_ledger = backing.0.with_extension("missing-ledger");
         let sizes = format_args(&["--prealloc-mib", "512", "--size-mib", "128"])?;
-        let error = format_new(&backing.0, sizes, Some(missing_ledger.as_os_str())).unwrap_err();
+        let error =
+            format_backing(&backing.0, sizes, Some(missing_ledger.as_os_str())).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         assert!(!backing.0.exists());
         assert!(io_ledger::open_optional(None)?.is_none());
