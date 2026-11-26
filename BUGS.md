@@ -43,57 +43,19 @@ Related, not yet a bug: segments start at block 2, so they sit 8 KiB off natural
 device with a `discard_granularity` above 4 KiB may ignore the unaligned head and tail of each
 segment discard. Measure on a real device before changing the layout.
 
-## BUG-2 Ownership of the backing is claimed only by the daemon, and only with `flock`
+## BUG-2 Nothing protects a backing shared by several hosts
 
-Found 2026-11-25. Status: fixed for one host on 2026-11-26 by ADR-11; several hosts remain open.
-`open_live()` claims a regular file with `flock(LOCK_EX | LOCK_NB)` and a block device with
-`O_EXCL` before recovery (`rust/src/backing.rs`). The daemon no longer takes its own lock. The
-table below describes the state before the fix.
+Found 2026-11-25. Status: open; out of scope until the
+[distributed design](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) needs shared backing.
 
-| Gap | Evidence |
-|---|---|
-| The claim lives in the daemon (`BackingLock::acquire`, `rust/src/bin/block-storage-ublk.rs:237-256`), not in the engine. Library `open()` callers (the lab, tests, a future tool) claim nothing. | Verified by grep: the only other `flock` in the crate guards the I/O accounting ledger (`rust/src/io_accounting.rs:469-478`). |
-| `flock` is advisory and attaches to the inode of the opened path. Two device nodes for one device (`/dev/dm-0` and `/dev/mapper/vg-lv`) are different inodes, so their locks don't conflict. | Inferred from flock(2) semantics. Not tested. |
-| A device is opened without `O_EXCL`, so the daemon can serve a device that is mounted or held by md or dm. | open(2): "O_EXCL can be used without O_CREAT if path refers to a block device. If the block device is in use by the system (e.g., mounted), open() fails with the error EBUSY." |
-| Nothing protects a backing shared by several hosts. | By design so far. |
+On one host, `open_live()` claims the backing before recovery: `flock(LOCK_EX | LOCK_NB)` on a
+regular file and `O_EXCL` on a block device (ADR-11). Neither claim reaches another host.
 
-Proposed fix for one host: `open_live()` (see BUG-3) claims the backing before recovery. A device
-uses `O_EXCL`, which the kernel enforces regardless of path and which conflicts with mounts and
-other exclusive openers. A regular file uses `flock(LOCK_EX | LOCK_NB)`. Plain `O_RDONLY` readers,
-such as `blkctl info` (ADR-11), are unaffected by either claim.
-
-Several hosts: an on-disk lock with an expiration LSN doesn't work by itself. The LSN advances only
-when the owner writes, so an idle owner and a dead owner look the same. A lease needs wall-clock
-heartbeat writes (ZFS `multihost` does this with periodic uberblock writes and an import delay;
-from memory, not re-read). Even then, an owner that pauses past its lease can resume and write.
-Only fencing at the device, such as NVMe or SCSI persistent reservations, stops a stale owner. This
-is out of scope until the [distributed design](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) needs shared
-backing.
-
-## BUG-3 There is no read-only open, and every `open()` writes
-
-Found 2026-11-25. Status: fixed on 2026-11-26 by [ADR-11](ADR-11-BLKCTL-INSPECTION-TOOL.md).
-`open()` is now `open_live()`, and `open_readonly()` reads one checkpoint without writing or
-claiming. `open_live()` still sanitizes the open segments on every open, as described below.
-
-`open()` and its variants (`rust/src/lib.rs:525` onward) always recover the tail, and recovery
-writes:
-
-- `sanitize` zeroes the rest of both open segments and fsyncs, on every open
-  (`rust/src/format_v4/recovery.rs:146-158`, `445-456`);
-- a tail whose dirty pages exceed the cache publishes replay windows
-  (`rust/src/format_v4/recovery.rs:152-153`).
-
-Consequences:
-
-- Looking at an image changes it. A second `open()` on a backing that a daemon serves zeroes the
-  region the daemon appends to; only the daemon's `flock` prevents this (BUG-2).
-- On a sparse file, each open writes zeroes over up to two whole segments and so allocates them
-  (inferred: XFS and ext4 store written zero blocks; not measured).
-
-Proposed fix: rename the `open` family to `open_live`: it claims the backing (BUG-2), recovers and
-serves requests. Add `open_readonly`, which builds a view of one checkpoint and never writes or
-claims (ADR-11).
+An on-disk lock with an expiration LSN doesn't work by itself. The LSN advances only when the owner
+writes, so an idle owner and a dead owner look the same. A lease needs wall-clock heartbeat writes
+(ZFS `multihost` does this with periodic uberblock writes and an import delay; from memory, not
+re-read). Even then, an owner that pauses past its lease can resume and write. Only fencing at the
+device, such as NVMe or SCSI persistent reservations, stops a stale owner.
 
 ## TODO-1 Make the engine deterministic for a given seed
 
