@@ -337,7 +337,9 @@ What we tested, on 2026-11-26 with tmpfs backing on Linux 7.0:
 - A manual run against a serving daemon: `info` ran during 1.2 GiB of overwrites without
   reporting damage, and `check` exited 8 until the daemon stopped.
 
-What we didn't test: a block-device backing, and the 5-second target on a 500 GiB volume.
+What we didn't test: the 5-second target on a 500 GiB volume. Block-device backing was tested
+later, on a ublk device that a tmpfs file backs (`make test-device-backing`): `info` reports the
+device, `check` passes on it and exits 8 while a daemon serves it.
 
 Checkpoint load, added 2026-11-26. `open_live()` and `open_readonly()` share the loader, which
 reads index, table and mapping pages in batches of `READ_BATCH_BLOCKS` (64): it queues one read
@@ -369,7 +371,7 @@ target, but we haven't measured it (`rust/examples/checkpoint_load_bench.rs` rep
 2. Done: add `blkctl info` and `--segments`, with the tests above.
 3. Done: add `blkctl check`.
 4. Measure `info` on a fully mapped 500 GiB volume on local NVMe.
-5. Run both commands on a block-device backing after BUG-1.
+5. Done: run both commands on a block-device backing.
 
 ## Appendix: FAQ
 

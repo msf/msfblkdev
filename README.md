@@ -17,10 +17,10 @@ The table shows how much of each ADR is in the code. The percentages are estimat
 | [05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) | Fault model and fault testing | ~60% | Implemented after ADR-08. Done: a fault-injection seam under the backing I/O, a medium model, an offline image checker, seeded fault replay, live ublk faults at checkpoint B, two engine fixes (F01, F02) and an opt-in flush retry (FSYNC-01). The daemon still fails closed. Open: retry across timeouts and cancellation, checkpoint and cleaner fault schedules, other native hosts, operator-run medium and application tests. Dropped: checksum chaining. |
 | [06](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) | Filesystem and database correctness | ~75% | Done: ext4, XFS and SQLite on both, requalified on format 4. Open: RocksDB (the tools build; no lab run). Dropped: PostgreSQL. |
 | [07](ADR-07-PAGED-MAPPING-AND-CACHE.md) | Paged mapping and bounded cache | 100% | Format 4 replaced the format-3 schema. It keeps the cache, prefetch and bounded recovery. |
-| [08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) | Segmented log and space reclamation | ~90%, released in v2.0 | Open: aged SQLite A/F; crash tests for the existing discard and windowed-recovery failpoints. Dropped: Delivery 0 simulator, one-head and multi-victim experiments, bounded selection scan, `BLKDISCARD` for block-device backing. |
+| [08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) | Segmented log and space reclamation | ~90%, released in v2.0 | Open: aged SQLite A/F; crash tests for the existing discard and windowed-recovery failpoints. Dropped: Delivery 0 simulator, one-head and multi-victim experiments, bounded selection scan. `BLKDISCARD` for block-device backing landed after v2.0. |
 | [09](ADR-09-RELOCATION-COMPRESSION.md) | Compression at relocation | **Not implemented** | Deferred draft. Format 4 already rejects the reserved record kind 6 and mapping bit 31. |
 | [10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) | Workbench tests and reports | ~70% | Done: reporting CLI, test matrix, pinned tool recipes, KVM boot probe, blockcheck checker library. Open: blockcheck device runs. Deferred: the comparison against LVM thin provisioning and LVM-VDO in memory-bounded VMs; the KVM boot probe is kept for it. Dropped: the v1.x historical comparison, the TMD-WORKBENCH layers. |
-| [11](ADR-11-BLKCTL-INSPECTION-TOOL.md) | `blkctl` volume inspection and offline check | ~90% | Done: `open_live` with its ownership claim, `open_readonly`, `blkctl info` and `blkctl check`, which the filesystem lab runs after each clean stop. Open: the 500 GiB `info` timing on NVMe and runs on a block-device backing (after BUG-1). |
+| [11](ADR-11-BLKCTL-INSPECTION-TOOL.md) | `blkctl` volume inspection and offline check | ~90% | Done: `open_live` with its ownership claim, `open_readonly`, `blkctl info` and `blkctl check`, which the filesystem lab runs after each clean stop. Open: the 500 GiB `info` timing on NVMe. |
 
 Not implemented:
 
@@ -45,7 +45,7 @@ The open items, in priority order.
 1. Add crash tests that use the existing `discard-write-complete` and `recovery-snapshots-fsync-complete` failpoints (ADR-08). The released format has these crash points, but no test kills the process at them. The failpoint harness already exists, so the cost is small.
 2. Finish the ADR-05 retry work in the [campaign plan](docs/ADR05-CAMPAIGN.md): retry ownership across timeouts and cancellation, then checkpoint and cleaner faults. Extend the live checkpoint-B tests to the other publication boundaries.
 3. Run the [blockcheck device workloads](docs/BLOCKCHECK-PLAN.md), including aged SQLite A/F (ADR-08, ADR-10). The release has not been tested under aged database workloads.
-4. Support block-device backing (BUG-1). The engine and the daemon assume a regular file.
+4. Fix BUG-4 in [BUGS.md](BUGS.md): after a write burst the daemon stops running idle maintenance, so freed segments return to the backing only under write pressure or at shutdown.
 5. Complete RocksDB correctness on ext4 and XFS (ADR-06).
 6. Later: logical growth (ADR-04), then a distributed replicated log.
 
@@ -78,6 +78,14 @@ The formatter requires the advertised logical size and the raw backing size. For
 block-storage-ublk format disk.img --size-mib 128 --prealloc-mib 185
 ```
 
+To use a block device as the backing, format it in place. The device's size is the raw size, so
+`--prealloc-mib` doesn't apply; `--block-device` states that the existing device may be
+overwritten. A mounted or otherwise held device is refused.
+
+```sh
+block-storage-ublk format /dev/vg0/blockvol --size-mib 102400 --block-device
+```
+
 `--min-logical-fill-factor` sets the minimum percent of the **logical** volume that must fit as live payload while leaving room for cleaning. It defaults to `100`: for the 128 MiB volume above, all 128 MiB must fit. The formatter tries 32, 16, then 8 MiB segments and picks the largest size that meets the requested fill. If none fits, it rejects the request before creating the image. The reported maximum logical fill is a sizing estimate, not a measured endurance guarantee. The raw size sets the sparse file's length; it does not reserve that much free space on the host filesystem.
 
 The backing holds two checkpoint descriptors, then whole segments. New writes append on the user head. Relocated copies append on the relocation head. Both heads share one global LSN sequence.
@@ -89,7 +97,7 @@ Space reclamation works in this way:
 - The writer validates each proposal against the current mapping and the victim's seal LSN.
 - The writer copies the live payloads and dirties the current metadata.
 - The writer frees a victim only after two checkpoint publications.
-- Free segments are hole-punched on regular files.
+- Free segments are hole-punched on a regular file and discarded with `BLKDISCARD` on a block device.
 
 Idle maintenance runs 2 ms after the last request, or at least every 100 ms. Space pressure reclaims
 inline, inside the write. `Volume::maintain`, `maintain_for` and `wait_for_cleaner` drive
@@ -297,6 +305,14 @@ The VM is named `msfblkdev`; set `VM_NAME` to use another name. [tools/vm/lima-d
 The VM setup was tested on a Linux x86_64 host with Lima 2.3.0 and QEMU/KVM. The ADR-05 campaign used the same Debian image with Lima and VZ on macOS arm64, but `make vm-setup` has not run on macOS yet.
 
 [Normal-user ublk setup](#normal-user-ublk-setup) and [Normal-user ext4 development](#normal-user-ext4-development-and-acceptance) describe the system changes in detail, for review or for a manual setup.
+
+### Block-device backing
+
+`make test-device-backing` runs `tools/device-backing/nested-ublk.sh`. It needs ublk access but
+no root and no spare disk. An outer daemon serves a tmpfs file as `/dev/ublkbN`, and that
+device is the backing under test: the daemon formats it with `--block-device`,
+`examples/device_discard.rs` makes the engine issue `BLKDISCARD`, an inner daemon serves it, and
+`blkctl check` verifies it. The test fails unless the outer volume unmaps the discarded ranges.
 
 ### Running every test
 

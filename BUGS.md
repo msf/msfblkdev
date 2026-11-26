@@ -5,42 +5,35 @@ GitHub issues are disabled on `msf/msfblkdev`, so we track them here.
 
 Each entry names the code sites, what is verified and what is inferred, and a proposed fix.
 
-## BUG-1 The engine and the daemon assume a regular-file backing
+## BUG-4 The daemon stops running idle maintenance after a write burst
 
-Found 2026-11-25. Status: open.
+Found 2026-11-26. Status: open.
 
-ADR-08 ([When may the writer reuse a victim?](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md#when-may-the-writer-reuse-a-victim))
-specifies hole punching for file backing and `BLKDISCARD` for device backing. The implementation
-handles files only:
+The README states that idle maintenance runs 2 ms after the last request, or at least every
+100 ms. Verified on a daemon that serves a 640 MiB volume on a 1 GiB regular file in tmpfs: two
+full sequential `dd` passes, then `blkdiscard` of the whole device and 2 s of idle. A temporary
+log line at the start of `tick` (`rust/src/bin/block-storage-ublk.rs`) recorded 221 timer
+completions during the writes, the last one with the queue not idle, and none after it. With no
+tick, no barrier publication runs: the daemon shut down with `reclaim_barrier_publications=0`,
+no segment freed and 13 segments pending-free. The engine itself frees and discards them when
+`maintain` runs (`rust/examples/device_discard.rs`).
 
-| Site | Problem on a block device |
-|---|---|
-| `rust/src/format_v4/reclaim/scanner.rs:183-190` (`punch_hole`) | Backing discard always issues `fallocate(PUNCH_HOLE \| KEEP_SIZE)`. On a block device, Linux turns this into `blkdev_issue_zeroout(..., BLKDEV_ZERO_NOFALLBACK)`: a write-zeroes request, not a discard. It fails with `EOPNOTSUPP` when the device has no write-zeroes support. Where it works, it asks for a zeroing guarantee we don't need. Source: `blkdev_fallocate` in `block/fops.c`, Linux master `5f5be658`, read 2026-11-25. |
-| `rust/src/format_v4/volume/reclaim.rs:408-421` | The first failed discard disables backing discard for the life of the process. `EOPNOTSUPP` isn't logged, so a device backing loses discard silently. |
-| `rust/src/format_v4/volume.rs:265-293` (`space_usage`) | `metadata().len()` and `metadata().blocks()` don't describe a device. `backing_bytes` and `allocated_bytes` are wrong there. |
-| `rust/src/format_v4/volume/growth.rs:7-9` (`backing_len`) | Returns 0 for a device. `grow_backing` itself uses `seek(End)`, which works. |
-| `rust/src/bin/block-storage-ublk.rs:1467-1520` (`format_new`) | Creates the backing with `create_new(true)` and sizes it with `set_len`. Every device path already exists, so this fails with `EEXIST`: the daemon can't format a device. On a later failure it calls `remove_file` on the path; a device variant must not inherit that cleanup. |
+Effect: freed space returns to the backing only under write pressure or at shutdown, and a
+discard (`fstrim`) through the device frees nothing while the daemon is idle.
 
-What is correct today: on a regular file on XFS, ext4, Btrfs or tmpfs, `PUNCH_HOLE | KEEP_SIZE`
-deallocates the range and later reads return zeroes (fallocate(2), man7.org, read 2026-11-25). That
-is the right primitive for files, and `BLKDISCARD` doesn't apply to them. Whether the host
-filesystem then discards the freed blocks on its SSD depends on its `discard` mount option or a
-periodic `fstrim`.
+Inferred, not verified: the timer is lost on a re-arm path. Candidates are `request_completed`,
+which returns without arming while `timer_short` is set even if that short timer has already
+completed, and the stale-generation branch, which returns without arming.
 
-Size discovery already works on both kinds: `open_backing` (`rust/src/format_v4/storage.rs:31-42`)
-uses `seek(SeekFrom::End(0))`.
+Proposed fix: find the lost path with a test that drives the timer state machine
+(`Scheduler` already takes an injectable clock), then make every timer completion and every
+request completion leave exactly one current timer armed.
 
-Proposed fix: classify the backing once when it is opened (`fstat`: `S_ISREG` or `S_ISBLK`) and
-dispatch on that kind:
+## Not yet a bug: segments sit 8 KiB off device alignment
 
-- regular file: size from `seek(End)`, release with `PUNCH_HOLE | KEEP_SIZE`, allocation from `st_blocks`;
-- block device: size from `seek(End)`, release with `BLKDISCARD` over the exact segment byte range, no allocation figure;
-- both: log every reason that disables backing discard;
-- format: format an existing device in place, with no `create_new`, `set_len` or `remove_file`.
-
-Related, not yet a bug: segments start at block 2, so they sit 8 KiB off natural device alignment
-(ADR-08 [Persistent layout](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md#persistent-layout)). A
-device with a `discard_granularity` above 4 KiB may ignore the unaligned head and tail of each
+Segments start at block 2, after the two descriptors, so they sit 8 KiB off natural device
+alignment (ADR-08 [Persistent layout](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md#persistent-layout)).
+A device with a `discard_granularity` above 4 KiB may ignore the unaligned head and tail of each
 segment discard. Measure on a real device before changing the layout.
 
 ## TODO-1 Make the engine deterministic for a given seed
