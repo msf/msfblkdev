@@ -15,7 +15,7 @@ struct TestGroup {
     target: &'static str,
 }
 
-const GROUPS: [TestGroup; 5] = [
+const GROUPS: [TestGroup; 7] = [
     TestGroup {
         label: "library",
         target: "--lib",
@@ -31,6 +31,14 @@ const GROUPS: [TestGroup; 5] = [
     TestGroup {
         label: "mount-helper",
         target: "--bin=block-storage-mount",
+    },
+    TestGroup {
+        label: "blkctl",
+        target: "--bin=blkctl",
+    },
+    TestGroup {
+        label: "blkctl-cli",
+        target: "--test=blkctl",
     },
     TestGroup {
         label: "doc",
