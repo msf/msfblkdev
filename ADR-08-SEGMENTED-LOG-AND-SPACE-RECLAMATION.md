@@ -870,6 +870,9 @@ logs the outcome. The engine exposes the measurements a controller would need.
 The safety argument changes from never overwriting to never overwriting a recovery dependency.
 Two-root protection and rejection of earlier-use records are therefore format requirements.
 Medium-fault and repeated-crash tests must exercise both, not only clean restart.
+ADR-08 was implemented before [ADR-05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md). At the
+time of writing, ADR-05's medium-fault tests are not implemented. ADR-08's own fault coverage is
+the failpoint process-crash, short-I/O and corruption tests in the engine suite.
 
 Costs include a cleaner thread, second ring and descriptor, immutable checkpoint views, proposal
 storage and copy writes on the request path. Checkpoints write only changed index pages, but

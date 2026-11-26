@@ -4,84 +4,65 @@ A Linux-only log-structured block device experiment. Rust is authoritative and i
 
 ## Current status
 
-The latest stable release is [**v2.0**](https://github.com/msf/msfblkdev/releases/tag/v2.0) (`031d778`). It uses on-disk format 4 and reclaims overwritten blocks. It cannot open format-3 images from v1.2.3, and there is no in-place migration.
+The latest stable release is [**v2.0**](https://github.com/msf/msfblkdev/releases/tag/v2.0) (`031d778`). It uses on-disk format 4 and reclaims overwritten blocks. It cannot open format-3 images from v1.2.3, and there is no in-place migration. `main` also has two engine fixes from ADR-05 that are not in a release yet.
 
-| ADR | Subject | State |
-| --- | --- | --- |
-| 01–03 | Architecture, basic read/write, minimum credible device | Implemented; regression baseline |
-| 04 | Growable thin-provisioned format | Proposed; not implemented |
-| 05 | Backing I/O faults and recovery | Format-4 fault lab and two fixes qualified on arm64; [FSYNC-01 records retry](evidence/adr05-fsync01-20261120/GREEN.md) tested with library opt-in; daemon still fails closed |
-| 06 | Filesystem and database correctness | ext4, XFS and SQLite accepted; RocksDB and PostgreSQL open |
-| 07 | Paged mapping and bounded cache (format 3) | Implemented in v1.2–v1.2.3 |
-| 08 | Segmented log and space reclamation (format 4) | Released in v2.0 |
-| 09 | Compression at relocation | Deferred draft; not implemented |
-| 10 | Workbench tests and reports | Reporting implemented; VM workload execution open |
+The table shows how much of each ADR is in the code. The percentages are estimates. They compare each ADR's done deliverables with its open ones. Dropped items and items that a later ADR replaced are not counted. **Open** means planned work. **Dropped** means we accept that the item will not be done. **Deferred** means planned for later and not counted. Some ADR files still describe dropped items as planned; this table takes precedence.
 
-Goals 1 and 2 are complete. ADR-03's engine, serialized ublk frontend and live regular-file `fio` acceptance gates pass. V0.8 acceptance is complete.
+| ADR | Subject | Implemented | Not implemented |
+| --- | --- | --- | --- |
+| [01](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md) | Architecture and persistent-format rules | 100% | Dropped: full-log salvage tool. Formats 3 and 4 replaced format 1. Later ADRs own the roadmap goals 3–5. |
+| [02](ADR-02-GOAL-1-BASIC-READ-WRITE.md) | Basic read and write (V0.0–V0.4) | 100% | — |
+| [03](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) | Minimum credible device (V0.5–V0.8) | 100% | Dropped: optional LVM operator run. Later work removed the queue-depth-1 and 4 KiB request limits. |
+| [04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) | Growable thin-provisioned format | ~75%, through ADR-08 | Format 2 never shipped. ADR-08 delivered thin provisioning, sparse mappings and backing growth. Open: logical growth (online resize). Dropped: checkpoint arenas, replacement-image compaction, salvage tool. |
+| [05](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) | Fault model and fault testing | ~60% | Implemented after ADR-08. Done: a fault-injection seam under the backing I/O, a medium model, an offline image checker, seeded fault replay, live ublk faults at checkpoint B, two engine fixes (F01, F02) and an opt-in flush retry (FSYNC-01). The daemon still fails closed. Open: retry across timeouts and cancellation, checkpoint and cleaner fault schedules, other native hosts, operator-run medium and application tests. Dropped: checksum chaining. |
+| [06](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) | Filesystem and database correctness | ~75% | Done: ext4, XFS and SQLite on both, requalified on format 4. Open: RocksDB (the tools build; no lab run). Dropped: PostgreSQL. |
+| [07](ADR-07-PAGED-MAPPING-AND-CACHE.md) | Paged mapping and bounded cache | 100% | Format 4 replaced the format-3 schema. It keeps the cache, prefetch and bounded recovery. |
+| [08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) | Segmented log and space reclamation | ~90%, released in v2.0 | Open: aged SQLite A/F; crash tests for the existing discard and windowed-recovery failpoints. Dropped: Delivery 0 simulator, one-head and multi-victim experiments, bounded selection scan, `BLKDISCARD` for block-device backing. |
+| [09](ADR-09-RELOCATION-COMPRESSION.md) | Compression at relocation | **Not implemented** | Deferred draft. Format 4 already rejects the reserved record kind 6 and mapping bit 31. |
+| [10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) | Workbench tests and reports | ~70% | Done: reporting CLI, test matrix, pinned tool recipes, KVM boot probe, blockcheck checker library. Open: blockcheck device runs. Deferred: the comparison against LVM thin provisioning and LVM-VDO in memory-bounded VMs; the KVM boot probe is kept for it. Dropped: the v1.x historical comparison, the TMD-WORKBENCH layers. |
+| [11](ADR-11-BLKCTL-INSPECTION-TOOL.md) | `blkctl` volume inspection and offline check | **Not implemented** | Proposed. Implementation is in progress. |
 
-ADR-06 Deliveries 1 and 2 (V0.9 ext4 and V1.0 XFS) are complete. Each filesystem passed three fresh-image lifecycles, all 12 filesystem checks, exact content verification, clean daemon restarts and cleanup. The final `make lint test` passed. This does not establish crash or power-loss durability.
+Not implemented:
 
-SQLite passed 87 fresh runs on each of ext4 and XFS across DELETE/EXTRA, WAL/FULL and WAL/NORMAL. Each matrix passed 348 filesystem checks and 174 logical validations. [SQLite/ext4](docs/SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and selected baselines. RocksDB and PostgreSQL remain unimplemented.
+- ADR-09 is a deferred draft.
+- ADR-11 is proposed, and its implementation is in progress.
 
-ADR-08 shipped in **v2.0** with:
+ADR-08 shipped through [PR #3](https://github.com/msf/msfblkdev/pull/3): 22 commits, with acceptance logs in `evidence/adr08-implementation/` and a [technical review](docs/REVIEW-ADR-08.md).
 
-- a segmented log with two fixed append heads,
-- raw space reclamation by a cleaner thread,
-- client discard and write-zeroes,
-- durable backing growth,
-- a proportional heap budget.
+The evidence for these results:
 
-The [v2.0 qualification](docs/V2.0-QUALIFICATION.md) covers engine and process-crash tests, live ublk/fio, ext4 and XFS, and 87 SQLite clean-restart cases on each filesystem. It does not cover aged SQLite workloads A/F or power loss. The [v2.0-rc performance report](ADR-08-PERF-RESULTS.md) records earlier measurements, not release results.
+- The [v2.0 qualification](docs/V2.0-QUALIFICATION.md) covers engine and process-crash tests, live ublk/fio, ext4, XFS, and 87 SQLite clean-restart cases on each filesystem. It does not cover aged SQLite A/F or power loss.
+- [SQLite/ext4](docs/SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and baselines. Each matrix runs DELETE/EXTRA, WAL/FULL and WAL/NORMAL.
+- The [ADR-07 performance results](ADR-07-PERF-RESULTS.md) compare v1.2 to v1.2.3. The [v2.0-rc performance report](ADR-08-PERF-RESULTS.md) records measurements before the release.
+- The [ADR-05 campaign README](docs/adr05/README.md) lists the fault results, the two engine fixes and the open gates. The [fault results explorer](docs/adr05-report.html) links each case to its trace. The campaign was qualified on native arm64.
+- The [blockcheck plan](docs/BLOCKCHECK-PLAN.md) specifies the device-level checks that are still open.
 
-ADR-07 was complete at **v1.2.3**, with 336-entry mapping pages,
-sorted snapshot publication, and adjacent-page prefetch after sequential demand.
-v1.2.1 introduced packed data writes; v1.2.2 added batched checkpoint writes.
-The original **v1.2** tag retains the earlier one-record-per-mapping-page implementation.
-The version-3 engine uses paged mappings and a bounded CLOCK cache.
-Engine/crash tests, memory/access measurements, live ublk/fio, ext4, XFS, and the full
-87-case SQLite/ext4 regression matrix passed. [ADR-07](ADR-07-PAGED-MAPPING-AND-CACHE.md)
-records the schema, compatibility rules, isolated deliveries, and validation evidence.
-[The ADR-07 performance results](ADR-07-PERF-RESULTS.md) retain comparisons through v1.2.3.
-The combined packing/prefetch experiment improves sequential mapping-page scan throughput
-by 45–51% versus v1.2.2 at equal cache budgets. Random throughput stays within 0.5%;
-ordinary sequential payload results are mixed.
-The same report retains historical results and separates throughput, tails, memory, and close cost.
-
-[ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) specifies format 4: a segmented log with two fixed append heads, a background cleaner, two-checkpoint segment reuse, client and backing discard, and backing growth. The [independent evaluation plan](docs/BLOCKCHECK-PLAN.md) specifies device-level checks for correctness, endurance and cleaning costs. [ADR-09](ADR-09-RELOCATION-COMPRESSION.md) defers compression until raw reclamation passes. [ADR-04](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) remains proposed; ADR-08 replaces its replacement-image compaction with segment reclamation.
-
-For ADR-05, start with the [campaign README](docs/adr05/README.md): verified repairs, the lost-writeback test, how to replay a seeded fault, and what remains open. The [fault results explorer](docs/adr05-report.html) links individual cases to their traces. The default daemon still fails closed.
-
-[ADR-10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines the workbench test goals and KPI reports. The [reporting CLI](tools/workbench/README.md) prints the planned 48-case performance matrix and summarizes existing SQLite and go-ycsb evidence. [Native tool recipes](tools/README.md) build pinned SQLite, RocksDB and go-ycsb. The KVM boot probe runs; VM workload execution is not implemented.
-
-The completed minimum credible device sequence is:
-
-```text
-V0.4 closure
-→ V0.5 overwrite semantics
-→ V0.6 crash recovery
-→ V0.7 serialized ublk frontend
-→ V0.8 fio validation and restart recovery
-```
+The filesystem and SQLite results are clean-restart correctness results. They do not establish crash or power-loss durability.
 
 ## Next work
 
-- Extend the live checkpoint-B tests to other publication boundaries. Test how format 4 handles a slow request or a completion that arrives after timeout (ADR-05).
-- Complete RocksDB and PostgreSQL correctness on ext4 and XFS (ADR-06).
-- Complete the workbench and the remaining [blockcheck workloads](docs/BLOCKCHECK-PLAN.md), including aged SQLite A/F (ADR-10).
-- Later: extend the replicated log into a distributed replicated log.
+The open items, in priority order. ADR-11 and BUG-3 in [BUGS.md](BUGS.md) are in progress separately.
+
+1. Add crash tests that use the existing `discard-write-complete` and `recovery-snapshots-fsync-complete` failpoints (ADR-08). The released format has these crash points, but no test kills the process at them. The failpoint harness already exists, so the cost is small.
+2. Finish the ADR-05 retry work in the [campaign plan](docs/ADR05-CAMPAIGN.md): retry ownership across timeouts and cancellation, then checkpoint and cleaner faults. Extend the live checkpoint-B tests to the other publication boundaries.
+3. Run the [blockcheck device workloads](docs/BLOCKCHECK-PLAN.md), including aged SQLite A/F (ADR-08, ADR-10). The release has not been tested under aged database workloads.
+4. Support block-device backing (BUG-1). The engine and the daemon assume a regular file.
+5. Complete RocksDB correctness on ext4 and XFS (ADR-06).
+6. Later: logical growth (ADR-04), then a distributed replicated log.
 
 ## Design and delivery specifications
 
-- [ADR-01: log-structured block device](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md) defines the architecture, persistent format and high-level roadmap.
+- [ADR-01: log-structured block device](ADR-01-LOG-STRUCTURED-BLOCK-DEVICE.md) defines the architecture, persistent-format rules and high-level roadmap.
 - [ADR-02: basic read and write](ADR-02-GOAL-1-BASIC-READ-WRITE.md) records V0.0 through V0.4 and its closure gate.
 - [ADR-03: minimum credible device](ADR-03-GOAL-MINIMUM-CREDIBLE-DEVICE.md) specifies V0.5 through V0.8.
-- [ADR-04: growable thin-provisioned format](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) proposes logical and physical growth. It is not implemented.
-- [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) records the format-4 retry decision and fault-testing plan, including the former simulation TMD. It does not expand ADR-03's completed scope.
-- [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence. Deliveries 1 and 2 and SQLite on both filesystems are complete. RocksDB and PostgreSQL remain open.
-- [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the version-3 format, mapping cache, checkpoint publication, and bounded recovery; format 4 keeps the cache and recovery contract.
-- [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) defines the implemented version-4 format: segments, two fixed heads, the mapping index tree, raw relocation, the two-publication freeing barrier, discard, backing growth and the heap budget.
+- [ADR-04: growable thin-provisioned format](ADR-04-GROWABLE-THIN-PROVISIONED-FORMAT.md) proposes logical and physical growth. ADR-08 delivered physical growth; logical growth is open.
+- [ADR-05: fault model, failure handling and fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md) records the format-4 retry decision and the fault-testing plan. Start with the [campaign README](docs/adr05/README.md).
+- [ADR-06: filesystem and database correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md) defines the acceptance sequence for filesystems and databases.
+- [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the mapping cache, checkpoint publication and bounded recovery. Format 4 keeps these contracts.
+- [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) defines format 4: segments, two fixed heads, the mapping index tree, raw relocation, the two-publication freeing barrier, discard, backing growth and the heap budget.
 - [ADR-09: compression at relocation](ADR-09-RELOCATION-COMPRESSION.md) is a deferred extension of ADR-08.
 - [ADR-10: workbench tests and reports](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines test goals, commands and KPIs. [TMD-WORKBENCH](TMD-WORKBENCH.md), the [VM environment](docs/WORKBENCH-VM.md) and the [v1.3 benchmark plan](docs/V1.3-BENCHMARK-PLAN.md) support it.
+- [ADR-11: blkctl volume inspection and offline check](ADR-11-BLKCTL-INSPECTION-TOOL.md) proposes an offline inspection and check tool for format-4 images.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API
@@ -224,41 +205,95 @@ On native Debian 13 arm64, run `make build` to build the Rust engine, ublk daemo
 
 Run `make test-compaction-small` for the opt-in compaction regression: 128 MiB logical on 185 MiB of raw backing, at the formatter's default 100% logical-fill target. The larger fio workloads in the [release report](docs/V2.0-QUALIFICATION.md) are historical qualification runs, not part of this target.
 
-### Running every test
+### Set up a machine
 
-The suite is split by privilege, because most targets create nothing and a few
-create a live device or a mount. Run them in this order: each group needs more
-access than the one before it.
+Choose one setup. Both end with a machine that can run every step of `make test-all`.
+
+| Setup | Host | Commands |
+| --- | --- | --- |
+| Native | Debian 13 or Ubuntu 24.04+ on a machine or a VM with its own kernel | `bash scripts/setup.sh`, then `make test-all` |
+| VM | macOS, or Linux with KVM | `make vm-setup`, then `make vm-test` |
+
+A container cannot load `ublk_drv`, so it can run only the unprivileged steps. No spare disk is necessary: every test uses sparse regular files under `/tmp`. Never point a test at a real block device.
+
+#### Native setup
+
+Run the script as the normal user from a fresh checkout. It uses `bash` because a fresh machine might not have `make`; after the first run, `make setup` does the same thing.
 
 ```sh
-# 1. Unprivileged. No device, no mount, no sudo.
-make lint test test-acceptance
-
-# 2. Live ublk device. Needs loaded ublk support, access to /dev/ublk-control, and fio.
-make test-ublk-fio
-
-# 3. Live mounts. Needs the installed sudo mount helper (see the ext4 section).
-make test-ext4
-make test-xfs
-
-# 4. SQLite on a live mount. Run setup-sqlite once; it is pinned to 3.51.3.
-make setup-sqlite
-make test-sqlite                # one fresh ext4 WAL/FULL probe
-make test-sqlite-ext4           # 87-run fail-fast matrix
-make test-sqlite-xfs            # the same 87-run matrix on XFS
+bash scripts/setup.sh
 ```
 
-| Target | Requires | Creates |
-| --- | --- | --- |
-| `lint`, `test` | nothing | nothing |
-| `test-acceptance` | nothing | regular-file backing in a temporary directory |
-| `test-ublk-fio` | ublk, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume); eight scenarios including exhaustion beyond the log and a sustained overwrite that wraps it |
-| `test-ext4`, `test-xfs` | mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
-| `test-sqlite`, `test-sqlite-ext4`, `test-sqlite-xfs` | the above plus `make setup-sqlite` | ublk device, selected filesystem, mount, databases |
+The script lists its system changes and asks before it continues. Set `YES=1` to skip the question. It checks the current state at each step, so you can run it again safely. It does these steps:
 
-On stock Debian 13, run `sudo modprobe xfs` before the XFS preflight if `xfs` is missing from `/proc/filesystems`.
+1. Installs the packages, including `rustup` if no Rust installation is present.
+2. Installs the stable Rust toolchain with `rustfmt` and `clippy`.
+3. Clones ublksrv at the tested revision into `./ublksrv`, builds it, and installs its owner helper and library under `/usr/local`.
+4. Installs a udev rule that gives group `plugdev` access to `/dev/ublk-control`, and adds you to `plugdev`.
+5. Loads `ublk_drv` and `xfs`, and loads them again at each boot through `/etc/modules-load.d/block-storage.conf`.
+6. Builds and installs the mount helper with its passwordless sudo rule (see [Normal-user ext4 development](#normal-user-ext4-development-and-acceptance)).
+7. Builds the pinned SQLite tools.
+8. Runs the preflight checks, which create no device or mount.
 
-Check prerequisites without creating anything:
+The `plugdev` membership normally applies at your next login. `make test-all` does not wait for it: when the current session lacks the group, it runs itself again through `sg plugdev`.
+
+The machine needs at least 6 GiB free in `/tmp` and 1 GiB of available memory: the XFS preflight requires 4 GiB of temporary space and 512 MiB of memory. Setup needs network access.
+
+Run the script again after a Rust or dependency upgrade. The ext4 and XFS steps refuse an installed mount helper that differs from the current build, and the script reinstalls it.
+
+#### VM setup
+
+The VM setup runs the native setup inside a disposable Lima VM. It needs [Lima](https://lima-vm.io/docs/installation/) 2.0 or later: `brew install lima` on macOS; on Linux, Lima with `qemu-system` and read/write access to `/dev/kvm`.
+
+```sh
+make vm-setup                            # create the VM and run scripts/setup.sh in it
+make vm-test                             # run make test-all in the VM and copy the results back
+less evidence/vm-latest/test-all-latest/summary.md
+```
+
+The VM is named `msfblkdev`; set `VM_NAME` to use another name. [tools/vm/lima-debian13.yaml](tools/vm/lima-debian13.yaml) defines it: a dated Debian 13 generic image with a verified digest, 4 vCPUs, 6 GiB of memory, a 30 GiB disk and no host mounts. Lima uses VZ on macOS and QEMU on Linux. Each `vm-setup` and `vm-test` copies the current commit and your uncommitted, non-ignored files into the guest. Build output stays separate on each side. `make vm-test` copies every evidence file of the run to `evidence/vm-test-<name>-<time>/`. Use `make vm-shell` to open a shell in the VM and `make vm-delete` to remove it.
+
+The VM setup was tested on a Linux x86_64 host with Lima 2.3.0 and QEMU/KVM. The ADR-05 campaign used the same Debian image with Lima and VZ on macOS arm64, but `make vm-setup` has not run on macOS yet.
+
+[Normal-user ublk setup](#normal-user-ublk-setup) and [Normal-user ext4 development](#normal-user-ext4-development-and-acceptance) describe the system changes in detail, for review or for a manual setup.
+
+### Running every test
+
+`make test-all` runs every test step in order of required access and writes one summary page. It continues after a failed step. It skips each step that the host cannot run and records the command that fixes the prerequisite.
+
+```sh
+make test-all
+```
+
+The summary is `evidence/test-all-<time>/summary.md`. The link `evidence/test-all-latest` always points to the newest run directory, so `less evidence/test-all-latest/summary.md` shows the latest results. The summary lists each step with its result, test count, duration, rerun command and evidence paths. Each step's full output is in the same directory. A failed step also gets its last 25 output lines on the summary page. The exit status is 0 if every step passed, 1 if a step failed, and 2 if no step failed but a step was skipped.
+
+| Step | Make target | Requires | Creates |
+| --- | --- | --- | --- |
+| lint | `lint` | Rust with `rustfmt` and `clippy` | nothing |
+| unit | `test` | Rust | nothing (362 tests) |
+| blockcheck | `test-blockcheck-checker` | Rust | nothing; the checker uses an in-memory target |
+| python-tools | `test-python` | `python3`, `libxxhash0` for the ADR-05 image checker | nothing |
+| compaction-small | `test-compaction-small` | Rust | 185 MiB regular-file backing in a temporary directory |
+| fault-dst | `test-dst` | Rust, `python3` | regular-file backing; runs the ADR-05 medium-model controls and checkpoint-descriptor survival |
+| fsync01 | `test-fsync01` | Rust | regular-file backing; lost-writeback controls and the opt-in flush retry |
+| fault-seed | `test-fault-seed` | Rust | regular-file backing; runs seed 42, replays its saved plan, and requires an identical trace |
+| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (362 tests in crash mode) |
+| ublk-fio | `test-ublk-fio` | ublk access, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume) |
+| ext4, xfs | `test-ext4`, `test-xfs` | the above, mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
+| sqlite-standalone | none: `bash tools/sqlite/test-standalone.sh` | `make setup-sqlite` | SQLite files under `/tmp` |
+| sqlite-probe, sqlite-ext4, sqlite-xfs | `test-sqlite`, `test-sqlite-ext4`, `test-sqlite-xfs` | the filesystem prerequisites, `make setup-sqlite` | ublk device, selected filesystem, mount, databases |
+
+On one laptop with `/tmp` on tmpfs and warm build caches, the unprivileged steps took about 2.5 minutes in total. Earlier accepted runs of the live steps took about 6 minutes in total; the two 87-run SQLite matrices take most of that time. A first build adds several minutes.
+
+`make test-all` does not run the ADR-05 tiers that need a prepared guest: `make test-fault`, the live checkpoint-B runs and the operator-only medium tier. The [fault-lab README](tools/adr05-fault-lab/README.md) gives their procedures. Run another seed with `make test-fault-seed SEED=<n> OUT=<new-dir>`.
+
+`make test-all` does not run the KVM boot probe (`bash tools/vm/boot-probe.sh`). The probe does not test this repository's code. It prepares the deferred comparison against LVM thin provisioning in memory-bounded VMs (ADR-10), and it returns with that work.
+
+The automated runs do not include the aged-fio qualification in [docs/V2.0-QUALIFICATION.md](docs/V2.0-QUALIFICATION.md). That workload writes about 86 GiB and runs only by explicit operator request.
+
+#### Run one group by hand
+
+Check the live prerequisites without creating anything:
 
 ```sh
 make check-ext4 check-xfs check-sqlite check-sqlite-ext4 check-sqlite-xfs
@@ -271,7 +306,7 @@ make test-sqlite-ext4-one SQLITE_CASE=speedtest-main \
 	SQLITE_PROFILE=delete-extra SQLITE_REPETITION=1
 ```
 
-Every target writes evidence under `evidence/`, and a failed run preserves its
+Every lab target writes evidence under `evidence/`, and a failed run preserves its
 fixture directory and prints the path. Read those files first when a target
 fails: the console output is intentionally short.
 
@@ -320,13 +355,13 @@ make lint test
 
 The lab starts only test-created children. It waits for named persistence handshakes, kills only the recorded process group, reaps descendants, and verifies recovery from regular-file backing. It does not require ublk or root access.
 
-The default limits are 30 minutes per test and 60 minutes for the suite. The V0.8 run took about 10 minutes, dominated by the exhaustive stale-tail test. Evidence is written to `evidence/engine-crash-*.log` with the commit, kernel, backing type, commands, timings, and result.
+The default limits are 30 minutes per test and 60 minutes for the suite. The format-4 run on 2026-11-25 took 80 seconds on a laptop with `/tmp` on tmpfs. Evidence is written to `evidence/engine-crash-*.log` with the commit, kernel, backing type, commands, timings, and result.
 
 ### Live ublk and fio acceptance
 
 `make test-ublk-fio` builds the daemon and lab with `test-failpoints`, then tests the live kernel-to-engine path. It requires Linux, `fio`, loaded ublk kernel support, and read/write access to `/dev/ublk-control`.
 
-The target runs seven scenarios three times. Every repetition uses a newly formatted 32-record regular-file image:
+The target runs eight scenarios three times. Every repetition uses a newly formatted thin 4 MiB volume on ten 32-block segments of regular-file backing:
 
 1. Sequential write, flush, read, and verify.
 2. Seeded random write, flush, read, and verify.
@@ -334,17 +369,14 @@ The target runs seven scenarios three times. Every repetition uses a newly forma
 4. Graceful `SIGTERM`, restart, and verify.
 5. `SIGKILL` after a successful `fio` flush, restart, and verify.
 6. `SIGKILL` at the descriptor-write failpoint, restart, and verify.
-7. A 33-write exhaustion test that requires `ENOSPC`, restarts, and verifies the 32 successful writes.
+7. Writes to distinct blocks beyond the log's capacity until `ENOSPC`. At least 77 blocks must succeed, and the written prefix must survive a restart.
+8. Twelve overwrites of one region, so that the log wraps several times. The last pass must verify after a graceful restart and after `SIGKILL`.
 
 Each child operation has a 30-second limit. The harness validates device identity and geometry before I/O or deletion. It proves backing-file lock contention and cleans only its recorded device and owned temporary directory. If identity becomes ambiguous, it refuses cleanup and preserves evidence. The V0.8 run took about 21 seconds. Evidence is written to `evidence/ublk-fio-*.log`.
 
 A normal-user run can print a harmless `fio` warning that only root may invalidate a block-device cache. This is separate from the ublk FLUSH requests used for durability validation.
 
-Run all repository gates with:
-
-```sh
-make lint test test-acceptance test-ublk-fio
-```
+To run every repository gate, use [`make test-all`](#running-every-test).
 
 ### Normal-user ext4 development and acceptance
 
@@ -426,7 +458,15 @@ sudo modprobe ublk_drv
 
 The preferred setup gives the existing `plugdev` group access to the global control node. Each created device uses `UBLK_F_UNPRIVILEGED_DEV`. The upstream owner helper then assigns `/dev/ublkcN` and `/dev/ublkbN` to the kernel-recorded owner.
 
-Build the vendored helper as the normal user. It needs the `liburing-dev` headers. If the tree holds a build from another architecture, run `make -C ublksrv distclean` and `(cd ublksrv && ./configure)` first. Install the helper, library, and restrictive udev rule as an administrator:
+`scripts/setup.sh` performs the steps in this section. To do them by hand, first clone ublksrv at the tested revision:
+
+```sh
+git clone https://github.com/ublk-org/ublksrv.git ublksrv
+git -C ublksrv checkout --detach 23461b7aa314d2ee9e014356c210a5bfaa9eecec
+(cd ublksrv && autoreconf -fi && ./configure)
+```
+
+Build the helper as the normal user from that checkout. It needs the `liburing-dev` headers. If the tree holds a build from another architecture, run `make -C ublksrv distclean` and `(cd ublksrv && ./configure)` first. Install the helper, library, and restrictive udev rule as an administrator:
 
 ```sh
 make -C ublksrv/lib libublksrv.la
@@ -468,4 +508,4 @@ Automated engine and ublk lab tests use disposable regular files. Any future LVM
 
 ## Current limits
 
-The format-4 engine has one serialized writer and 4 KiB payloads. It reclaims obsolete blocks but can still run out of usable backing space. The format-4 filesystem and SQLite clean-restart results do not establish power-loss durability. ADR-05 medium faults and the remaining ADR-06 application gates are separate work.
+The format-4 engine has one serialized writer and 4 KiB payloads. It reclaims obsolete blocks but can still run out of usable backing space. The format-4 filesystem and SQLite clean-restart results do not establish power-loss durability. After an uncertain backing failure, the daemon stops serving I/O; the ADR-05 retry is a library opt-in only. Operator-run medium faults and the remaining ADR-06 application gates are separate work.
