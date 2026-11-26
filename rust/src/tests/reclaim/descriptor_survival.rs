@@ -51,7 +51,9 @@ fn reopen_copy(image: &[u8]) -> io::Result<(TemporaryBacking, Volume)> {
 /// payload by its known bytes, independently of the recovered mapping.
 fn reject_early_reuse(mut image: Vec<u8>, slot_a: CheckpointSlot) -> io::Result<()> {
     let mut matches = image
-        .chunks_exact_mut(BLOCK_SIZE)
+        .as_chunks_mut::<BLOCK_SIZE>()
+        .0
+        .iter_mut()
         .enumerate()
         .filter(|(_, block)| **block == value(10));
     let (physical, payload) = matches.next().expect("fixture contains flushed LBA 0");

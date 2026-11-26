@@ -108,9 +108,11 @@ fn payload_damage_after_flush_is_local_to_the_mapped_version() -> io::Result<()>
         }
         let original = std::fs::read(&backing.0)?;
         let mut copies = original
-            .chunks_exact(BLOCK_SIZE)
+            .as_chunks::<BLOCK_SIZE>()
+            .0
+            .iter()
             .enumerate()
-            .filter(|(_, block)| *block == [0xb7; BLOCK_SIZE]);
+            .filter(|(_, block)| **block == [0xb7; BLOCK_SIZE]);
         let (physical, _) = copies
             .next()
             .expect("fixture must contain the flushed payload");
