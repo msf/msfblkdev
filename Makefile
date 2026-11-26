@@ -49,6 +49,13 @@ test-python:
 	@python3 -m unittest discover -s tools/sqlite -p 'test_*.py'
 	@cd tools/adr05-fault-lab/checker && python3 -B -m unittest
 
+# Linux, opt-in: block-device backing on a ublk device that a tmpfs file backs. Needs ublk
+# access, not root. See tools/device-backing/nested-ublk.sh.
+.PHONY: test-device-backing
+test-device-backing:
+	@cd rust && cargo build --locked --release --bin block-storage-ublk --bin blkctl --example device_discard
+	@timeout --kill-after=10s 300s tools/device-backing/nested-ublk.sh rust/target/release
+
 # Linux, opt-in: one disposable regular file. The timeout covers I/O, not compilation.
 # blkctl then prints the closed backing's state and checks it (ADR-11).
 .PHONY: test-compaction-small
