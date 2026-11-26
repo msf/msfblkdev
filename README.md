@@ -20,12 +20,11 @@ The table shows how much of each ADR is in the code. The percentages are estimat
 | [08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) | Segmented log and space reclamation | ~90%, released in v2.0 | Open: aged SQLite A/F; crash tests for the existing discard and windowed-recovery failpoints. Dropped: Delivery 0 simulator, one-head and multi-victim experiments, bounded selection scan, `BLKDISCARD` for block-device backing. |
 | [09](ADR-09-RELOCATION-COMPRESSION.md) | Compression at relocation | **Not implemented** | Deferred draft. Format 4 already rejects the reserved record kind 6 and mapping bit 31. |
 | [10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) | Workbench tests and reports | ~70% | Done: reporting CLI, test matrix, pinned tool recipes, KVM boot probe, blockcheck checker library. Open: blockcheck device runs. Deferred: the comparison against LVM thin provisioning and LVM-VDO in memory-bounded VMs; the KVM boot probe is kept for it. Dropped: the v1.x historical comparison, the TMD-WORKBENCH layers. |
-| [11](ADR-11-BLKCTL-INSPECTION-TOOL.md) | `blkctl` volume inspection and offline check | **Not implemented** | Proposed. Implementation is in progress. |
+| [11](ADR-11-BLKCTL-INSPECTION-TOOL.md) | `blkctl` volume inspection and offline check | ~90% | Done: `open_live` with its ownership claim, `open_readonly`, `blkctl info` and `blkctl check`, which the filesystem lab runs after each clean stop. Open: the 500 GiB `info` timing (after TODO-2) and runs on a block-device backing (after BUG-1). |
 
 Not implemented:
 
 - ADR-09 is a deferred draft.
-- ADR-11 is proposed, and its implementation is in progress.
 
 ADR-08 shipped through [PR #3](https://github.com/msf/msfblkdev/pull/3): 22 commits, with acceptance logs in `evidence/adr08-implementation/` and a [technical review](docs/REVIEW-ADR-08.md).
 
@@ -41,7 +40,7 @@ The filesystem and SQLite results are clean-restart correctness results. They do
 
 ## Next work
 
-The open items, in priority order. ADR-11 and BUG-3 in [BUGS.md](BUGS.md) are in progress separately.
+The open items, in priority order.
 
 1. Add crash tests that use the existing `discard-write-complete` and `recovery-snapshots-fsync-complete` failpoints (ADR-08). The released format has these crash points, but no test kills the process at them. The failpoint harness already exists, so the cost is small.
 2. Finish the ADR-05 retry work in the [campaign plan](docs/ADR05-CAMPAIGN.md): retry ownership across timeouts and cancellation, then checkpoint and cleaner faults. Extend the live checkpoint-B tests to the other publication boundaries.
@@ -62,7 +61,7 @@ The open items, in priority order. ADR-11 and BUG-3 in [BUGS.md](BUGS.md) are in
 - [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) defines format 4: segments, two fixed heads, the mapping index tree, raw relocation, the two-publication freeing barrier, discard, backing growth and the heap budget.
 - [ADR-09: compression at relocation](ADR-09-RELOCATION-COMPRESSION.md) is a deferred extension of ADR-08.
 - [ADR-10: workbench tests and reports](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines test goals, commands and KPIs. [TMD-WORKBENCH](TMD-WORKBENCH.md), the [VM environment](docs/WORKBENCH-VM.md) and the [v1.3 benchmark plan](docs/V1.3-BENCHMARK-PLAN.md) support it.
-- [ADR-11: blkctl volume inspection and offline check](ADR-11-BLKCTL-INSPECTION-TOOL.md) proposes an offline inspection and check tool for format-4 images.
+- [ADR-11: blkctl volume inspection and offline check](ADR-11-BLKCTL-INSPECTION-TOOL.md) defines the read-only open, the ownership claim of `open_live` and the `blkctl` tool.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
 ## Rust API
@@ -173,7 +172,9 @@ The crate exposes:
 
 ```text
 format, format_with_options
-open, open_with_options
+open_live, open_live_with_options
+open_readonly, VolumeView
+check
 Volume::write_block
 Volume::read_block
 Volume::discard_blocks, Volume::write_zeroes
@@ -195,9 +196,49 @@ The ublk daemon adds these `serve` flags:
 The daemon advertises discard and write-zeroes. On `SIGUSR1` it claims an operator-grown backing
 file.
 
-`format_with_accounting` and `open_with_accounting` add opt-in cumulative I/O budgets through a private shared ledger. The ordinary APIs remain unmetered. See the unsafe file-lifetime contract in `rust/src/io_accounting.rs` before using this API.
+`format_with_accounting` and `open_live_with_accounting` add opt-in cumulative I/O budgets through a private shared ledger. The ordinary APIs remain unmetered. See the unsafe file-lifetime contract in `rust/src/io_accounting.rs` before using this API.
 
 Tests require Linux, `io_uring`, and a temporary filesystem supporting `O_DIRECT`.
+
+### Ownership of the backing
+
+`open_live` owns the backing until the `Volume` is dropped. It claims a regular file with
+`flock(LOCK_EX)` and a block device with `O_EXCL`, before recovery writes anything. A second
+`open_live` or daemon on the same regular file fails with `backing file is already locked`.
+`open_readonly` reads one checkpoint without writing or claiming, so it works while a daemon
+serves the backing. `check` takes a shared claim, so it refuses a backing that a live volume owns.
+
+## Inspect a backing with blkctl
+
+`blkctl` reports the state of a format-4 backing and checks its integrity
+([ADR-11](ADR-11-BLKCTL-INSPECTION-TOOL.md)). Build it with `cargo build --release --bin blkctl`
+in `rust/`.
+
+```sh
+blkctl info  [--segments] [--blocks] [-v] [--color=auto|always|never] <backing>
+blkctl check [-v] [--color=auto|always|never] <backing>
+```
+
+`info` reads the newest valid checkpoint and prints the logical, mapped, provisioned and
+host-allocated sizes, the used, live, metadata, dead and free space of the log, both
+checkpoint roots, the records that wait for replay, and a histogram of the live fraction of
+sealed segments. `--segments` adds one row per segment and `--blocks` prints 4 KiB block counts
+instead of sizes. `info` is safe on a backing that a daemon serves; its counts are as of the
+checkpoint, so they lag the writer by up to one checkpoint interval.
+
+`check` reads every non-free segment: descriptors, index, mapping and segment table pages,
+record chains, payload checksums, mapping references and the replay tail. Run it on an offline
+backing; it exits 8 while a daemon or another `open_live` owns the backing.
+
+| Exit | `info` | `check` |
+| --- | --- | --- |
+| 0 | Every descriptor and page it read is valid. | No errors, no tail. |
+| 1 | Not used. | No errors. The next `open_live` replays a tail. |
+| 4 | A descriptor or page failed validation. The view still prints if one root is valid. | Errors found. |
+| 8 | Could not run: I/O error, not a format-4 backing, or the backing changed faster than the walk. | Could not run: I/O error, not a format-4 backing, or a live volume owns the backing. |
+
+The filesystem lab runs `blkctl info` and `blkctl check` after each clean daemon stop, and
+`make test-compaction-small` runs them on its closed backing.
 
 ## Testing
 
@@ -270,14 +311,14 @@ The summary is `evidence/test-all-<time>/summary.md`. The link `evidence/test-al
 | Step | Make target | Requires | Creates |
 | --- | --- | --- | --- |
 | lint | `lint` | Rust with `rustfmt` and `clippy` | nothing |
-| unit | `test` | Rust | nothing (362 tests) |
+| unit | `test` | Rust | nothing (381 tests) |
 | blockcheck | `test-blockcheck-checker` | Rust | nothing; the checker uses an in-memory target |
 | python-tools | `test-python` | `python3`, `libxxhash0` for the ADR-05 image checker | nothing |
 | compaction-small | `test-compaction-small` | Rust | 185 MiB regular-file backing in a temporary directory |
 | fault-dst | `test-dst` | Rust, `python3` | regular-file backing; runs the ADR-05 medium-model controls and checkpoint-descriptor survival |
 | fsync01 | `test-fsync01` | Rust | regular-file backing; lost-writeback controls and the opt-in flush retry |
 | fault-seed | `test-fault-seed` | Rust | regular-file backing; runs seed 42, replays its saved plan, and requires an identical trace |
-| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (362 tests in crash mode) |
+| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (381 tests in crash mode) |
 | ublk-fio | `test-ublk-fio` | ublk access, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume) |
 | ext4, xfs | `test-ext4`, `test-xfs` | the above, mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
 | sqlite-standalone | none: `bash tools/sqlite/test-standalone.sh` | `make setup-sqlite` | SQLite files under `/tmp` |

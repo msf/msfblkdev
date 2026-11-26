@@ -2,7 +2,7 @@
 
 Date: 2026-11-25. Revised: 2026-11-26.
 Author: Miguel Filipe. Authored by LLM, reviewed by human.
-Status: proposed; not implemented
+Status: implemented on 2026-11-26; see [Implementation notes](#implementation-notes)
 Updates: [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) (two existing invariants become requirements for live readers)
 Related: [ADR-05 structural checker](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md#independent-logical-and-structural-checks)
 
@@ -279,15 +279,77 @@ Tests we propose:
 - `check` detects one injected fault in each structure: descriptor, index page, mapping page, table page, live payload, data footer and segment link.
 - `info` finishes in under 5 seconds on a fully mapped 500 GiB volume on local NVMe.
 
+## Implementation notes
+
+Added 2026-11-26 with the implementation. Authored by LLM. This section records where the code
+makes a choice that the sections above leave open.
+
+The code lives in these files:
+
+- `rust/src/backing.rs`: backing kind, the ownership claims and the `SEEK_DATA` walk.
+- `rust/src/format_v4/readonly.rs`: `open_readonly()` and `VolumeView`.
+- `rust/src/format_v4/check.rs`: the checker behind `blkctl check`.
+- `rust/src/bin/blkctl.rs`: argument parsing and output.
+
+Ownership. `open_live()` claims a regular file with `flock(LOCK_EX | LOCK_NB)` and a block device
+with `O_EXCL`, before recovery (BUG-2, one host). The claim is released with `LOCK_UN` when the
+volume is dropped. Without the explicit unlock, a child that another thread forks keeps the lock
+until it execs, and an immediate reopen in the same process fails. The daemon's own lock is gone,
+and a second daemon prints the same `backing file is already locked` error as before. `check`
+takes `flock(LOCK_SH | LOCK_NB)` on a file and `O_EXCL` on a device, so it fails with exit 8 while
+a live volume owns the backing, and `open_live()` can't start while `check` runs. `info` claims
+nothing.
+
+`open_readonly()` reuses the engine's checkpoint loader (`checkpoint_load::load_candidate`) for the
+walk and the replay walker for the tail summary. It reads one block per request, so TODO-2 still
+applies. It returns `InvalidData` when no root validates, `InvalidInput` when the backing isn't a
+format-4 backing, and `ErrorKind::Other` after three restarts. `blkctl info` maps `InvalidData` to
+exit 4 and every other error to exit 8. `VolumeView` also has `totals()`, which derives the
+used, live, metadata, dead and free counts in one place for `info` and the tests.
+
+`check` reads with `pread` on an `O_DIRECT` descriptor. It reports each finding through a callback,
+so it holds no list of findings. Its memory grows with the selected root's mapped blocks (16 bytes
+each) and with the referenced metadata pages. These choices refine the rules in
+[What does `blkctl check` verify?](#what-does-blkctl-check-verify):
+
+- A segment's link slot is the block after its last record. A head can close a segment early when a
+  metadata batch doesn't fit, so the `SegmentLink` isn't always the last block of the segment.
+- Every page that a valid root references must also be a record on its segment's chain.
+- After a chain breaks, or when a table page fails, the checker reports that error once. It
+  doesn't report the references it couldn't verify after that point.
+- The tail is walked in global LSN order, as replay takes it. A link in the tail may open only a
+  segment that the root records as free or pending-free. A damaged metadata record at the end of
+  the tail is an error, because replay fails on it. A damaged data footer there ends the tail.
+
+The filesystem lab runs `blkctl info` and `blkctl check` after each clean daemon stop of the ext4,
+XFS and SQLite runs, and it fails the run if either exits nonzero. `make test-compaction-small`
+prints `blkctl info --segments` and runs `blkctl check` on its closed backing.
+
+What we tested, on 2026-11-26 with tmpfs backing on Linux 7.0:
+
+- The proposed tests in [Consequences](#consequences), except the 500 GiB timing, in
+  `rust/src/tests/inspection.rs`. The live-writer test runs `open_readonly()` in a loop against
+  a writer that publishes every 339 blocks. A second test overwrites the selected root from a
+  hook inside the walk and requires exactly one restart.
+- The exit codes of both commands, in `rust/tests/blkctl.rs`.
+- `make test-compaction-small` and the ext4, XFS, SQLite/ext4 and SQLite/XFS lab runs: all 361
+  `check` runs after a clean stop found no errors.
+- A manual run against a serving daemon: `info` ran during 1.2 GiB of overwrites without
+  reporting damage, and `check` exited 8 until the daemon stopped.
+
+What we didn't test: a block-device backing, and the 5-second target on a 500 GiB volume.
+
 ## Open questions
 
 - A 500 GiB volume with 32 MiB segments has 16,000 segments, which makes a long `--segments` table. A compact map with one character per segment may serve better.
 
 ## Next steps
 
-1. Rename the `open` family to `open_live` and add `open_readonly()` with the walk above.
-2. Add `blkctl info` and `--segments`, with the tests above.
-3. Add `blkctl check`.
+1. Done: rename the `open` family to `open_live` and add `open_readonly()` with the walk above.
+2. Done: add `blkctl info` and `--segments`, with the tests above.
+3. Done: add `blkctl check`.
+4. Measure `info` on a fully mapped 500 GiB volume on local NVMe after TODO-2 batches the walk.
+5. Run both commands on a block-device backing after BUG-1.
 
 ## Appendix: FAQ
 

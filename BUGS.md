@@ -45,7 +45,10 @@ segment discard. Measure on a real device before changing the layout.
 
 ## BUG-2 Ownership of the backing is claimed only by the daemon, and only with `flock`
 
-Found 2026-11-25. Status: open.
+Found 2026-11-25. Status: fixed for one host on 2026-11-26 by ADR-11; several hosts remain open.
+`open_live()` claims a regular file with `flock(LOCK_EX | LOCK_NB)` and a block device with
+`O_EXCL` before recovery (`rust/src/backing.rs`). The daemon no longer takes its own lock. The
+table below describes the state before the fix.
 
 | Gap | Evidence |
 |---|---|
@@ -69,7 +72,9 @@ backing.
 
 ## BUG-3 There is no read-only open, and every `open()` writes
 
-Found 2026-11-25. Status: open. Design in [ADR-11](ADR-11-BLKCTL-INSPECTION-TOOL.md).
+Found 2026-11-25. Status: fixed on 2026-11-26 by [ADR-11](ADR-11-BLKCTL-INSPECTION-TOOL.md).
+`open()` is now `open_live()`, and `open_readonly()` reads one checkpoint without writing or
+claiming. `open_live()` still sanitizes the open segments on every open, as described below.
 
 `open()` and its variants (`rust/src/lib.rs:525` onward) always recover the tail, and recovery
 writes:
