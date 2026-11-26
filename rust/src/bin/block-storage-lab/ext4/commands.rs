@@ -34,10 +34,11 @@ impl<'a> Lab<'a> {
         started: Instant,
     ) -> io::Result<Self> {
         let executable = std::env::current_exe()?;
-        let daemon_executable = executable
+        let binaries = executable
             .parent()
-            .ok_or_else(|| io::Error::other("lab executable has no parent"))?
-            .join("block-storage-ublk");
+            .ok_or_else(|| io::Error::other("lab executable has no parent"))?;
+        let daemon_executable = binaries.join("block-storage-ublk");
+        let blkctl_executable = binaries.join("blkctl");
         let owned = OwnedTempDir::create(Path::new("/tmp"))?;
         let workload = match workload_mode {
             WorkloadMode::RealFiles => Workload::RealFiles,
@@ -69,6 +70,7 @@ impl<'a> Lab<'a> {
             mount_attempted: false,
             executable,
             daemon_executable,
+            blkctl_executable,
             evidence,
             sequence: 0,
             per_command,
@@ -222,7 +224,11 @@ impl<'a> Lab<'a> {
                 .args(["-f", "-c", "%T"])
                 .arg(self.owned.path()),
         )?;
-        for binary in [self.executable.clone(), self.daemon_executable.clone()] {
+        for binary in [
+            self.executable.clone(),
+            self.daemon_executable.clone(),
+            self.blkctl_executable.clone(),
+        ] {
             let metadata = fs::symlink_metadata(&binary)?;
             if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
                 return Err(io::Error::other(

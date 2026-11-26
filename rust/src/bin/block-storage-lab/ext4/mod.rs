@@ -49,9 +49,11 @@ enum Step {
     Verify,
     Unmount,
     Stop,
+    /// `blkctl info` and `blkctl check` on the offline backing (ADR-11).
+    Inspect(u8),
 }
 
-const STEPS: [Step; 17] = [
+const STEPS: [Step; 19] = [
     Step::Format,
     Step::Start,
     Step::Mkfs,
@@ -62,6 +64,7 @@ const STEPS: [Step; 17] = [
     Step::Unmount,
     Step::Check(2),
     Step::Stop,
+    Step::Inspect(1),
     Step::Start,
     Step::Check(3),
     Step::Mount,
@@ -69,6 +72,7 @@ const STEPS: [Step; 17] = [
     Step::Unmount,
     Step::Check(4),
     Step::Stop,
+    Step::Inspect(2),
 ];
 
 struct Device {
@@ -146,6 +150,7 @@ struct Lab<'a> {
     mount_attempted: bool,
     executable: PathBuf,
     daemon_executable: PathBuf,
+    blkctl_executable: PathBuf,
     evidence: &'a mut Evidence,
     sequence: usize,
     per_command: Duration,
@@ -259,6 +264,7 @@ mod tests {
         let mut mounted = false;
         let mut started = false;
         let mut checks = Vec::new();
+        let mut inspections = Vec::new();
         let mut starts = 0;
         let mut verifications = 0;
         for step in STEPS {
@@ -289,11 +295,16 @@ mod tests {
                     verifications += 1;
                 }
                 Step::Populate => assert!(mounted),
+                Step::Inspect(number) => {
+                    assert!(!started && !mounted);
+                    inspections.push(number);
+                }
                 Step::Format => assert!(!started && !mounted),
                 Step::Mkfs => assert!(started && !mounted),
             }
         }
         assert_eq!(checks, [1, 2, 3, 4]);
+        assert_eq!(inspections, [1, 2]);
         assert_eq!(starts, 2);
         assert_eq!(verifications, 2);
         assert!(!started && !mounted);

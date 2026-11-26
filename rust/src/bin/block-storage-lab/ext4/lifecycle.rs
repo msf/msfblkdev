@@ -29,6 +29,7 @@ impl Lab<'_> {
                 Step::Populate | Step::Verify => self.files(step == Step::Populate)?,
                 Step::Unmount => self.unmount()?,
                 Step::Stop => self.stop()?,
+                Step::Inspect(_) => self.inspect()?,
             }
             self.check_daemon_errors()?;
         }
@@ -252,6 +253,20 @@ impl Lab<'_> {
         self.device = None;
         self.log_daemon()?;
         self.sqlite_stopped()
+    }
+
+    /// Records the offline backing's state and checks every checksum and reference in it.
+    /// A clean stop publishes a checkpoint, so `check` must exit 0: no errors and no tail.
+    fn inspect(&mut self) -> io::Result<()> {
+        self.validate_backing()?;
+        for (label, subcommand) in [("blkctl-info", "info"), ("blkctl-check", "check")] {
+            let mut command = Command::new(&self.blkctl_executable);
+            command
+                .args([subcommand, "--color=never"])
+                .arg(self.backing_path());
+            self.run_command(label, &mut command)?;
+        }
+        Ok(())
     }
 
     fn check_daemon_errors(&self) -> io::Result<()> {

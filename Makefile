@@ -50,12 +50,16 @@ test-python:
 	@cd tools/adr05-fault-lab/checker && python3 -B -m unittest
 
 # Linux, opt-in: one disposable regular file. The timeout covers I/O, not compilation.
+# blkctl then prints the closed backing's state and checks it (ADR-11).
 .PHONY: test-compaction-small
 test-compaction-small:
 	@cd rust && cargo test --locked --release --test compaction_small --no-run
+	@cd rust && cargo build --locked --release --bin blkctl
 	@set -eu; dir=$$(mktemp -d); trap 'rm -rf -- "$$dir"' EXIT; \
 		cd rust && BLOCK_STORAGE_SMALL_FIXTURE="$$dir" timeout --kill-after=5s 120s \
-		cargo test --locked --release --test compaction_small -- --ignored --nocapture
+		cargo test --locked --release --test compaction_small -- --ignored --nocapture; \
+		timeout --kill-after=5s 60s target/release/blkctl info --segments "$$dir/backing.img"; \
+		timeout --kill-after=5s 60s target/release/blkctl check "$$dir/backing.img"
 
 # Focused format-4 recovery test. No QEMU, ublk or second disk required.
 .PHONY: test-fault-model test-dst test-fault
@@ -84,7 +88,7 @@ test-ublk-fio:
 
 # Build as the normal user. The operator installs only the separate mount helper.
 build-ext4:
-	@cd rust && cargo build --quiet --bin block-storage-ublk --bin block-storage-mount
+	@cd rust && cargo build --quiet --bin block-storage-ublk --bin block-storage-mount --bin blkctl
 	@cd rust && cargo build --quiet --features lab --bin block-storage-lab
 
 # Checks prerequisites without creating a backing image, device, or mount.
