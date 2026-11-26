@@ -13,6 +13,24 @@ lint-rust:
 test:
 	@cd rust && cargo run --quiet --features lab --bin block-storage-lab -- test
 
+# One-time native setup for Debian 13 or Ubuntu 24.04+; lists its sudo changes and asks first.
+.PHONY: setup vm-setup vm-test vm-shell vm-delete
+setup:
+	@bash scripts/setup.sh
+
+# The same setup and test-all inside a disposable Lima VM (macOS or Linux).
+vm-setup:
+	@bash scripts/vm.sh setup
+
+vm-test:
+	@bash scripts/vm.sh test
+
+vm-shell:
+	@bash scripts/vm.sh shell
+
+vm-delete:
+	@bash scripts/vm.sh delete
+
 # Every step below, in order of required access; skips what the host cannot run.
 # Writes evidence/test-all-<time>/summary.md. See README "Running every test".
 .PHONY: test-all test-blockcheck-checker test-python
@@ -96,7 +114,7 @@ setup-go-ycsb: setup-native
 	@timeout --kill-after=5s 300s bash tools/go-ycsb/setup.sh
 
 check-sqlite: build-ext4
-	@timeout --kill-after=5s 30s uv run --quiet python tools/sqlite/check-build.py
+	@timeout --kill-after=5s 30s python3 tools/sqlite/check-build.py
 	@tools/build/sqlite-3.51.3/build/sqlite3 --version
 
 # Explicit operator opt-in; runs one fresh ext4 WAL/FULL probe, not acceptance.

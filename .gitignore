@@ -6,3 +6,5 @@
 /evidence/sqlite-*/
 /evidence/test-all-*
 /tools/blockcheck/target/
+/evidence/vm-test-*
+/evidence/vm-latest
