@@ -1,6 +1,11 @@
 use crate::io_accounting::{Operation, Writer};
+use crate::{AlignedBlock, read_block_exact};
 use io_uring::{IoUring, opcode, squeue};
-use std::io;
+use std::{fs::File, io};
+
+/// Reads that `BackingIo::read_blocks` submits at once, and so the ring's size (TODO-2).
+/// Checkpoint load is the only caller; every other operation keeps one request in flight.
+pub(crate) const READ_BATCH_BLOCKS: usize = 64;
 
 #[cfg(test)]
 pub(crate) mod fault_plan;
@@ -16,6 +21,17 @@ struct ExactIo {
 }
 
 impl ExactIo {
+    /// Whether a test seam observes each operation, so reads must go one at a time.
+    #[cfg(test)]
+    fn has_seams(&self) -> bool {
+        self.plan.is_some() || self.lost_writeback.is_some()
+    }
+
+    #[cfg(not(test))]
+    fn has_seams(&self) -> bool {
+        false
+    }
+
     fn submit(&mut self, entry: squeue::Entry, tag: u64, expected: i32) -> io::Result<()> {
         #[cfg(test)]
         if let Some(medium) = &mut self.lost_writeback {
@@ -50,7 +66,7 @@ impl BackingIo {
     pub(super) fn new(accounting: Option<Writer>) -> io::Result<Self> {
         Ok(Self {
             exact: ExactIo {
-                ring: Some(IoUring::new(2)?),
+                ring: Some(IoUring::new(READ_BATCH_BLOCKS as u32)?),
                 #[cfg(test)]
                 plan: None,
                 #[cfg(test)]
@@ -64,6 +80,31 @@ impl BackingIo {
             #[cfg(test)]
             metadata_short_read: None,
         })
+    }
+}
+
+impl BackingIo {
+    /// Reads block `blocks[i]` into `buffers[i]` for every `i`, submitting all of them at once.
+    ///
+    /// The I/O ledger and the test fault seams count operations one by one, so with either
+    /// attached the reads go one at a time. Fails if any read fails or is short.
+    pub(crate) fn read_blocks(
+        &mut self,
+        backing: &File,
+        blocks: &[u32],
+        buffers: &mut [AlignedBlock],
+    ) -> io::Result<()> {
+        assert!(
+            blocks.len() <= buffers.len() && blocks.len() <= READ_BATCH_BLOCKS,
+            "a read batch fits its buffers and the ring"
+        );
+        if self.accounting.is_some() || self.exact.has_seams() {
+            for (&block, buffer) in blocks.iter().zip(buffers) {
+                read_block_exact(self, backing, block, buffer)?;
+            }
+            return Ok(());
+        }
+        super::read_batch_raw(&mut self.exact.ring, backing, blocks, buffers)
     }
 }
 

@@ -451,6 +451,82 @@ fn read_block_exact(
     )
 }
 
+/// Submits one read per block and waits until every submitted read has completed, so no read
+/// can still target a buffer when this returns, unless the ring itself fails.
+fn read_batch_raw(
+    ring: &mut Option<IoUring>,
+    backing: &File,
+    blocks: &[u32],
+    buffers: &mut [AlignedBlock],
+) -> io::Result<()> {
+    let queue = ring
+        .as_mut()
+        .ok_or_else(|| io::Error::other("io_uring unavailable"))?;
+    for (index, (&block, buffer)) in (0_u64..).zip(blocks.iter().zip(buffers.iter_mut())) {
+        let read = opcode::Read::new(
+            types::Fd(backing.as_raw_fd()),
+            buffer.0.as_mut_ptr(),
+            BLOCK_SIZE as u32,
+        )
+        .offset(u64::from(block) * BLOCK_SIZE as u64)
+        .build()
+        .user_data(index);
+        // SAFETY: the buffers and the file outlive this call, which waits for every read.
+        if unsafe { queue.submission().push(&read) }.is_err() {
+            // Nothing was submitted to the kernel yet, so dropping the queued entries is safe.
+            drop(ring.take());
+            return Err(io::Error::other("io_uring submission queue is full"));
+        }
+    }
+    wait_batch(ring, blocks.len())
+}
+
+/// Waits for the `count` reads `read_batch_raw` queued, with user data `0..count`.
+fn wait_batch(ring: &mut Option<IoUring>, count: usize) -> io::Result<()> {
+    let mut seen = [false; accounted_io::READ_BATCH_BLOCKS];
+    let mut completed = 0;
+    let mut first_error = None;
+    // Bounded by `count`: every submitted read completes once, and an unexpected completion
+    // or a failed wait ends the loop.
+    while completed < count {
+        let queue = ring
+            .as_mut()
+            .ok_or_else(|| io::Error::other("io_uring unavailable"))?;
+        match queue.submit_and_wait(count - completed) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                // Reads may still be in flight; only tearing down the ring stops them.
+                drop(ring.take());
+                return Err(error);
+            }
+        }
+        let mut unexpected = false;
+        for completion in queue.completion() {
+            let index = usize::try_from(completion.user_data()).unwrap_or(usize::MAX);
+            if index >= count || seen[index] || completion.flags() != 0 {
+                unexpected = true;
+                break;
+            }
+            seen[index] = true;
+            completed += 1;
+            let error = match completion.result() {
+                result if result < 0 => Some(io::Error::from_raw_os_error(-result)),
+                result if result != BLOCK_SIZE as i32 => {
+                    Some(io::Error::other("short io_uring operation"))
+                }
+                _ => None,
+            };
+            first_error = first_error.or(error);
+        }
+        if unexpected {
+            drop(ring.take());
+            return Err(io::Error::other("unexpected io_uring completion"));
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
 fn submit_exact_raw(
     ring: &mut Option<IoUring>,
     entry: squeue::Entry,

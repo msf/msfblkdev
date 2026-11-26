@@ -216,6 +216,7 @@ pub(crate) fn open_readonly_with(
         file,
         actual_blocks: extent.bytes / BLOCK_SIZE as u64,
         block: AlignedBlock([0; BLOCK_SIZE]),
+        buffers: checkpoint_load::read_buffers()?,
     };
     let mut restarts = 0;
     // Bounded by MAX_RESTARTS: every iteration returns or counts one restart.
@@ -282,6 +283,8 @@ struct Reader {
     file: File,
     actual_blocks: u64,
     block: AlignedBlock,
+    /// One batch of checkpoint page reads.
+    buffers: Box<[AlignedBlock]>,
 }
 
 impl Reader {
@@ -346,7 +349,7 @@ impl Reader {
                 &descriptor,
                 self.actual_blocks,
                 geometry.segment_count,
-                &mut self.block,
+                &mut self.buffers,
             );
             match walked {
                 Ok(loaded) => {
