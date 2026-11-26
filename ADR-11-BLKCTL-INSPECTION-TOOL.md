@@ -62,17 +62,12 @@ live block to the segment that holds it.
 
 ### How fast must `info` be?
 
-`info` must finish in under 5 seconds on a fully mapped 500 GiB volume on local NVMe.
+`info` on a fully mapped 500 GiB volume on local NVMe, how long would it take?
 
-That volume has 390,096 mapping pages of 336 entries, so `info` reads about 1.5 GiB in 4 KiB
-blocks: about 78,000 reads per second (calculated, not measured). One outstanding read at a time
-can't reach that rate, so the walk runs in batches of `N` pages:
+That volume has 390,096 mapping pages of 336 entries, so `info` reads about 1.5 GiB in 4 KiB blocksA volume with unmapped pages reads less, because a zero index pointer has no page.
 
-1. Take the next `N` page IDs and look up their physical blocks in the mapping index.
-2. Sort the batch by physical block and submit all `N` reads through `io_uring`.
-3. Wait for the batch, then decode and validate each page and add its entries to the counts.
-
-A volume with unmapped pages reads less, because a zero index pointer has no page.
+See on BUGS.md, TODO-2 on speeding this up. Not in scope for this change.
+Do not run tests with a 500GiB volume, this was just to demonstrate our expectation of behaviour.
 
 ### What does `open_readonly()` return?
 
