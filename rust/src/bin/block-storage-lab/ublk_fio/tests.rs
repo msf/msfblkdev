@@ -81,7 +81,7 @@ fn fixed_format_worker_preserves_exact_sub_mib_geometry_and_refuses_replacement(
         format_fixture(&path).unwrap_err().kind(),
         io::ErrorKind::AlreadyExists
     );
-    let volume = block_storage::open(&path)?;
+    let volume = block_storage::open_live(&path)?;
     let usage = volume.space_usage()?;
     assert_eq!(usage.volume_bytes, 4_194_304);
     assert_eq!(usage.segment_bytes, 131_072);

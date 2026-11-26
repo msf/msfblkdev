@@ -77,7 +77,7 @@ fn wakeup_readable(fd: i32, timeout: Duration) -> bool {
 fn delayed_cleaner_reads_make_the_writer_wait_and_wake_it_through_the_descriptor() -> io::Result<()>
 {
     let backing = fixture(8, TINY_SEGMENT_BLOCKS)?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     volume.delay_cleaner(Duration::from_millis(300))?;
     let started = Instant::now();
     eligible_victim(&mut volume)?;
@@ -119,7 +119,7 @@ fn delayed_cleaner_reads_make_the_writer_wait_and_wake_it_through_the_descriptor
 #[test]
 fn pressure_blocks_on_the_delayed_report_instead_of_failing() -> io::Result<()> {
     let backing = fixture(64, 64)?;
-    let mut volume = open_with_options(&backing.0, options(4))?;
+    let mut volume = open_live_with_options(&backing.0, options(4))?;
     volume.delay_cleaner(Duration::from_millis(50))?;
     let capacity = volume.space_usage()?.log_capacity_bytes / BLOCK_SIZE as u64;
     // Three passes over the capacity force reclamation under pressure; random overwrites of 48
@@ -157,7 +157,7 @@ fn pressure_blocks_on_the_delayed_report_instead_of_failing() -> io::Result<()> 
 fn close_with_a_window_read_outstanding_joins_the_cleaner_and_keeps_every_block() -> io::Result<()>
 {
     let backing = fixture(8, TINY_SEGMENT_BLOCKS)?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     volume.delay_cleaner(Duration::from_millis(400))?;
     eligible_victim(&mut volume)?;
     assert_eq!(volume.cleaner_outstanding(), 2, "view swap and one window");
@@ -172,7 +172,7 @@ fn close_with_a_window_read_outstanding_joins_the_cleaner_and_keeps_every_block(
         elapsed < Duration::from_secs(10),
         "close is bounded: {elapsed:?}"
     );
-    let mut reopened = open_with_options(&backing.0, options(1))?;
+    let mut reopened = open_live_with_options(&backing.0, options(1))?;
     let mut bytes = [0; BLOCK_SIZE];
     for (lba, expected) in [(0, 1), (1, 2), (2, 20)] {
         reopened.read_block(lba, &mut bytes)?;
@@ -185,7 +185,7 @@ fn close_with_a_window_read_outstanding_joins_the_cleaner_and_keeps_every_block(
 #[test]
 fn a_failed_cleaner_read_latches_the_volume_and_leaves_the_backing_consistent() -> io::Result<()> {
     let backing = fixture(8, TINY_SEGMENT_BLOCKS)?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     volume.fail_next_cleaner_scan()?;
     eligible_victim(&mut volume)?;
     while volume.cleaner_outstanding() > 0 {
@@ -202,7 +202,7 @@ fn a_failed_cleaner_read_latches_the_volume_and_leaves_the_backing_consistent() 
     assert!(volume.write_block(0, &value(9)).is_err());
     assert!(volume.maintain(SelectionMode::Idle).is_err());
     drop(volume);
-    let mut reopened = open_with_options(&backing.0, options(1))?;
+    let mut reopened = open_live_with_options(&backing.0, options(1))?;
     let mut bytes = [0; BLOCK_SIZE];
     for (lba, expected) in [(0, 1), (1, 2), (2, 20)] {
         reopened.read_block(lba, &mut bytes)?;
@@ -222,7 +222,7 @@ fn scheduled_idle_and_due_ticks_run_and_the_workload_never_starves() -> io::Resu
     let mut freed = [0_u64; 2];
     for (run, ticks) in [false, true].into_iter().enumerate() {
         let backing = fixture(64, 64)?;
-        let mut volume = open_with_options(&backing.0, options(4))?;
+        let mut volume = open_live_with_options(&backing.0, options(4))?;
         let capacity = volume.space_usage()?.log_capacity_bytes / BLOCK_SIZE as u64;
         let mut now = Instant::now();
         let mut scheduler = Scheduler::new(now, idle_wait, maximum_interval);
@@ -274,7 +274,7 @@ fn scheduled_idle_and_due_ticks_run_and_the_workload_never_starves() -> io::Resu
 #[test]
 fn idle_maintenance_between_writes_never_starves_the_writer_or_treadmills() -> io::Result<()> {
     let backing = fixture(64, 32)?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     let capacity = volume.space_usage()?.log_capacity_bytes / BLOCK_SIZE as u64;
     let writes = 3 * capacity as u32;
     for index in 1..=writes {
@@ -322,7 +322,7 @@ fn aged_quarter_full_volume_closes_publishes_and_reopens() -> io::Result<()> {
         checkpoint_after_bytes: 64 << 20,
         ..VolumeOpenOptions::default()
     };
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     let working_set = 16384_u32;
     for lba in 0..working_set {
         volume.write_block(lba, &value(lba))?;
@@ -371,7 +371,7 @@ fn aged_quarter_full_volume_closes_publishes_and_reopens() -> io::Result<()> {
             format!("close: {error}; {usage:?}; {stats:?}"),
         )
     })?;
-    let reopened = open_with_options(&backing.0, options)?;
+    let reopened = open_live_with_options(&backing.0, options)?;
     let usage = reopened.space_usage()?;
     reopened.close().map_err(|error| {
         io::Error::new(error.kind(), format!("second close: {error}; {usage:?}"))

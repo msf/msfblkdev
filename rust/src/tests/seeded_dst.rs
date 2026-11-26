@@ -110,7 +110,7 @@ fn execute_epoch(
 
 fn run(plan: &Plan, misdirect: bool, trace: &mut dyn Write) -> io::Result<Option<usize>> {
     let mut backing = image()?;
-    let mut volume = crate::open(&backing.0)?;
+    let mut volume = crate::open_live(&backing.0)?;
     let mut history = [0; LBAS];
     // Misdirection is a harness control, never part of the oracle's history.
     volume.write_block(if misdirect { LAST } else { LAST - 1 }, &[0xa7; BLOCK_SIZE])?;
@@ -123,7 +123,7 @@ fn run(plan: &Plan, misdirect: bool, trace: &mut dyn Write) -> io::Result<Option
         cut.open_new()?;
         fs::copy(&backing.0, &cut.0)?;
         drop(volume);
-        volume = crate::open(&cut.0)?;
+        volume = crate::open_live(&cut.0)?;
         if let Some(lba) = compare(&mut volume, &history)? {
             writeln!(trace, "FAIL recovery lba={lba}")?;
             return Ok(Some(lba));

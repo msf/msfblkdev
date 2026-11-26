@@ -71,7 +71,7 @@ fn verify_consistent_prefix(volume: &mut Volume) -> io::Result<u32> {
 #[test]
 fn relocation_and_barrier_crashes_keep_a_consistent_prefix_and_a_usable_volume() -> io::Result<()> {
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open_with_options(PathBuf::from(path), options())?;
+        let mut volume = open_live_with_options(PathBuf::from(path), options())?;
         for (index, lba) in sequence() {
             volume.write_block(lba, &value(index))?;
             if index % 25 == 0 {
@@ -102,7 +102,7 @@ fn relocation_and_barrier_crashes_keep_a_consistent_prefix_and_a_usable_volume()
                 boundary,
                 Some(boundary),
             )?;
-            let mut reopened = open_with_options(&backing.0, options())?;
+            let mut reopened = open_live_with_options(&backing.0, options())?;
             let prefix = verify_consistent_prefix(&mut reopened)?;
             assert!(prefix > 0, "{boundary}: nothing recovered");
             reopened.log.segments.check_conservation()?;

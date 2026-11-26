@@ -19,7 +19,7 @@ fn multiple_lbas_read_correctly_before_and_after_reopen() -> io::Result<()> {
     let backing = small_volume(2)?;
     let expected = [[0xa5; BLOCK_SIZE], [0x5a; BLOCK_SIZE]];
     let mut actual = [0; BLOCK_SIZE];
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     for (lba, block) in expected.iter().enumerate() {
         volume.write_block(lba as u32, block)?;
     }
@@ -29,7 +29,7 @@ fn multiple_lbas_read_correctly_before_and_after_reopen() -> io::Result<()> {
     }
     volume.close()?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     for (lba, block) in expected.iter().enumerate() {
         volume.read_block(lba as u32, &mut actual)?;
         assert_eq!(&actual, block);
@@ -40,7 +40,7 @@ fn multiple_lbas_read_correctly_before_and_after_reopen() -> io::Result<()> {
 #[test]
 fn repeated_overwrite_returns_only_latest_value() -> io::Result<()> {
     let backing = small_volume(1)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
 
     let values = [[0xa5; BLOCK_SIZE], [0x5a; BLOCK_SIZE], [0xc3; BLOCK_SIZE]];
     for expected in values {
@@ -52,7 +52,7 @@ fn repeated_overwrite_returns_only_latest_value() -> io::Result<()> {
     volume.flush()?;
     volume.close()?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     let mut actual = [0; BLOCK_SIZE];
     volume.read_block(0, &mut actual)?;
     assert_eq!(actual, values[2]);
@@ -62,7 +62,7 @@ fn repeated_overwrite_returns_only_latest_value() -> io::Result<()> {
 #[test]
 fn overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen() -> io::Result<()> {
     let backing = small_volume(1)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.write_block(0, &[0; BLOCK_SIZE])?;
     let mut actual = [0xa5; BLOCK_SIZE];
@@ -70,7 +70,7 @@ fn overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen() -> io::R
     assert_eq!(actual, [0; BLOCK_SIZE]);
     volume.close()?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     actual.fill(0xa5);
     volume.read_block(0, &mut actual)?;
     assert_eq!(actual, [0; BLOCK_SIZE]);
@@ -80,7 +80,7 @@ fn overwriting_lba_with_zeroes_returns_zeroes_before_and_after_reopen() -> io::R
 #[test]
 fn raw_footer_linkage_and_lsns_are_contiguous_inside_a_segment() -> io::Result<()> {
     let backing = small_volume(1)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     let initial_footer_block = user_position(&volume).boundary;
     assert_eq!(initial_footer_block, FIRST_DATA_BLOCK - 1);
 
@@ -106,7 +106,7 @@ fn raw_footer_linkage_and_lsns_are_contiguous_inside_a_segment() -> io::Result<(
 fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Result<()> {
     let backing = one_write_volume(1)?;
     let expected = [0xa5; BLOCK_SIZE];
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &expected)?;
     let physical_blocks = mapping_arrays(&volume)?.0.clone();
     let checksums = mapping_arrays(&volume)?.1.clone();
@@ -145,7 +145,7 @@ fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Re
     assert_eq!(actual, expected);
     volume.close()?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     actual.fill(0);
     volume.read_block(0, &mut actual)?;
     assert_eq!(actual, expected);
@@ -155,7 +155,7 @@ fn log_full_write_leaves_last_successful_value_readable_after_reopen() -> io::Re
 #[test]
 fn out_of_range_write_leaves_mapping_and_cursors_unchanged() -> io::Result<()> {
     let backing = small_volume(1)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
 
     let expected = [0xa5; BLOCK_SIZE];
     volume.write_block(0, &expected)?;
@@ -198,7 +198,7 @@ fn out_of_range_write_leaves_mapping_and_cursors_unchanged() -> io::Result<()> {
 #[test]
 fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result<()> {
     let backing = small_volume(2)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
 
     let lba = 1_u32;
     let payload = [0xa5; BLOCK_SIZE];
@@ -254,7 +254,7 @@ fn write_block_appends_complete_raw_record_and_publishes_mapping() -> io::Result
 #[test]
 fn failed_write_is_not_published() -> io::Result<()> {
     let backing = small_volume(1)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.backing = backing.reopen()?;
 
     let initial = user_position(&volume);
@@ -294,7 +294,7 @@ fn public_operations_complete_v0_4_acceptance() -> io::Result<()> {
         *byte = index as u8;
     }
     {
-        let mut volume = open(&backing.0)?;
+        let mut volume = open_live(&backing.0)?;
         let mut actual = [0xa5; BLOCK_SIZE];
         volume.read_block(0, &mut actual)?;
         assert_eq!(actual, [0; BLOCK_SIZE]);
@@ -313,7 +313,7 @@ fn public_operations_complete_v0_4_acceptance() -> io::Result<()> {
         volume.close()?;
     }
     {
-        let mut volume = open(&backing.0)?;
+        let mut volume = open_live(&backing.0)?;
         let mut actual = [0; BLOCK_SIZE];
         volume.read_block(1, &mut actual)?;
         assert_eq!(actual, expected);
@@ -326,7 +326,7 @@ fn public_operations_complete_v0_4_acceptance() -> io::Result<()> {
         u64::from(FIRST_DATA_BLOCK) * BLOCK_SIZE as u64,
     )?;
     file.sync_all()?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     let mut actual = [0x5a; BLOCK_SIZE];
     assert_eq!(
         volume.read_block(1, &mut actual).unwrap_err().kind(),

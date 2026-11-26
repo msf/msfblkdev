@@ -33,7 +33,7 @@ fn dirty(volume: &mut Volume, pages: u32) -> io::Result<()> {
 }
 
 fn verify(backing: &TemporaryBacking, pages: u32) -> io::Result<()> {
-    let mut volume = open_with_options(&backing.0, options(pages))?;
+    let mut volume = open_live_with_options(&backing.0, options(pages))?;
     for page in 0..pages {
         let mut bytes = [0; BLOCK_SIZE];
         volume.read_block(page * 336, &mut bytes)?;
@@ -61,7 +61,7 @@ fn checkpoint_batches_preserve_records_and_exact_io_at_chunk_boundaries() -> io:
         let reader = unsafe { Reader::create(&ledger.0, 128 << 20)? };
         // SAFETY: same private ledger lifetime as above.
         let writer = unsafe { Writer::open(&ledger.0)? };
-        let mut volume = open_with_accounting(&backing.0, options(pages), writer)?;
+        let mut volume = open_live_with_accounting(&backing.0, options(pages), writer)?;
         dirty(&mut volume, pages)?;
         let tail = user_position(&volume);
         let old_lsn = volume.log.checkpoint_lsn();
@@ -122,7 +122,7 @@ fn short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages() -> io:
         (true, 0),
     ] {
         let backing = fixture(66)?;
-        let mut volume = open_with_options(&backing.0, options(65))?;
+        let mut volume = open_live_with_options(&backing.0, options(65))?;
         dirty(&mut volume, 65)?;
         let active_lsn = volume.log.checkpoint_lsn();
         let tail = user_position(&volume);
@@ -154,7 +154,9 @@ fn short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages() -> io:
             // The independent header checksum at byte 4072 was not written: recognizable
             // damaged metadata fails closed instead of being skipped.
             let before = std::fs::read(&backing.0)?;
-            let error = open_with_options(&backing.0, options(65)).err().unwrap();
+            let error = open_live_with_options(&backing.0, options(65))
+                .err()
+                .unwrap();
             assert_eq!(error.kind(), io::ErrorKind::InvalidData);
             assert_eq!(std::fs::read(&backing.0)?, before);
             assert_eq!(load(&backing)?.descriptor.checkpoint_lsn, active_lsn);
@@ -167,7 +169,7 @@ fn short_checkpoint_batches_latch_pressure_failure_and_keep_dirty_pages() -> io:
 fn missing_snapshot_blocks_do_not_publish_later_out_of_order_records() -> io::Result<()> {
     for missing in [0, 7, 31, 32, 64] {
         let backing = fixture(65)?;
-        let mut volume = open_with_options(&backing.0, options(65))?;
+        let mut volume = open_live_with_options(&backing.0, options(65))?;
         dirty(&mut volume, 65)?;
         let tail = user_position(&volume);
         let mut io = BackingIo::new(None)?;
@@ -190,7 +192,7 @@ fn missing_snapshot_blocks_do_not_publish_later_out_of_order_records() -> io::Re
 #[test]
 fn batched_checkpoint_survives_sigkill_before_root_publication() -> io::Result<()> {
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
-        return open_with_options(PathBuf::from(path), options(65))?.close();
+        return open_live_with_options(PathBuf::from(path), options(65))?.close();
     }
     let boundaries = [
         "mapping-page-write-before-32",
@@ -205,7 +207,7 @@ fn batched_checkpoint_survives_sigkill_before_root_publication() -> io::Result<(
     for boundary in boundaries {
         for _ in 0..configured_crash_test_plan(boundaries.len() as u64)?.repetitions {
             let backing = fixture(65)?;
-            let mut volume = open_with_options(&backing.0, options(65))?;
+            let mut volume = open_live_with_options(&backing.0, options(65))?;
             dirty(&mut volume, 65)?;
             drop(volume);
             sigkill_child_at_handshake(

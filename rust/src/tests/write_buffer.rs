@@ -23,14 +23,14 @@ fn buffered_volume(payloads: u32) -> io::Result<(TemporaryBacking, VolumeOpenOpt
 
 fn batch_boundary(payloads: u32) -> io::Result<()> {
     let (backing, options, _) = buffered_volume(payloads)?;
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     for lba in 0..payloads {
         volume.write_block(lba, &pattern(lba))?;
     }
     volume.flush()?;
     volume.close()?;
 
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     let mut actual = [0; BLOCK_SIZE];
     for lba in 0..payloads {
         volume.read_block(lba, &mut actual)?;
@@ -51,7 +51,7 @@ fn releases_at_record_boundaries_and_replays_multi_record_windows() -> io::Resul
 fn release_stats_report_batch_occupancy_and_footer_ratio() -> io::Result<()> {
     let payloads = 340_u32;
     let (backing, options, _) = buffered_volume(payloads)?;
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     for lba in 0..payloads {
         volume.write_block(lba, &pattern(lba))?;
     }
@@ -76,7 +76,7 @@ fn release_stats_report_batch_occupancy_and_footer_ratio() -> io::Result<()> {
 #[test]
 fn duplicate_lba_in_one_window_coalesces_to_the_latest_value() -> io::Result<()> {
     let (backing, options, _) = buffered_volume(8)?;
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
 
     let footer_before = user_position(&volume).boundary;
     for byte in [0xa5, 0x5a, 0xc3] {
@@ -89,7 +89,7 @@ fn duplicate_lba_in_one_window_coalesces_to_the_latest_value() -> io::Result<()>
     assert_eq!(user_position(&volume).boundary, footer_before + 2);
     volume.close()?;
 
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     let mut actual = [0; BLOCK_SIZE];
     volume.read_block(0, &mut actual)?;
     assert_eq!(actual, [0xc3; BLOCK_SIZE]);
@@ -99,7 +99,7 @@ fn duplicate_lba_in_one_window_coalesces_to_the_latest_value() -> io::Result<()>
 #[test]
 fn read_after_write_without_flush_returns_the_buffered_value() -> io::Result<()> {
     let (backing, options, _) = buffered_volume(8)?;
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
 
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.write_block(0, &[0x5a; BLOCK_SIZE])?;
@@ -124,7 +124,7 @@ fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<(
         let volume_blocks = 64_u32;
         format_segments(&backing, volume_blocks, 8, TINY_SEGMENT_BLOCKS)?;
         let options = large_buffer_options(write_buffer_bytes);
-        let mut volume = open_with_options(&backing.0, options)?;
+        let mut volume = open_live_with_options(&backing.0, options)?;
 
         let mut capacity = 0;
         // Bounded by the volume: every LBA is written at most once.
@@ -154,7 +154,7 @@ fn enospc_is_returned_by_the_offending_write_not_a_later_flush() -> io::Result<(
         volume.flush()?;
         volume.close()?;
 
-        let mut volume = open_with_options(&backing.0, options)?;
+        let mut volume = open_live_with_options(&backing.0, options)?;
         let mut actual = [0; BLOCK_SIZE];
         for lba in 0..capacity {
             volume.read_block(lba, &mut actual)?;
@@ -175,14 +175,14 @@ fn checkpoint_index_round_trips_across_direct_pages() -> io::Result<()> {
     format_segments(&backing, volume_blocks, 8, 64)?;
 
     let writes = [(0_u32, 0xa5_u8), (1000, 0x5a), (volume_blocks - 1, 0xc3)];
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     assert_eq!(volume.log.geometry.direct_pages, 2);
     for (lba, byte) in writes {
         volume.write_block(lba, &[byte; BLOCK_SIZE])?;
     }
     volume.close()?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     assert_ne!(volume.log.index.direct_block(0), 0);
     assert_ne!(volume.log.index.direct_block(1), 0);
     let mut actual = [0; BLOCK_SIZE];
@@ -201,7 +201,7 @@ fn checkpoint_index_round_trips_across_direct_pages() -> io::Result<()> {
 #[test]
 fn short_backing_write_fails_the_release_without_publishing() -> io::Result<()> {
     let (backing, options, _) = buffered_volume(8)?;
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     // Force the next backing writev to fail by swapping in a read-only descriptor.
     volume.backing = backing.reopen()?;
 

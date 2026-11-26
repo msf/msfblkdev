@@ -1,5 +1,5 @@
 //! Guest client for tools/adr05-fault-lab/engine-checkpoint.py. No engine failpoints.
-use block_storage::{FormatOptions, format_with_options, open};
+use block_storage::{FormatOptions, format_with_options, open_live};
 use std::{env, fs::File, io, path::Path};
 
 const BLOCK: usize = 4096;
@@ -22,7 +22,7 @@ fn format_new(path: &Path) -> io::Result<()> {
 const WRITES: [(u32, u8); 3] = [(1, 0x17), (5, 0x53), (1, 0xab)];
 
 fn exercise(export: &Path, expect_eio: bool) -> io::Result<()> {
-    let mut volume = open(export)?;
+    let mut volume = open_live(export)?;
     for (lba, value) in WRITES {
         volume.write_block(lba, &[value; BLOCK])?;
         println!("op=write_block lba={lba} byte={value:#04x} result=ok");
@@ -44,7 +44,7 @@ fn exercise(export: &Path, expect_eio: bool) -> io::Result<()> {
 }
 
 fn verify(copy: &Path) -> io::Result<()> {
-    let mut recovered = open(copy)?;
+    let mut recovered = open_live(copy)?;
     for lba in 0..LOGICAL_BLOCKS {
         let expected = match lba {
             1 => 0xab,

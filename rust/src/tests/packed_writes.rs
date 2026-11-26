@@ -67,7 +67,7 @@ fn packed_buffers_cross_record_boundaries_with_one_log_flush() -> io::Result<()>
             write_buffer_bytes: u64::from(payloads + 1) * BLOCK_SIZE as u64,
             ..VolumeOpenOptions::default()
         };
-        let mut volume = open_with_accounting(&backing.0, options, writer)?;
+        let mut volume = open_live_with_accounting(&backing.0, options, writer)?;
         let before = reader.snapshot()?;
         for page in (0..payloads).rev() {
             volume.write_block(page * 336, &[page as u8; BLOCK_SIZE])?;
@@ -92,7 +92,7 @@ fn packed_buffers_cross_record_boundaries_with_one_log_flush() -> io::Result<()>
         assert_eq!(volume.mapping_stats().cache.dirty_slots, payloads as usize);
         check_sorted_records(&volume, payloads)?;
         drop(volume);
-        let mut reopened = open_with_options(&backing.0, options)?;
+        let mut reopened = open_live_with_options(&backing.0, options)?;
         let mut bytes = [0; BLOCK_SIZE];
         for page in 0..payloads {
             reopened.read_block(page * 336, &mut bytes)?;
@@ -164,7 +164,7 @@ fn incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes() 
             ..VolumeOpenOptions::default()
         },
     ] {
-        let error = open_with_options(&backing.0, options).err().unwrap();
+        let error = open_live_with_options(&backing.0, options).err().unwrap();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(std::fs::read(&backing.0)?, before);
     }
@@ -173,7 +173,7 @@ fn incompatible_cache_or_checkpoint_budget_is_rejected_before_recovery_writes() 
         cache_budget_bytes: Some(minimum),
         ..VolumeOpenOptions::default()
     };
-    let volume = open_with_options(&backing.0, options)?;
+    let volume = open_live_with_options(&backing.0, options)?;
     assert_eq!(volume.mapping_stats().cache.sizing.capacity, 1024);
     assert!(volume.heap_budget().allocated_bytes() <= volume.heap_budget().total_bytes);
     volume.close()
@@ -188,7 +188,7 @@ fn pressure_is_resolved_before_a_group_and_overlapping_dirty_pages_need_no_check
         cache_budget_bytes: Some(Sizing::for_capacity(2).unwrap().allocated_bytes as u64),
         ..VolumeOpenOptions::default()
     };
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     for lba in [336, 0, 0, 336] {
         volume.write_block(lba, &[1; BLOCK_SIZE])?;
     }
@@ -199,7 +199,7 @@ fn pressure_is_resolved_before_a_group_and_overlapping_dirty_pages_need_no_check
     assert_eq!(volume.release_stats().records, 3);
     volume.flush()?;
     drop(volume);
-    let mut reopened = open_with_options(&backing.0, options)?;
+    let mut reopened = open_live_with_options(&backing.0, options)?;
     for (lba, byte) in [(0, 1), (336, 1), (672, 3), (1008, 2)] {
         let mut bytes = [0; BLOCK_SIZE];
         reopened.read_block(lba, &mut bytes)?;
@@ -215,7 +215,7 @@ fn packed_record_recovers_all_mappings_after_a_partial_in_memory_update() -> io:
         ..VolumeOpenOptions::default()
     };
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open_with_options(PathBuf::from(path), options)?;
+        let mut volume = open_live_with_options(PathBuf::from(path), options)?;
         for page in (0..700).rev() {
             volume.write_block(page * 336, &[(page % 251 + 1) as u8; BLOCK_SIZE])?;
         }
@@ -235,7 +235,7 @@ fn packed_record_recovers_all_mappings_after_a_partial_in_memory_update() -> io:
                 boundary,
                 Some(boundary),
             )?;
-            let mut reopened = open_with_options(&backing.0, options)?;
+            let mut reopened = open_live_with_options(&backing.0, options)?;
             for page in 0..700 {
                 let mut bytes = [0; BLOCK_SIZE];
                 reopened.read_block(page * 336, &mut bytes)?;
@@ -260,7 +260,7 @@ fn preflight_checkpoint_crashes_preserve_the_previous_complete_group() -> io::Re
         ..VolumeOpenOptions::default()
     };
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open_with_options(PathBuf::from(path), options)?;
+        let mut volume = open_live_with_options(PathBuf::from(path), options)?;
         volume.write_block(672, &[2; BLOCK_SIZE])?;
         volume.write_block(1008, &[3; BLOCK_SIZE])?;
         return Err(io::Error::other(
@@ -278,7 +278,7 @@ fn preflight_checkpoint_crashes_preserve_the_previous_complete_group() -> io::Re
     for boundary in boundaries {
         for _ in 0..configured_crash_test_plan(boundaries.len() as u64)?.repetitions {
             let backing = fixture(4)?;
-            let mut volume = open_with_options(&backing.0, options)?;
+            let mut volume = open_live_with_options(&backing.0, options)?;
             for lba in [0, 336] {
                 volume.write_block(lba, &[1; BLOCK_SIZE])?;
             }
@@ -290,7 +290,7 @@ fn preflight_checkpoint_crashes_preserve_the_previous_complete_group() -> io::Re
                 boundary,
                 Some(boundary),
             )?;
-            let mut reopened = open_with_options(&backing.0, options)?;
+            let mut reopened = open_live_with_options(&backing.0, options)?;
             for lba in [0, 336, 672, 1008] {
                 let mut bytes = [0; BLOCK_SIZE];
                 reopened.read_block(lba, &mut bytes)?;

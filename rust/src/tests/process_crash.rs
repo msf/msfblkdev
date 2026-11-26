@@ -5,7 +5,7 @@ fn recover_one_flushed_write_after_sigkill_without_close() -> io::Result<()> {
     const HANDSHAKE: &str = "write-flushed";
 
     if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open(PathBuf::from(backing))?;
+        let mut volume = open_live(PathBuf::from(backing))?;
         volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
         volume.flush()?;
         println!("{HANDSHAKE}");
@@ -26,7 +26,7 @@ fn recover_one_flushed_write_after_sigkill_without_close() -> io::Result<()> {
             None,
         )?;
 
-        let mut volume = open(&backing.0)?;
+        let mut volume = open_live(&backing.0)?;
         let mut actual = [0; BLOCK_SIZE];
         volume.read_block(0, &mut actual)?;
         assert_eq!(actual, [0xa5; BLOCK_SIZE]);
@@ -47,7 +47,7 @@ fn recover_multiple_flushed_writes_and_overwrites_after_sigkill() -> io::Result<
         (1, 0xe7),
     ];
     if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open(PathBuf::from(backing))?;
+        let mut volume = open_live(PathBuf::from(backing))?;
         for (lba, byte) in writes {
             volume.write_block(lba, &[byte; BLOCK_SIZE])?;
         }
@@ -71,7 +71,7 @@ fn recover_multiple_flushed_writes_and_overwrites_after_sigkill() -> io::Result<
         )?;
 
         let expected = [[0xd4; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
-        let mut volume = open(&backing.0)?;
+        let mut volume = open_live(&backing.0)?;
         for (lba, expected) in expected.iter().enumerate() {
             let mut actual = [0; BLOCK_SIZE];
             volume.read_block(lba as u32, &mut actual)?;
@@ -85,7 +85,7 @@ fn recover_multiple_flushed_writes_and_overwrites_after_sigkill() -> io::Result<
 fn recover_after_uncaught_unwinding_panic_without_close() -> io::Result<()> {
     let writes = [(0, 0xa5), (1, 0x5a), (0, 0xc3), (2, 0x3c), (1, 0xe7)];
     if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open(PathBuf::from(backing))?;
+        let mut volume = open_live(PathBuf::from(backing))?;
         for (lba, byte) in writes {
             volume.write_block(lba, &[byte; BLOCK_SIZE])?;
         }
@@ -103,7 +103,7 @@ fn recover_after_uncaught_unwinding_panic_without_close() -> io::Result<()> {
         )?;
 
         let expected = [[0xc3; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
-        let mut volume = open(&backing.0)?;
+        let mut volume = open_live(&backing.0)?;
         for (lba, expected) in expected.iter().enumerate() {
             let mut actual = [0; BLOCK_SIZE];
             volume.read_block(lba as u32, &mut actual)?;
@@ -127,7 +127,7 @@ fn buffered_write_is_volatile_until_flush_across_sigkill() -> io::Result<()> {
 
     if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
         let flush_write = std::env::var_os(BUFFER_MODE_ENV).as_deref() == Some(OsStr::new("flush"));
-        let mut volume = open_with_options(PathBuf::from(backing), options)?;
+        let mut volume = open_live_with_options(PathBuf::from(backing), options)?;
         volume.write_block(0, &new)?;
         if flush_write {
             volume.flush()?;
@@ -147,7 +147,7 @@ fn buffered_write_is_volatile_until_flush_across_sigkill() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         format_segments(&backing, 4, 8, 64)?;
         run_buffer_crash_child(test_name, &backing.0, FLUSHED_HANDSHAKE, Some("flush"))?;
-        let mut volume = open_with_options(&backing.0, options)?;
+        let mut volume = open_live_with_options(&backing.0, options)?;
         let mut actual = [0; BLOCK_SIZE];
         volume.read_block(0, &mut actual)?;
         assert_eq!(actual, new, "flushed write must survive SIGKILL");
@@ -157,7 +157,7 @@ fn buffered_write_is_volatile_until_flush_across_sigkill() -> io::Result<()> {
         let backing = TemporaryBacking::new()?;
         format_segments(&backing, 4, 8, 64)?;
         run_buffer_crash_child(test_name, &backing.0, UNFLUSHED_HANDSHAKE, None)?;
-        let mut volume = open_with_options(&backing.0, options)?;
+        let mut volume = open_live_with_options(&backing.0, options)?;
         let mut actual = [0xff; BLOCK_SIZE];
         volume.read_block(0, &mut actual)?;
         assert_eq!(
@@ -242,7 +242,7 @@ fn recover_after_write_crash(
     let old = [0xa5; BLOCK_SIZE];
     let new = [0x5a; BLOCK_SIZE];
     if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open(PathBuf::from(backing))?;
+        let mut volume = open_live(PathBuf::from(backing))?;
         volume.write_block(0, &new)?;
         if flush_write {
             volume.flush()?;
@@ -252,13 +252,13 @@ fn recover_after_write_crash(
 
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 1, 12, TINY_SEGMENT_BLOCKS)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &old)?;
     volume.close()?;
 
     sigkill_child_at_handshake(test_name, &backing.0, failpoint, Some(failpoint))?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     let mut actual = [0; BLOCK_SIZE];
     volume.read_block(0, &mut actual)?;
     if require_new_state {
@@ -313,7 +313,7 @@ fn recover_after_checkpoint_crash(
 ) -> io::Result<()> {
     let writes = [(0, 0x5a), (1, 0xc3), (2, 0x3c), (1, 0xe7)];
     if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open(PathBuf::from(backing))?;
+        let mut volume = open_live(PathBuf::from(backing))?;
         for (lba, byte) in writes {
             volume.write_block(lba, &[byte; BLOCK_SIZE])?;
         }
@@ -326,7 +326,7 @@ fn recover_after_checkpoint_crash(
     // Two direct index pages: the second stays untouched and unwritten.
     let volume_blocks = 336_u32 * 1008 + 1;
     format_segments(&backing, volume_blocks, 8, 64)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     assert_eq!(volume.log.geometry.direct_pages, 2);
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.close()?;
@@ -334,7 +334,7 @@ fn recover_after_checkpoint_crash(
     sigkill_child_at_handshake(test_name, &backing.0, failpoint, Some(failpoint))?;
 
     let expected = [[0x5a; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x3c; BLOCK_SIZE]];
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     assert_eq!(volume.log.checkpoint_lsn(), expected_checkpoint_lsn);
     assert_eq!(last_lsn(&volume), expected_last_lsn);
     for (lba, expected) in expected.iter().enumerate() {

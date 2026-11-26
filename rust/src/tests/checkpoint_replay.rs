@@ -55,7 +55,7 @@ fn corrupt_byte(backing: &TemporaryBacking, offset: u64) -> io::Result<()> {
 #[test]
 fn clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum() -> io::Result<()> {
     let backing = small_volume(2)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     let volume_id = volume.log.volume_id;
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.write_block(1, &[0x5a; BLOCK_SIZE])?;
@@ -97,7 +97,7 @@ fn clean_checkpoint_maps_each_lba_to_latest_payload_and_checksum() -> io::Result
 fn payload_damage_after_flush_is_local_to_the_mapped_version() -> io::Result<()> {
     for publish in [false, true] {
         let backing = small_volume(2)?;
-        let mut volume = open(&backing.0)?;
+        let mut volume = open_live(&backing.0)?;
         volume.write_block(0, &[0xb7; BLOCK_SIZE])?;
         volume.write_block(1, &[0x31; BLOCK_SIZE])?;
         volume.flush()?;
@@ -121,7 +121,7 @@ fn payload_damage_after_flush_is_local_to_the_mapped_version() -> io::Result<()>
         damaged.create_sized(0)?;
         std::fs::copy(&backing.0, &damaged.0)?;
         corrupt_byte(&damaged, (physical * BLOCK_SIZE) as u64)?;
-        let mut reopened = open(&damaged.0)?;
+        let mut reopened = open_live(&damaged.0)?;
         let mut out = [0xd2; BLOCK_SIZE];
         assert_eq!(
             reopened.read_block(0, &mut out).unwrap_err().kind(),
@@ -132,7 +132,7 @@ fn payload_damage_after_flush_is_local_to_the_mapped_version() -> io::Result<()>
         assert_eq!(out, [0x31; BLOCK_SIZE]);
         reopened.write_block(0, &[0x96; BLOCK_SIZE])?;
         reopened.close()?;
-        let mut replaced = open(&damaged.0)?;
+        let mut replaced = open_live(&damaged.0)?;
         replaced.read_block(0, &mut out)?;
         assert_eq!(out, [0x96; BLOCK_SIZE]);
     }
@@ -151,18 +151,18 @@ fn prepare_checkpoint_fallback_fixture() -> io::Result<CheckpointFallbackFixture
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 3, 12, 64)?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.write_block(1, &[0x5a; BLOCK_SIZE])?;
     volume.close()?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0xc3; BLOCK_SIZE])?;
     volume.write_block(2, &[0x3c; BLOCK_SIZE])?;
     volume.close()?;
 
     let expected = [[0xd4; BLOCK_SIZE], [0xe7; BLOCK_SIZE], [0x7e; BLOCK_SIZE]];
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     for (lba, value) in expected.iter().enumerate() {
         volume.write_block(lba as u32, value)?;
     }
@@ -193,7 +193,7 @@ fn prepare_checkpoint_fallback_fixture() -> io::Result<CheckpointFallbackFixture
 }
 
 fn verify_checkpoint_fallback(fixture: &CheckpointFallbackFixture) -> io::Result<()> {
-    let opened = std::panic::catch_unwind(|| open(&fixture.backing.0))
+    let opened = std::panic::catch_unwind(|| open_live(&fixture.backing.0))
         .map_err(|_| io::Error::other("public open panicked on checkpoint corruption"))?;
     let mut volume = opened?;
     assert_eq!(volume.log.checkpoint_lsn(), fixture.older.checkpoint_lsn);
@@ -240,7 +240,7 @@ fn rejects_two_unusable_checkpoint_roots_without_panic_or_mutation() -> io::Resu
 
     let corrupted = std::fs::read(&fixture.backing.0)?;
     for _ in 0..2 {
-        let opened = std::panic::catch_unwind(|| open(&fixture.backing.0))
+        let opened = std::panic::catch_unwind(|| open_live(&fixture.backing.0))
             .map_err(|_| io::Error::other("public open panicked on checkpoint corruption"))?;
         let error = match opened {
             Ok(_) => return Err(io::Error::other("corrupted checkpoint roots were served")),
@@ -257,7 +257,7 @@ fn reconstructs_every_recovery_cursor_from_replayed_state() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 4, 8, 64)?;
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.write_block(1, &[0x5a; BLOCK_SIZE])?;
     volume.close()?;
@@ -303,7 +303,7 @@ fn reconstructs_every_recovery_cursor_from_replayed_state() -> io::Result<()> {
         (second_footer + 3, 0x7e),
     ];
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     assert_eq!(last_lsn(&volume), 8);
     assert_eq!(
         user_position(&volume),
@@ -384,7 +384,7 @@ fn rejects_invalid_checkpoint_after_bytes_before_touching_backing() -> io::Resul
             ..VolumeOpenOptions::default()
         };
         for path in [&backing.0, &missing.0] {
-            let error = match open_with_options(path, options) {
+            let error = match open_live_with_options(path, options) {
                 Ok(_) => return Err(io::Error::other("invalid replay bound was accepted")),
                 Err(error) => error,
             };
@@ -398,7 +398,7 @@ fn rejects_invalid_checkpoint_after_bytes_before_touching_backing() -> io::Resul
         checkpoint_after_bytes: MINIMUM_CHECKPOINT_AFTER_BYTES,
         ..VolumeOpenOptions::default()
     };
-    let volume = open_with_options(&backing.0, minimum)?;
+    let volume = open_live_with_options(&backing.0, minimum)?;
     assert_eq!(
         volume.checkpoint_after_bytes,
         MINIMUM_CHECKPOINT_AFTER_BYTES
@@ -406,7 +406,7 @@ fn rejects_invalid_checkpoint_after_bytes_before_touching_backing() -> io::Resul
     drop(volume);
 
     let defaults = VolumeOpenOptions::default();
-    let volume = open_with_options(&backing.0, defaults)?;
+    let volume = open_live_with_options(&backing.0, defaults)?;
     assert_eq!(volume.checkpoint_after_bytes, 64 * 1024 * 1024);
     Ok(())
 }
@@ -420,7 +420,7 @@ fn checkpoints_before_buffered_group_exceeding_replay_bound() -> io::Result<()> 
         write_buffer_bytes: 160 * BLOCK_SIZE as u64,
         ..VolumeOpenOptions::default()
     };
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     for round in 1..=3 {
         for lba in 0..160 {
             volume.write_block(lba, &[round; BLOCK_SIZE])?;
@@ -431,7 +431,7 @@ fn checkpoints_before_buffered_group_exceeding_replay_bound() -> io::Result<()> 
     assert!(volume.log.checkpoint_lsn() > FORMAT_LSN);
     assert!(last_lsn(&volume) > volume.log.checkpoint_lsn());
     drop(volume);
-    let mut reopened = open_with_options(&backing.0, options)?;
+    let mut reopened = open_live_with_options(&backing.0, options)?;
     let mut bytes = [0; BLOCK_SIZE];
     for lba in 0..336 {
         reopened.read_block(lba, &mut bytes)?;
@@ -444,7 +444,7 @@ fn checkpoints_before_buffered_group_exceeding_replay_bound() -> io::Result<()> 
 fn log_full_write_does_not_publish_live_checkpoint() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 1, 5, TINY_SEGMENT_BLOCKS)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[1; BLOCK_SIZE])?;
 
     let state = (
@@ -488,12 +488,12 @@ fn log_full_write_does_not_publish_live_checkpoint() -> io::Result<()> {
 #[test]
 fn flush_persists_data_without_advancing_checkpoint() -> io::Result<()> {
     let backing = small_volume(1)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.flush()?;
     assert_eq!(selected_checkpoint(&backing)?.checkpoint_lsn, FORMAT_LSN);
     drop(volume);
-    let mut reopened = open(&backing.0)?;
+    let mut reopened = open_live(&backing.0)?;
     let mut bytes = [0; BLOCK_SIZE];
     reopened.read_block(0, &mut bytes)?;
     assert_eq!(bytes, [0xa5; BLOCK_SIZE]);
@@ -503,7 +503,7 @@ fn flush_persists_data_without_advancing_checkpoint() -> io::Result<()> {
 #[test]
 fn close_persists_snapshot_index_page_and_descriptor() -> io::Result<()> {
     let backing = small_volume(2)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(1, &[0xa5; BLOCK_SIZE])?;
     let expected = mapping_arrays(&volume)?;
     volume.close()?;
@@ -518,7 +518,7 @@ fn close_persists_snapshot_index_page_and_descriptor() -> io::Result<()> {
     let entries = snapshot_entries(&backing, &loaded, 0)?;
     assert_eq!(entries.physical_addr[..2], expected.0);
     assert_eq!(entries.payload_checksum[..2], expected.1);
-    let reopened = open(&backing.0)?;
+    let reopened = open_live(&backing.0)?;
     assert_eq!(reopened.log.checkpoint_lsn(), 4);
     assert_eq!(reopened.log.active_slot, CheckpointSlot::Blue);
     assert_eq!(mapping_arrays(&reopened)?, expected);
@@ -533,16 +533,16 @@ fn close_without_mapping_changes_does_not_publish_checkpoint() -> io::Result<()>
     let file = File::open(&backing.0)?;
     let mut before = [0; 2 * BLOCK_SIZE];
     file.read_exact_at(&mut before, 0)?;
-    open(&backing.0)?.close()?;
+    open_live(&backing.0)?.close()?;
     let mut after = [0; 2 * BLOCK_SIZE];
     file.read_exact_at(&mut after, 0)?;
     assert_eq!(after, before);
 
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.close()?;
     file.read_exact_at(&mut before, 0)?;
-    open(&backing.0)?.close()?;
+    open_live(&backing.0)?.close()?;
     file.read_exact_at(&mut after, 0)?;
     assert_eq!(after, before);
     Ok(())
@@ -551,7 +551,7 @@ fn close_without_mapping_changes_does_not_publish_checkpoint() -> io::Result<()>
 #[test]
 fn equal_lsn_checkpoints_must_describe_one_checkpoint() -> io::Result<()> {
     let backing = small_volume(1)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0xa5; BLOCK_SIZE])?;
     volume.close()?;
 
@@ -565,7 +565,7 @@ fn equal_lsn_checkpoints_must_describe_one_checkpoint() -> io::Result<()> {
     green[DESCRIPTOR_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
     file.write_all_at(&green, 0)?;
 
-    let volume = open(&backing.0)?;
+    let volume = open_live(&backing.0)?;
     assert_eq!(volume.log.active_slot, CheckpointSlot::Green);
     assert_eq!(volume.log.root_lsn[0], volume.log.root_lsn[1]);
     drop(volume);
@@ -577,7 +577,7 @@ fn equal_lsn_checkpoints_must_describe_one_checkpoint() -> io::Result<()> {
     green[DESCRIPTOR_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
     file.write_all_at(&green, 0)?;
     assert_eq!(
-        open(&backing.0).err().unwrap().kind(),
+        open_live(&backing.0).err().unwrap().kind(),
         io::ErrorKind::InvalidData
     );
     Ok(())

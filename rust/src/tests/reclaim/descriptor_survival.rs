@@ -9,7 +9,7 @@ const HISTORY: [Option<u32>; 8] = [Some(10), Some(11), Some(12), None, None, Non
 /// and on the point of being released by the next checkpoint, B.
 fn prepare_a() -> io::Result<(TemporaryBacking, CheckpointSlot, u64)> {
     let backing = fixture(HISTORY.len() as u32, SEGMENTS)?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     for round in [1, 10] {
         for lba in 0..3 {
             volume.write_block(lba, &value(round + lba))?;
@@ -43,7 +43,7 @@ fn reopen_copy(image: &[u8]) -> io::Result<(TemporaryBacking, Volume)> {
     let copy = TemporaryBacking::new()?;
     copy.create_sized(0)?;
     std::fs::write(&copy.0, image)?;
-    let volume = open_with_options(&copy.0, options(1))?;
+    let volume = open_live_with_options(&copy.0, options(1))?;
     Ok((copy, volume))
 }
 
@@ -71,7 +71,7 @@ fn reject_early_reuse(mut image: Vec<u8>, slot_a: CheckpointSlot) -> io::Result<
 #[test]
 fn failed_final_sync_preserves_flushed_data() -> io::Result<()> {
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open_with_options(PathBuf::from(path), options(1))?;
+        let mut volume = open_live_with_options(PathBuf::from(path), options(1))?;
         assert_eq!(volume.log.segments.state(0), SegmentState::PendingFree);
         assert_eq!(volume.log.segments.published_free_transitions(), 1);
         volume.maintain(SelectionMode::Pressure)?;

@@ -521,24 +521,26 @@ fn wait_exact_with(
     }
 }
 
-/// Opens a format-4 volume with the default replay bound, heap budget and cache share.
-pub fn open(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
-    open_with_options(backing_path, VolumeOpenOptions::default())
+/// Opens a format-4 volume to serve requests, with the default replay bound, heap budget and
+/// cache share. Recovery replays the tail and writes to the backing.
+pub fn open_live(backing_path: impl AsRef<Path>) -> io::Result<Volume> {
+    open_live_with_options(backing_path, VolumeOpenOptions::default())
 }
 
-/// Opens a format-4 volume with the supplied replay, buffer, cache and heap configuration.
-pub fn open_with_options(
+/// Opens a format-4 volume to serve requests with the supplied replay, buffer, cache and heap
+/// configuration.
+pub fn open_live_with_options(
     backing_path: impl AsRef<Path>,
     options: VolumeOpenOptions,
 ) -> io::Result<Volume> {
     format_v4::volume::open(backing_path.as_ref(), options, None)
 }
 
-/// Opens a formatted volume and accounts its engine-submitted backing I/O.
+/// Opens a formatted volume to serve requests and accounts its engine-submitted backing I/O.
 ///
 /// Host-filesystem metadata operations used to open and inspect the backing file
 /// are outside this accounting scope.
-pub fn open_with_accounting(
+pub fn open_live_with_accounting(
     backing_path: impl AsRef<Path>,
     options: VolumeOpenOptions,
     accounting: io_accounting::Writer,

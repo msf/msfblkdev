@@ -1,5 +1,5 @@
 //! Reproducible ADR-07 probes using only owned temporary regular files.
-use block_storage::{Volume, VolumeOpenOptions, format, open, open_with_options};
+use block_storage::{Volume, VolumeOpenOptions, format, open_live, open_live_with_options};
 use std::{
     fs::{self, OpenOptions},
     io,
@@ -59,7 +59,7 @@ fn resident_memory() -> io::Result<u64> {
 fn memory_probe(name: &str, logical_bytes: u64) -> io::Result<()> {
     let backing = Backing::new(logical_bytes)?;
     let rss_before = resident_memory()?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     let stats = volume.mapping_stats();
     let rss_open = resident_memory()?;
     volume.write_block(0, &[1; BLOCK_BYTES])?;
@@ -117,7 +117,7 @@ fn access_probe() -> io::Result<()> {
         cache_budget_bytes: Some(16_000),
         ..VolumeOpenOptions::default()
     };
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     for page in 0..16 {
         volume.write_block(page * ENTRIES_PER_PAGE, &[page as u8 + 1; BLOCK_BYTES])?;
     }
@@ -128,7 +128,7 @@ fn access_probe() -> io::Result<()> {
         Workload::Scattered,
         Workload::MovingHot,
     ] {
-        let mut volume = open_with_options(&backing.0, options)?;
+        let mut volume = open_live_with_options(&backing.0, options)?;
         let initial = volume.mapping_stats();
         assert_eq!(
             initial.cache.sizing.capacity, 4,

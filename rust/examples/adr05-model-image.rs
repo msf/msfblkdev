@@ -1,7 +1,7 @@
 //! Capture one accounted format-4 append and read the modeled cuts through production recovery.
 use block_storage::{
-    FormatOptions, VolumeOpenOptions, format_with_options, io_accounting, open,
-    open_with_accounting,
+    FormatOptions, VolumeOpenOptions, format_with_options, io_accounting, open_live,
+    open_live_with_accounting,
 };
 use std::{
     env, fs,
@@ -40,7 +40,7 @@ fn capture(dir: &Path) -> io::Result<()> {
     let reader = unsafe { io_accounting::Reader::create(&ledger, 4 * IMAGE_BYTES)? };
     // SAFETY: same inode and lifetime guarantee as the reader; only this handle records I/O.
     let writer = unsafe { io_accounting::Writer::open(&ledger)? };
-    let mut v = open_with_accounting(&backing, VolumeOpenOptions::default(), writer)?;
+    let mut v = open_live_with_accounting(&backing, VolumeOpenOptions::default(), writer)?;
     v.write_block(0, &[0x11; BLOCK])?;
     v.write_block(1, &[0x22; BLOCK])?;
     v.flush()?;
@@ -68,7 +68,7 @@ fn capture(dir: &Path) -> io::Result<()> {
 }
 
 fn check(path: &Path, case: &str) -> io::Result<()> {
-    let mut v = open(path)?;
+    let mut v = open_live(path)?;
     for lba in 0..BLOCKS {
         let mut bytes = [0xca; BLOCK];
         let result = v.read_block(lba, &mut bytes);

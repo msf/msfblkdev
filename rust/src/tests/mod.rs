@@ -446,7 +446,7 @@ fn verify_recovery_stops_before_invalid_footer(
     backing: &TemporaryBacking,
     clear_start: u32,
 ) -> io::Result<()> {
-    let opened = std::panic::catch_unwind(|| open(&backing.0))
+    let opened = std::panic::catch_unwind(|| open_live(&backing.0))
         .map_err(|_| io::Error::other("public open panicked on invalid footer"))?;
     let mut volume = opened?;
     assert_eq!(last_lsn(&volume), FORMAT_LSN + 1);
@@ -594,7 +594,7 @@ fn verify_cleared_window(fixture: &InvalidGapFixture) -> io::Result<()> {
 }
 
 fn verify_invalid_gap_recovery(fixture: &InvalidGapFixture) -> io::Result<()> {
-    let mut volume = open(&fixture.backing.0)?;
+    let mut volume = open_live(&fixture.backing.0)?;
     let mut actual = [0; BLOCK_SIZE];
     volume.read_block(0, &mut actual)?;
     assert_eq!(actual, [0xa5; BLOCK_SIZE]);

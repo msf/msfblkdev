@@ -1332,12 +1332,14 @@ fn serve(
     let readiness_error = Arc::new(Mutex::new(None));
     let state = Arc::new(Mutex::new(QueueState {
         volume: Some(match accounting {
-            Some(writer) => block_storage::open_with_accounting(
+            Some(writer) => block_storage::open_live_with_accounting(
                 backing_path,
                 config.volume_open_options(),
                 writer,
             )?,
-            None => block_storage::open_with_options(backing_path, config.volume_open_options())?,
+            None => {
+                block_storage::open_live_with_options(backing_path, config.volume_open_options())?
+            }
         }),
         result: None,
     }));
@@ -1972,7 +1974,7 @@ mod tests {
         let plan = block_storage::plan_format(sizes.volume_bytes, sizes.backing_bytes, 100)?;
         format_new(&backing.0, sizes, None)?;
         assert_eq!(std::fs::metadata(&backing.0)?.len(), sizes.backing_bytes);
-        let volume = block_storage::open(&backing.0)?;
+        let volume = block_storage::open_live(&backing.0)?;
         assert_eq!(
             u64::from(volume.volume_blocks()) * u64::from(LOGICAL_BLOCK_BYTES),
             sizes.volume_bytes
@@ -1996,7 +1998,7 @@ mod tests {
             "50",
         ])?;
         format_new(&backing.0, partial, None)?;
-        let volume = block_storage::open(&backing.0)?;
+        let volume = block_storage::open_live(&backing.0)?;
         assert_eq!(volume.space_usage()?.segment_bytes, 8 << 20);
         volume.close()
     }
@@ -2166,7 +2168,7 @@ mod tests {
         }
         let backing = TemporaryBacking::formatted(673)?;
         let mut volume =
-            block_storage::open_with_options(&backing.0, config.volume_open_options())?;
+            block_storage::open_live_with_options(&backing.0, config.volume_open_options())?;
         let initial = volume.mapping_stats();
         assert_eq!(initial.cache.sizing.requested_bytes, 13000);
         assert_eq!(initial.cache.sizing.capacity, 3);
@@ -2189,7 +2191,7 @@ mod tests {
         assert_eq!(volume.mapping_stats().cache.dirty_slots, 2);
         drop(volume);
         let mut reopened =
-            block_storage::open_with_options(&backing.0, config.volume_open_options())?;
+            block_storage::open_live_with_options(&backing.0, config.volume_open_options())?;
         let mut read = write;
         read.op_flags = UBLK_IO_OP_READ;
         bytes.fill(0);
@@ -2486,7 +2488,7 @@ mod tests {
     #[test]
     fn discard_and_write_zeroes_unmap_blocks_and_persist() -> io::Result<()> {
         let backing = TemporaryBacking::formatted(8)?;
-        let mut volume = block_storage::open(&backing.0)?;
+        let mut volume = block_storage::open_live(&backing.0)?;
         let payload = [0x5a; LOGICAL_BLOCK_BYTES as usize];
         let mut buffer = payload;
         for lba in 0..4 {
@@ -2522,7 +2524,7 @@ mod tests {
             }
         );
         drop(volume);
-        let mut reopened = block_storage::open(&backing.0)?;
+        let mut reopened = block_storage::open_live(&backing.0)?;
         let expected = [payload, [0; 4096], [0; 4096], [0; 4096]];
         for (lba, expected) in expected.iter().enumerate() {
             buffer.fill(0xff);
@@ -2539,7 +2541,7 @@ mod tests {
     #[test]
     fn adapter_targets_exact_lba_and_flushes_with_stale_descriptor_geometry() -> io::Result<()> {
         let backing = TemporaryBacking::formatted(4)?;
-        let mut volume = block_storage::open(&backing.0)?;
+        let mut volume = block_storage::open_live(&backing.0)?;
         let write = descriptor(UBLK_IO_OP_WRITE, 16, 8);
         let flush = descriptor(UBLK_IO_OP_FLUSH, 120, 8);
         let read = descriptor(UBLK_IO_OP_READ, 16, 8);
@@ -2563,7 +2565,7 @@ mod tests {
         );
         drop(volume);
 
-        let mut reopened = block_storage::open(&backing.0)?;
+        let mut reopened = block_storage::open_live(&backing.0)?;
         buffer.fill(0);
         assert_eq!(
             handle_request(&mut reopened, &read, &mut buffer).completion,
@@ -2582,7 +2584,7 @@ mod tests {
     #[test]
     fn multi_block_request_splits_into_consecutive_logical_blocks() -> io::Result<()> {
         let backing = TemporaryBacking::formatted(8)?;
-        let mut volume = block_storage::open(&backing.0)?;
+        let mut volume = block_storage::open_live(&backing.0)?;
         // One request covering three logical blocks starting at LBA 2.
         let write = descriptor(UBLK_IO_OP_WRITE, 16, 24);
         let read = descriptor(UBLK_IO_OP_READ, 16, 24);
@@ -2607,7 +2609,7 @@ mod tests {
         volume.flush()?;
         drop(volume);
 
-        let mut reopened = block_storage::open(&backing.0)?;
+        let mut reopened = block_storage::open_live(&backing.0)?;
         buffer.fill(0);
         assert_eq!(
             handle_request(&mut reopened, &read, &mut buffer).completion,
@@ -2632,7 +2634,7 @@ mod tests {
     #[test]
     fn fatal_engine_error_is_completed_before_post_failure_work_is_rejected() -> io::Result<()> {
         let backing = TemporaryBacking::formatted(1)?;
-        let mut volume = block_storage::open(&backing.0)?;
+        let mut volume = block_storage::open_live(&backing.0)?;
         let write = descriptor(UBLK_IO_OP_WRITE, 0, 8);
         let read = descriptor(UBLK_IO_OP_READ, 0, 8);
         let mut buffer = [0xa5; LOGICAL_BLOCK_BYTES as usize];
@@ -2694,7 +2696,7 @@ mod tests {
         let reader = unsafe { block_storage::io_accounting::Reader::create(&ledger.0, limit)? };
         let writer = io_ledger::open_optional(Some(ledger.0.as_os_str()))?.unwrap();
         let mut volume =
-            block_storage::open_with_accounting(&backing.0, Default::default(), writer)?;
+            block_storage::open_live_with_accounting(&backing.0, Default::default(), writer)?;
         assert_eq!(reader.snapshot()?.write_reserved_bytes, limit);
         let drain = DrainState::new();
         let mut queue_error = None;
@@ -2731,7 +2733,7 @@ mod tests {
     #[test]
     fn rejects_a_short_libublk_buffer_without_engine_io() -> io::Result<()> {
         let backing = TemporaryBacking::formatted(1)?;
-        let mut volume = block_storage::open(&backing.0)?;
+        let mut volume = block_storage::open_live(&backing.0)?;
         let mut short_buffer = [0xa5; LOGICAL_BLOCK_BYTES as usize - 1];
 
         assert_eq!(

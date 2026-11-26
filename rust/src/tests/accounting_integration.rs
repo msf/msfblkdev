@@ -92,7 +92,7 @@ fn public_accounting_apis_count_format_open_write_checkpoint_and_close() -> io::
         }
     );
 
-    open_with_accounting(
+    open_live_with_accounting(
         &backing.0,
         VolumeOpenOptions::default(),
         accounting.writer()?,
@@ -110,7 +110,7 @@ fn public_accounting_apis_count_format_open_write_checkpoint_and_close() -> io::
     assert_eq!(after_first.read_completed_operations, 3 + 2 * 339);
     assert_eq!(after_first.flush_completed_operations, 2 + 1 + 1);
 
-    let mut volume = open_with_accounting(
+    let mut volume = open_live_with_accounting(
         &backing.0,
         VolumeOpenOptions::default(),
         accounting.writer()?,
@@ -180,7 +180,7 @@ fn open_write_read_and_close_account_exact_deltas() -> io::Result<()> {
     let backing = create_backing(1)?;
     format_backing(&backing, 1)?;
     let (accounting, reader) = AccountingFixture::new(16 * 1024 * 1024)?;
-    open_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?.close()?;
+    open_live_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?.close()?;
     let after_first = reader.snapshot()?;
     // Descriptors and the table page are read, then each head probes its first block and the
     // footer candidates before its link slot (five after the table page, six in segment 1).
@@ -196,7 +196,7 @@ fn open_write_read_and_close_account_exact_deltas() -> io::Result<()> {
         after_first.write_completed_bytes
     );
 
-    let mut volume = open_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
+    let mut volume = open_live_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
     let opened = reader.snapshot()?;
     let expected = [0xa5; BLOCK_SIZE];
     volume.write_block(0, &expected)?;
@@ -338,7 +338,7 @@ fn failed_pressure_publication_counts_completed_io_without_counting_publication(
     // Sanitation uses 15 blocks, the data record two, and the snapshot one; the direct page
     // write then exhausts the budget.
     let (accounting, _) = AccountingFixture::new((FRESH_SANITATION_BLOCKS + 3) * 4096)?;
-    let mut volume = open_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
+    let mut volume = open_live_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
     volume.write_block(0, &[1; BLOCK_SIZE])?;
     let mut bytes = [0xff; BLOCK_SIZE];
     assert_eq!(
@@ -369,7 +369,7 @@ fn record_io_failure_latches_before_mapping_publication() -> io::Result<()> {
     format_backing(&backing, 1)?;
     // Open spends the whole budget on sanitation; the two-block writev cannot be paid.
     let (accounting, reader) = AccountingFixture::new(FRESH_SANITATION_BLOCKS * 4096)?;
-    let mut volume = open_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
+    let mut volume = open_live_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
     assert_eq!(
         volume
             .write_block(0, &[0xaa; BLOCK_SIZE])
@@ -398,14 +398,14 @@ fn exact_budget_exhaustion_rejects_write_before_backing_modification() -> io::Re
     let backing = create_backing(1)?;
     format_backing(&backing, 1)?;
     let expected = [0x3c; BLOCK_SIZE];
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &expected)?;
     volume.close()?;
     // Segment 0 holds the table page, the record, a snapshot and a direct page: 3 blocks left.
     let sanitation = (3 + 8) * BLOCK_SIZE as u64;
     let budget = sanitation + BLOCK_SIZE as u64;
     let (accounting, reader) = AccountingFixture::new(budget)?;
-    let mut metered = open_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
+    let mut metered = open_live_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
     let append_offset = u64::from(metered.log.head(HeadId::User).next_block) * BLOCK_SIZE as u64;
     let file = File::open(&backing.0)?;
     let mut before = [0; 2 * BLOCK_SIZE];
@@ -423,7 +423,7 @@ fn exact_budget_exhaustion_rejects_write_before_backing_modification() -> io::Re
     assert!(snapshot.budget_exhausted);
     assert!(!snapshot.completed_totals_incomplete);
 
-    let mut reopened = open(&backing.0)?;
+    let mut reopened = open_live(&backing.0)?;
     let mut actual = [0; BLOCK_SIZE];
     reopened.read_block(0, &mut actual)?;
     assert_eq!(actual, expected);
@@ -449,12 +449,12 @@ fn unknown_accounted_opcode_is_rejected_and_marks_totals_incomplete() -> io::Res
 fn actual_short_backing_read_marks_accounting_incomplete() -> io::Result<()> {
     let backing = create_backing(1)?;
     format_backing(&backing, 1)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0x91; BLOCK_SIZE])?;
     volume.close()?;
 
     let (accounting, reader) = AccountingFixture::new(16 * 1024 * 1024)?;
-    let mut metered = open_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
+    let mut metered = open_live_with_accounting(&backing.0, tiny_options(), accounting.writer()?)?;
     OpenOptions::new()
         .write(true)
         .open(&backing.0)?

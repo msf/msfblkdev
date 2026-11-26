@@ -13,7 +13,7 @@ fn options(slots: usize) -> VolumeOpenOptions {
 fn fixture(pages: u32) -> io::Result<TemporaryBacking> {
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, pages * ENTRIES_PER_PAGE as u32, 8, 512)?;
-    let mut volume = open_with_options(&backing.0, options(pages as usize))?;
+    let mut volume = open_live_with_options(&backing.0, options(pages as usize))?;
     // Reverse insertion makes cache-slot order differ from snapshot order.
     for page in (0..pages).rev() {
         volume.write_block(
@@ -41,7 +41,7 @@ fn sorted_snapshots_prefetch_in_one_read_in_cold_and_full_caches() -> io::Result
     let reader = unsafe { crate::io_accounting::Reader::create(&ledger.0, 128 << 20)? };
     // SAFETY: same private ledger lifetime as above.
     let writer = unsafe { crate::io_accounting::Writer::open(&ledger.0)? };
-    let mut volume = open_with_accounting(&backing.0, options(4), writer)?;
+    let mut volume = open_live_with_accounting(&backing.0, options(4), writer)?;
     let before = reader.snapshot()?;
     let pointers = volume.log.index.snapshot_blocks();
     for pair in pointers.windows(2) {
@@ -78,7 +78,7 @@ fn sorted_snapshots_prefetch_in_one_read_in_cold_and_full_caches() -> io::Result
 fn prefetch_preserves_dirty_and_resident_pages_and_stops_at_nonadjacent_pointers() -> io::Result<()>
 {
     let backing = fixture(8)?;
-    let mut volume = open_with_options(&backing.0, options(4))?;
+    let mut volume = open_live_with_options(&backing.0, options(4))?;
     volume.write_block(2 * ENTRIES_PER_PAGE as u32, &[0xa5; BLOCK_SIZE])?;
     volume.flush()?;
     read(&mut volume, 0)?;
@@ -90,7 +90,7 @@ fn prefetch_preserves_dirty_and_resident_pages_and_stops_at_nonadjacent_pointers
     assert_eq!(volume.mapping_stats().cache.dirty_slots, 1);
     assert_eq!(volume.mapping_stats().pressure_checkpoints, 0);
     volume.close()?;
-    let mut reopened = open_with_options(&backing.0, options(4))?;
+    let mut reopened = open_live_with_options(&backing.0, options(4))?;
     let initial = reopened.mapping_stats();
     read(&mut reopened, 0)?;
     read(&mut reopened, 1)?;
@@ -105,7 +105,7 @@ fn prefetch_preserves_dirty_and_resident_pages_and_stops_at_nonadjacent_pointers
 #[test]
 fn speculative_corruption_is_not_installed_and_demand_corruption_still_fails() -> io::Result<()> {
     let backing = fixture(8)?;
-    let mut volume = open_with_options(&backing.0, options(5))?;
+    let mut volume = open_live_with_options(&backing.0, options(5))?;
     let pointer = volume.log.index.snapshot_block(2);
     let file = OpenOptions::new().write(true).open(&backing.0)?;
     read(&mut volume, 0)?;
@@ -128,7 +128,7 @@ fn speculative_corruption_is_not_installed_and_demand_corruption_still_fails() -
 fn short_prefetch_read_exposes_no_mapping_or_payload() -> io::Result<()> {
     for limit in [0, BLOCK_SIZE, BLOCK_SIZE + 512] {
         let backing = fixture(8)?;
-        let mut volume = open_with_options(&backing.0, options(4))?;
+        let mut volume = open_live_with_options(&backing.0, options(4))?;
         read(&mut volume, 0)?;
         volume.inject_metadata_short_read(limit);
         let mut bytes = [0x66; BLOCK_SIZE];
@@ -149,7 +149,7 @@ fn short_prefetch_read_exposes_no_mapping_or_payload() -> io::Result<()> {
 #[test]
 fn nonsequential_misses_do_not_prefetch() -> io::Result<()> {
     let backing = fixture(8)?;
-    let mut volume = open_with_options(&backing.0, options(4))?;
+    let mut volume = open_live_with_options(&backing.0, options(4))?;
     let initial = volume.mapping_stats();
     for page in [0, 3, 6, 2, 5, 1] {
         read(&mut volume, page)?;

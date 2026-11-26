@@ -30,7 +30,7 @@ fn recovery_accepts_every_format_four_payload_count() -> io::Result<()> {
     file.sync_all()?;
     drop(file);
 
-    let mut volume = open_with_options(
+    let mut volume = open_live_with_options(
         &backing.0,
         VolumeOpenOptions {
             cache_budget_bytes: Some(20_000),
@@ -211,7 +211,7 @@ fn rejects_invalid_footer_with_nonzero_unused_checksum() -> io::Result<()> {
 
 fn recover_after_stale_tail_crash(test_name: &str, failpoint: &str) -> io::Result<()> {
     if let Some(backing) = std::env::var_os(CRASH_TEST_BACKING) {
-        let _volume = open(PathBuf::from(backing))?;
+        let _volume = open_live(PathBuf::from(backing))?;
         return Err(io::Error::other("test failpoint did not pause child"));
     }
 
@@ -297,7 +297,7 @@ fn stale_tail_clear_leaves_the_partial_trailing_segment_alone() -> io::Result<()
     file.sync_all()?;
     drop(file);
 
-    let volume = open(&backing.0)?;
+    let volume = open_live(&backing.0)?;
     assert_eq!(last_lsn(&volume), FORMAT_LSN + 1);
     drop(volume);
     let file = OpenOptions::new().read(true).open(&backing.0)?;

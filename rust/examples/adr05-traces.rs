@@ -1,6 +1,6 @@
 //! Client for tools/adr05-fault-lab/traces/run.py. No failpoints or engine internals.
 use block_storage::{
-    FormatOptions, Volume, VolumeOpenOptions, format_with_options, open_with_options,
+    FormatOptions, Volume, VolumeOpenOptions, format_with_options, open_live_with_options,
 };
 use std::{env, fs, io, path::Path, time::Duration};
 
@@ -94,7 +94,7 @@ fn main() -> io::Result<()> {
         checkpoint_after_bytes: interval * BLOCK as u64,
         ..VolumeOpenOptions::default()
     };
-    let mut volume = open_with_options(path, options)?;
+    let mut volume = open_live_with_options(path, options)?;
     let actual_slots = volume.mapping_stats().cache.sizing.capacity;
     if actual_slots != slots {
         return Err(io::Error::other(format!(

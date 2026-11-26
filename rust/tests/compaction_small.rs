@@ -1,6 +1,7 @@
 //! Opt-in regression for premature ENOSPC on the formatter's 128/185 MiB geometry.
 use block_storage::{
-    DEFAULT_FORMAT_WRITE_BUFFER_BYTES, SelectionMode, Volume, VolumeOpenOptions, open_with_options,
+    DEFAULT_FORMAT_WRITE_BUFFER_BYTES, SelectionMode, Volume, VolumeOpenOptions,
+    open_live_with_options,
 };
 use std::{env, io, path::PathBuf, process::Command, time::Duration};
 
@@ -50,7 +51,7 @@ fn overwrites_at_full_logical_fill_survive_restart() -> io::Result<()> {
         write_buffer_bytes: DEFAULT_FORMAT_WRITE_BUFFER_BYTES,
         ..Default::default()
     };
-    let mut volume = open_with_options(&path, options)?;
+    let mut volume = open_live_with_options(&path, options)?;
     let geometry = volume.space_usage()?;
     assert_eq!(geometry.volume_bytes, (LBAS * BLOCK) as u64);
     assert_eq!(geometry.backing_bytes, (185 * MIB) as u64);
@@ -89,7 +90,7 @@ fn overwrites_at_full_logical_fill_survive_restart() -> io::Result<()> {
     assert!(freed > 0, "no segment was reclaimed");
     volume.close()?;
 
-    let mut volume = open_with_options(&path, options)?;
+    let mut volume = open_live_with_options(&path, options)?;
     check_contents(&mut volume, &versions)?;
     volume.discard_blocks(0, 2)?;
     versions[..2].fill(0);
@@ -98,7 +99,7 @@ fn overwrites_at_full_logical_fill_survive_restart() -> io::Result<()> {
     versions[0] = OVERWRITES + 2;
     volume.flush()?;
     volume.close()?;
-    let mut volume = open_with_options(&path, options)?;
+    let mut volume = open_live_with_options(&path, options)?;
     check_contents(&mut volume, &versions)?;
     volume.close()?;
     println!(

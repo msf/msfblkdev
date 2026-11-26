@@ -126,7 +126,7 @@ fn writev_short_releases_no_bytes_and_charges_existing_failure_path() -> io::Res
     let reader = unsafe { Reader::create(&ledger, 4 * 1024 * 1024)? };
     // SAFETY: same lifetime guarantee as above; only this writer mutates accounting state.
     let writer = unsafe { Writer::open(&ledger)? };
-    let mut volume = crate::open_with_accounting(&path, VolumeOpenOptions::default(), writer)?;
+    let mut volume = crate::open_live_with_accounting(&path, VolumeOpenOptions::default(), writer)?;
     volume.write_block(2, &[0x22; BLOCK_SIZE])?;
     volume.flush()?;
     let before = fs::read(&path)?;
@@ -155,7 +155,7 @@ fn writev_short_releases_no_bytes_and_charges_existing_failure_path() -> io::Res
     );
     assert!(fs::read(&path)? == before);
     drop(volume);
-    let mut copy = crate::open(&path)?;
+    let mut copy = crate::open_live(&path)?;
     let mut data = [0; BLOCK_SIZE];
     copy.read_block(2, &mut data)?;
     assert!(data == [0x22; BLOCK_SIZE]);
@@ -168,7 +168,7 @@ fn completed_fsync_can_report_uncertain_completion_and_latch_volume() -> io::Res
     let dir = Fixture::new()?;
     let path = dir.image("flush")?;
     format(&path, BackingIo::new(None)?)?;
-    let mut volume = crate::open(&path)?;
+    let mut volume = crate::open_live(&path)?;
     let hits = FaultPlan::install(
         &mut volume.backing_io,
         opcode::Fsync::CODE,
@@ -184,7 +184,7 @@ fn completed_fsync_can_report_uncertain_completion_and_latch_volume() -> io::Res
     assert_eq!(volume.flush().unwrap_err().to_string(), "volume failed");
     assert_eq!(hits.load(Ordering::Relaxed), 1);
     drop(volume);
-    let mut reopened = crate::open(&path)?;
+    let mut reopened = crate::open_live(&path)?;
     let mut data = [0; BLOCK_SIZE];
     reopened.read_block(1, &mut data)?;
     assert!(data == [0x66; BLOCK_SIZE]);
@@ -201,7 +201,7 @@ fn pre_io_capacity_enospc_keeps_volume_usable() -> io::Result<()> {
         .open(&path)?
         .set_len((2 + 5 * 8) * BLOCK_SIZE as u64)?;
     format(&path, BackingIo::new(None)?)?;
-    let mut volume = crate::open(&path)?;
+    let mut volume = crate::open_live(&path)?;
     volume.write_block(0, &[1; BLOCK_SIZE])?;
     volume.flush()?;
     let before = fs::read(&path)?;
@@ -232,7 +232,7 @@ fn backing_enospc_at_checkpoint_b_final_fsync_must_latch() -> io::Result<()> {
     let dir = Fixture::new()?;
     let path = dir.image("maintenance")?;
     format(&path, BackingIo::new(None)?)?;
-    let mut volume = crate::open(&path)?;
+    let mut volume = crate::open_live(&path)?;
     for round in [1, 10] {
         for lba in 0..3 {
             volume.write_block(lba, &[(round + lba) as u8; BLOCK_SIZE])?;

@@ -9,7 +9,7 @@ fn public_cache_configuration_reports_requested_and_effective_capacity() -> io::
     for (budget, capacity, hits, misses) in
         [(None, 3, 2, 3), (Some(1), 1, 1, 4), (Some(20_000), 3, 2, 3)]
     {
-        let mut volume = open_with_options(
+        let mut volume = open_live_with_options(
             &backing.0,
             VolumeOpenOptions {
                 cache_budget_bytes: budget,
@@ -140,7 +140,7 @@ fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()
     let volume_id = read_u64(&descriptors, 8);
     let blue_descriptor = descriptors[BLOCK_SIZE..].to_vec();
 
-    let volume = open(&backing.0)?;
+    let volume = open_live(&backing.0)?;
     assert_eq!(volume.log.volume_id, volume_id);
     assert_eq!(volume.volume_blocks(), volume_blocks);
     assert_eq!(volume.log.geometry.backing_blocks, backing_blocks);
@@ -161,7 +161,7 @@ fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()
     let green = &mut descriptors[..BLOCK_SIZE];
     green[0] ^= 1;
     file.write_all_at(green, 0)?;
-    let volume = open(&backing.0)?;
+    let volume = open_live(&backing.0)?;
     assert_eq!(volume.log.active_slot, CheckpointSlot::Blue);
     assert_eq!(volume.log.root_lsn, [None, Some(FORMAT_LSN)]);
     drop(volume);
@@ -174,7 +174,7 @@ fn open_reconstructs_empty_volume_and_requires_matching_roots() -> io::Result<()
     green[DESCRIPTOR_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_le_bytes());
     file.write_all_at(green, 0)?;
     assert_eq!(
-        open(&backing.0).err().unwrap().kind(),
+        open_live(&backing.0).err().unwrap().kind(),
         io::ErrorKind::InvalidData
     );
 
@@ -243,7 +243,7 @@ fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
     let mut untouched = [0; BLOCK_SIZE];
     file.read_exact_at(&mut untouched, 3 * BLOCK_SIZE as u64)?;
     assert_eq!(untouched, [0xa5; BLOCK_SIZE]);
-    let volume = open(&backing.0)?;
+    let volume = open_live(&backing.0)?;
     assert_eq!(volume.log.active_slot, CheckpointSlot::Green);
     drop(volume);
     let mut sanitized = vec![1; 2 * blocks_per_segment as usize * BLOCK_SIZE - BLOCK_SIZE];
@@ -267,7 +267,7 @@ fn format_writes_valid_empty_checkpoint_roots() -> io::Result<()> {
         .open(&backing.0)?
         .write_all_at(&descriptors, 0)?;
     assert_eq!(
-        open(&backing.0).err().unwrap().kind(),
+        open_live(&backing.0).err().unwrap().kind(),
         io::ErrorKind::InvalidData
     );
     Ok(())
@@ -300,7 +300,7 @@ fn format_three_images_are_rejected_without_modification() -> io::Result<()> {
     let before = std::fs::read(&backing.0)?;
     for _ in 0..2 {
         assert_eq!(
-            open(&backing.0).err().unwrap().kind(),
+            open_live(&backing.0).err().unwrap().kind(),
             io::ErrorKind::InvalidData
         );
         assert_eq!(std::fs::read(&backing.0)?, before);

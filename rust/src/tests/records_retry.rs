@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 fn fixture() -> io::Result<(TemporaryBacking, Volume)> {
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 8, 12, PROBE_SEGMENT_BLOCKS)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.enable_records_flush_retry()?;
     volume.flush()?;
     Ok((backing, volume))
@@ -66,7 +66,7 @@ fn records_capacity_sync_fails_closed_before_evicting_retained_bytes() -> io::Re
 fn records_retry_requires_exclusive_lock_and_heap_headroom() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 8, 12, TINY_SEGMENT_BLOCKS)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     let other = File::open(&backing.0)?;
     other.try_lock()?;
     let budget = volume.heap_budget();
@@ -82,7 +82,7 @@ fn records_retry_requires_exclusive_lock_and_heap_headroom() -> io::Result<()> {
     drop(volume);
     let mut options = VolumeOpenOptions::default();
     options.heap.total_bytes = Some(budget.allocated_bytes());
-    let mut tight = open_with_options(&backing.0, options)?;
+    let mut tight = open_live_with_options(&backing.0, options)?;
     assert_eq!(
         tight.enable_records_flush_retry().unwrap_err().kind(),
         io::ErrorKind::InvalidInput
@@ -94,7 +94,7 @@ fn records_retry_requires_exclusive_lock_and_heap_headroom() -> io::Result<()> {
 fn enabling_mid_epoch_does_not_replay_an_incomplete_history() -> io::Result<()> {
     let backing = TemporaryBacking::new()?;
     format_segments(&backing, 8, 12, TINY_SEGMENT_BLOCKS)?;
-    let mut volume = open(&backing.0)?;
+    let mut volume = open_live(&backing.0)?;
     volume.write_block(0, &[0x21; BLOCK_SIZE])?;
     volume.enable_records_flush_retry()?;
     volume.write_block(1, &[0x22; BLOCK_SIZE])?;
@@ -123,7 +123,7 @@ fn one_shot_report_after_sync_replays_without_another_log_append() -> io::Result
     volume.write_block(1, &[0x32; BLOCK_SIZE])?;
     volume.flush()?;
     drop(volume);
-    let mut restarted = open(&backing.0)?;
+    let mut restarted = open_live(&backing.0)?;
     let mut bytes = [0; BLOCK_SIZE];
     for lba in 0..2 {
         restarted.read_block(lba, &mut bytes)?;

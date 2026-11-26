@@ -113,7 +113,7 @@ fn verify(volume: &mut Volume, oracle: &[Option<u32>]) -> io::Result<()> {
 #[test]
 fn overwrites_beyond_capacity_reuse_segments_and_keep_latest_values() -> io::Result<()> {
     let backing = wrap_fixture(128)?;
-    let mut volume = open_with_options(&backing.0, options(8))?;
+    let mut volume = open_live_with_options(&backing.0, options(8))?;
     let capacity_blocks = volume.space_usage()?.log_capacity_bytes / BLOCK_SIZE as u64;
     let mut oracle = [None; 128];
     let mut random = Random(0x9e37_79b9);
@@ -160,7 +160,7 @@ fn overwrites_beyond_capacity_reuse_segments_and_keep_latest_values() -> io::Res
     assert!(usage.free_segments >= 1, "{usage:?}");
     assert_eq!(usage.live_bytes, 80 * BLOCK_SIZE as u64);
     volume.close()?;
-    let mut reopened = open_with_options(&backing.0, options(8))?;
+    let mut reopened = open_live_with_options(&backing.0, options(8))?;
     verify(&mut reopened, &oracle)?;
     reopened.log.segments.check_conservation()?;
     assert_eq!(reopened.space_usage()?.live_bytes, 80 * BLOCK_SIZE as u64);
@@ -170,7 +170,7 @@ fn overwrites_beyond_capacity_reuse_segments_and_keep_latest_values() -> io::Res
 #[test]
 fn entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched() -> io::Result<()> {
     let backing = fixture(8, SEGMENTS)?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     for lba in 0..3 {
         volume.write_block(lba, &value(lba + 1))?;
     }
@@ -219,7 +219,7 @@ fn entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched() -> io
     let oracle: Vec<Option<u32>> = (0..8).map(|lba| (lba < 3).then_some(lba + 10)).collect();
     verify(&mut volume, &oracle)?;
     volume.close()?;
-    let mut reopened = open_with_options(&backing.0, options(1))?;
+    let mut reopened = open_live_with_options(&backing.0, options(1))?;
     assert_eq!(reopened.log.segments.state(0), SegmentState::Free);
     verify(&mut reopened, &oracle)?;
     reopened.close()
@@ -228,7 +228,7 @@ fn entirely_dead_victim_is_freed_without_copies_and_its_space_is_punched() -> io
 #[test]
 fn backing_discard_can_be_disabled() -> io::Result<()> {
     let backing = fixture(8, SEGMENTS)?;
-    let mut volume = open_with_options(
+    let mut volume = open_live_with_options(
         &backing.0,
         VolumeOpenOptions {
             backing_discard: BackingDiscard::Off,
@@ -263,7 +263,7 @@ fn relocate_sparse_pages(slots: usize) -> io::Result<()> {
         ),
         ..options(1)
     };
-    let mut volume = open_with_options(&backing.0, options)?;
+    let mut volume = open_live_with_options(&backing.0, options)?;
     // Seal segment zero with exactly two live payloads on mapping pages 0 and 2.
     for (index, lba) in [0, 2 * page, 1, 1].into_iter().enumerate() {
         volume.write_block(lba, &value(index as u32 + 10))?;
@@ -280,7 +280,7 @@ fn relocate_sparse_pages(slots: usize) -> io::Result<()> {
     assert_eq!(volume.reclaim_stats().payloads_copied, 2);
     volume.flush()?;
     drop(volume);
-    let mut reopened = open_with_options(&backing.0, options)?;
+    let mut reopened = open_live_with_options(&backing.0, options)?;
     let mut bytes = [0; BLOCK_SIZE];
     for (lba, expected) in [(0, 10), (2 * page, 11), (1, 13), (page, 14)] {
         reopened.read_block(lba, &mut bytes)?;
@@ -303,7 +303,7 @@ fn relocation_splits_records_that_need_more_pages_than_the_cache() -> io::Result
 fn user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy() -> io::Result<()> {
     for discard in [false, true] {
         let backing = fixture(8, SEGMENTS)?;
-        let mut volume = open_with_options(&backing.0, options(1))?;
+        let mut volume = open_live_with_options(&backing.0, options(1))?;
         // Segment 0: LBAs 0..3; the fourth write seals it with LBAs 0 and 1 still live.
         for lba in 0..3 {
             volume.write_block(lba, &value(lba + 1))?;
@@ -334,7 +334,7 @@ fn user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy() -> 
         volume.read_block(0, &mut bytes)?;
         assert_eq!(bytes, value(1));
         volume.close()?;
-        let mut reopened = open_with_options(&backing.0, options(1))?;
+        let mut reopened = open_live_with_options(&backing.0, options(1))?;
         reopened.read_block(1, &mut bytes)?;
         assert_eq!(bytes, if discard { [0; BLOCK_SIZE] } else { value(30) });
         reopened.read_block(0, &mut bytes)?;
@@ -348,7 +348,7 @@ fn user_overwrite_or_discard_between_scan_and_apply_rejects_the_stale_copy() -> 
 fn proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn() -> io::Result<()> {
     let backing = fixture(8, SEGMENTS)?;
     // Two window buffers: the test holds one while maintenance continues with the other.
-    let mut volume = open_with_options(
+    let mut volume = open_live_with_options(
         &backing.0,
         VolumeOpenOptions {
             heap: HeapBudgetOptions {
@@ -402,7 +402,7 @@ fn proposal_from_a_reused_victim_is_rejected_by_its_seal_lsn() -> io::Result<()>
 #[test]
 fn fallback_to_the_older_root_replays_a_link_into_a_pending_segment() -> io::Result<()> {
     let backing = fixture(8, SEGMENTS)?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     for round in [1, 10] {
         for lba in 0..3 {
             volume.write_block(lba, &value(lba + round))?;
@@ -448,7 +448,7 @@ fn fallback_to_the_older_root_replays_a_link_into_a_pending_segment() -> io::Res
     file.sync_all()?;
     drop(file);
 
-    let mut reopened = open_with_options(&backing.0, options(1))?;
+    let mut reopened = open_live_with_options(&backing.0, options(1))?;
     assert_eq!(reopened.log.checkpoint_lsn(), older_lsn);
     assert_eq!(reopened.log.segments.state(0), SegmentState::Open);
     let mut bytes = [0; BLOCK_SIZE];
@@ -470,7 +470,7 @@ fn backing_growth_adds_free_segments_and_is_idempotent_by_bound() -> io::Result<
     // Five segments: two heads plus the reserve. One write fits, the second cannot.
     format_segments(&backing, 8, 5, TINY_SEGMENT_BLOCKS)?;
     let grown_blocks = 2 + 9 * u64::from(TINY_SEGMENT_BLOCKS);
-    let mut volume = open_with_options(
+    let mut volume = open_live_with_options(
         &backing.0,
         VolumeOpenOptions {
             growth_capacity_bytes: Some(grown_blocks * BLOCK_SIZE as u64),
@@ -518,7 +518,7 @@ fn backing_growth_adds_free_segments_and_is_idempotent_by_bound() -> io::Result<
         volume.write_block(lba, &value(lba + 1))?;
     }
     volume.close()?;
-    let mut reopened = open_with_options(&backing.0, options(1))?;
+    let mut reopened = open_live_with_options(&backing.0, options(1))?;
     assert_eq!(reopened.log.geometry.segment_count, 9);
     let oracle: Vec<Option<u32>> = (0..8).map(|lba| Some(lba + 1)).collect();
     verify(&mut reopened, &oracle)?;
@@ -530,7 +530,7 @@ fn backing_growth_adds_free_segments_and_is_idempotent_by_bound() -> io::Result<
         .open(&backing.0)?
         .set_len((grown_blocks - 1) * BLOCK_SIZE as u64)?;
     assert_eq!(
-        open_with_options(&backing.0, options(1))
+        open_live_with_options(&backing.0, options(1))
             .err()
             .unwrap()
             .kind(),
@@ -543,7 +543,7 @@ fn backing_growth_adds_free_segments_and_is_idempotent_by_bound() -> io::Result<
 fn growth_record_survives_sigkill_at_both_boundaries() -> io::Result<()> {
     const GROWN_BLOCKS: u64 = 2 + 9 * TINY_SEGMENT_BLOCKS as u64;
     if let Some(path) = std::env::var_os(CRASH_TEST_BACKING) {
-        let mut volume = open_with_options(
+        let mut volume = open_live_with_options(
             PathBuf::from(&path),
             VolumeOpenOptions {
                 growth_capacity_bytes: Some(GROWN_BLOCKS * BLOCK_SIZE as u64),
@@ -561,7 +561,7 @@ fn growth_record_survives_sigkill_at_both_boundaries() -> io::Result<()> {
         for _ in 0..configured_crash_test_plan(2)?.repetitions {
             let backing = TemporaryBacking::new()?;
             format_segments(&backing, 8, 5, TINY_SEGMENT_BLOCKS)?;
-            let mut volume = open_with_options(&backing.0, options(1))?;
+            let mut volume = open_live_with_options(&backing.0, options(1))?;
             volume.write_block(0, &value(1))?;
             volume.close()?;
             sigkill_child_at_handshake(
@@ -570,7 +570,7 @@ fn growth_record_survives_sigkill_at_both_boundaries() -> io::Result<()> {
                 boundary,
                 Some(boundary),
             )?;
-            let mut reopened = open_with_options(&backing.0, options(1))?;
+            let mut reopened = open_live_with_options(&backing.0, options(1))?;
             let segments = reopened.log.geometry.segment_count;
             assert!(segments == 5 || segments == 9, "{boundary}: {segments}");
             let mut bytes = [0; BLOCK_SIZE];
@@ -592,7 +592,7 @@ fn growth_record_survives_sigkill_at_both_boundaries() -> io::Result<()> {
 #[test]
 fn steady_state_writes_reads_and_maintenance_allocate_nothing() -> io::Result<()> {
     let backing = wrap_fixture(128)?;
-    let mut volume = open_with_options(&backing.0, options(8))?;
+    let mut volume = open_live_with_options(&backing.0, options(8))?;
     let mut random = Random(0x2545_f491);
     for index in 1..=300 {
         volume.write_block(random.next() % 48, &value(index))?;
@@ -647,7 +647,7 @@ fn cleaner_follows_backing_growth_at_runtime_and_after_replay() -> io::Result<()
     // the grown range, and overwriting every other one leaves grown victims partially live.
     let populate = |backing: &TemporaryBacking| -> io::Result<Volume> {
         format_segments(backing, 16, 5, TINY_SEGMENT_BLOCKS)?;
-        let mut volume = open_with_options(&backing.0, options)?;
+        let mut volume = open_live_with_options(&backing.0, options)?;
         volume.write_block(0, &value(1))?;
         OpenOptions::new()
             .write(true)
@@ -725,7 +725,7 @@ fn cleaner_follows_backing_growth_at_runtime_and_after_replay() -> io::Result<()
     let backing = TemporaryBacking::new()?;
     let volume = populate(&backing)?;
     drop(volume);
-    let mut reopened = open_with_options(&backing.0, options)?;
+    let mut reopened = open_live_with_options(&backing.0, options)?;
     assert_eq!(reopened.log.geometry.segment_count, 16);
     cleaned(&mut reopened)?;
     let stats = reopened.reclaim_stats();
@@ -744,12 +744,12 @@ fn cleaner_follows_backing_growth_at_runtime_and_after_replay() -> io::Result<()
 /// snapshot that the last scan marked dirty. The caller owns the backing for the whole test.
 fn metadata_only_stuck_victim() -> io::Result<(TemporaryBacking, Volume)> {
     let backing = fixture(1024, SEGMENTS)?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     // Two pages: LBA 0 (page 0) and LBA 400 (page 1) share segment 0 with their snapshots.
     volume.write_block(0, &value(1))?;
     volume.write_block(400, &value(2))?;
     volume.close()?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     let snapshot = volume.log.index.snapshot_block(1);
     assert_eq!(
         volume.log.geometry.segment_of(snapshot)?,
@@ -796,7 +796,7 @@ fn pressure_publishes_a_metadata_only_victim_without_reopen() -> io::Result<()> 
     volume.write_block(2, &value(42))?;
     volume.flush()?;
     volume.close()?;
-    let mut reopened = open_with_options(&backing.0, options(1))?;
+    let mut reopened = open_live_with_options(&backing.0, options(1))?;
     let mut bytes = [0; BLOCK_SIZE];
     for (lba, expected) in [(0, 14), (1, 24), (2, 42), (400, 2)] {
         reopened.read_block(lba, &mut bytes)?;
@@ -815,7 +815,7 @@ fn victim_left_with_only_current_metadata_is_released_after_the_next_publication
     // Close publishes: the re-emission empties segment 0. The published root still says Sealed,
     // so open releases it without a scan and the barrier frees it.
     volume.close()?;
-    let mut volume = open_with_options(&backing.0, options(1))?;
+    let mut volume = open_live_with_options(&backing.0, options(1))?;
     assert_eq!(volume.log.segments.state(0), SegmentState::PendingFree);
     assert!(volume.reclaim_stats().segments_released_without_scan >= 1);
     let steps = drain(&mut volume, SelectionMode::Pressure, 200)?;
