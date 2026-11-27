@@ -9,6 +9,10 @@
 #   bench/ext4  RAW_MIB, ext4, discard      holds our daemon's backing file
 #   bench/pool  RAW_MIB thin pool: data RAW_MIB - META_MIB, metadata META_MIB, no spare
 #   bench/thin  THIN_MIB virtual, XFS, discard: the baseline without our daemon
+#   bench/thinfio THIN_MIB virtual, no filesystem: fio's thin baseline, in the same pool
+#
+# The two thin LVs share the pool. Runs are serial and each returns its pool space with discard,
+# so they never hold data at the same time.
 #
 # brd allocates RAM only for written pages. The NVMe sees none of the benchmark's writes.
 set -euo pipefail
@@ -53,7 +57,14 @@ setup() {
   mkdir -p "${MOUNTS}/thin"
   mount -o discard "/dev/${VG}/thin" "${MOUNTS}/thin"
   chown "${user}:" "${MOUNTS}/thin"
+  add_thin_fio
   status
+}
+
+add_thin_fio() {
+  local user; user="$(owner)"
+  lvcreate --yes --thin -V "${THIN_MIB}m" -n thinfio "${VG}/pool" >/dev/null
+  chown "${user}:" "$(readlink -f "/dev/${VG}/thinfio")"
 }
 
 status() {
@@ -76,7 +87,8 @@ teardown() {
 
 case "${1:-}" in
   setup) setup ;;
+  add-thin-fio) add_thin_fio; status ;;
   status) status ;;
   teardown) teardown ;;
-  *) echo "usage: sudo $0 setup|status|teardown" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 setup|add-thin-fio|status|teardown" >&2; exit 2 ;;
 esac

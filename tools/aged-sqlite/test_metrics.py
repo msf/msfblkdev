@@ -155,5 +155,21 @@ class ClientOutputTest(unittest.TestCase):
                 self.assertIn(expected, metrics.client_output_problem(output, "3.51.3"))
 
 
+class ClientSummaryTest(unittest.TestCase):
+    def test_fio_job_gives_write_percentiles_in_microseconds(self):
+        job = {"write": {"total_ios": 4096, "runtime": 2500,
+                         "clat_ns": {"max": 9_000_000, "percentile": {"50.000000": 20_000, "99.000000": 80_000,
+                                                                      "99.900000": 500_000}}}}
+        summary = metrics.summarize_fio(job)
+        self.assertEqual(summary.seconds, 2.5)
+        self.assertEqual(summary.per_operation["WRITE"],
+                         {"count": 4096, "max": 9000, "p50": 20, "p99": 80, "p999": 500, "p9999": 0})
+
+    def test_window_minimum_is_per_client(self):
+        self.assertEqual(metrics.window_operations(GIB, 512, minimum=256), GIB // 512)
+        with self.assertRaises(ValueError):
+            metrics.window_operations(GIB, 512, minimum=4096)
+
+
 if __name__ == "__main__":
     unittest.main()

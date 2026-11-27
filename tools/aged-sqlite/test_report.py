@@ -13,7 +13,8 @@ def phase(name, ops_per_second, p99, wa, daemon_cpu=1.0):
 
 
 def summary(result, *phases):
-    return {"result": result, "config": {"workload": "a"}, "facts": {"stop_reason": "steady"},
+    facts = {"stop_reason": "steady", "write_operation": "UPDATE"}
+    return {"result": result, "config": {"workload": "a"}, "facts": facts,
             "phases": list(phases)}
 
 
@@ -51,8 +52,16 @@ class ReportTest(unittest.TestCase):
             page = report.write(matrix).read_text()
             self.assertIn("<th>ours: raw LV</th><td>1/2</td>", page)
             self.assertIn("<th>baseline: XFS on LVM thin</th><td>1/1</td>", page)
+            # read_p99 has data; the CPU charts too: every measure gets a chart.
             self.assertEqual(page.count("<svg"), len(report.MEASURES))
+            self.assertIn("YCSB A on SQLite", page)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NamingTest(unittest.TestCase):
+    def test_new_and_legacy_run_names(self):
+        self.assertEqual(report.parse_name("thin-raw__fio-uniform__r2"), ("thin-raw", "fio-uniform"))
+        self.assertEqual(report.parse_name("raw-lv-a-r1"), ("raw-lv", "sqlite-a"))

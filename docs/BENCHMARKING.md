@@ -1231,7 +1231,8 @@ workload writes less than 2 KiB to the device per operation. The harness sets
 | Throughput | Requested operations divided by the time span of go-ycsb's per-operation timestamps. go-ycsb's measurement counts don't add up to the operations: it also counts every DB call as `TOTAL`, and F counts the inner `READ` and `UPDATE` of each `READ_MODIFY_WRITE`. |
 | Latency | p50, p99, p99.9, p99.99 and maximum for each operation type and phase in `summary.json`; one row per second and operation type in `<phase>-series.csv`. `--keep-latency-csv` keeps go-ycsb's raw csv. |
 | Write amplification | Backing write bytes from the I/O ledger divided by device write bytes from `/sys/block/ublkbN/stat`. The kernel counts write-zeroes requests as device writes. |
-| Samples, every 30 s | `samples.jsonl`: device counters, ledger counters, daemon CPU ticks, RSS and threads, filesystem used bytes, and the parsed `blkctl info --blocks` (used, live, metadata, dead, free, segment states). The raw output is in `blkctl/info-NNNNN.txt`. `blkctl info` counts lag by up to one checkpoint interval ([ADR-11](../ADR-11-BLKCTL-INSPECTION-TOOL.md)). |
+| Samples, every 30 s | `samples.jsonl`: device and medium counters, daemon CPU ticks, RSS and threads, and filesystem used bytes. These read only sysfs, `/proc` and the ledger. |
+| Backing state, between windows | `blkctl.jsonl` and `blkctl/<phase>.txt`: the parsed `blkctl info --blocks` (used, live, metadata, dead, free, segment states) after the load and after each window. It reads the backing for seconds, so it never runs inside a measured window. Its counts lag by up to one checkpoint interval ([ADR-11](../ADR-11-BLKCTL-INSPECTION-TOOL.md)). |
 | Daemon totals | The daemon's shutdown records (`request_totals`, `log_writes`, `reclaim_stats`, `space`) in `summary.json`. |
 | Profile | `perf.data` with frame-pointer call graphs and kernel stacks, and a flat profile in `perf-report.out`. |
 
@@ -1249,44 +1250,68 @@ start and the load average at the end; see
 
 ### Run the matrix on RAM
 
-The matrix compares backings under the same workload, with every run alone on the host. Each
-variant gets exactly the same raw space: one 9 GiB logical volume on a brd RAM disk. A filesystem
-or a thin pool pays its own overhead from those 9 GiB, so a file backing is smaller than the raw
-LV. `--backing-mib max` sizes the file to the free space of its filesystem, less 32 MiB for the
-filesystem's own allocations. The NVMe sees none of the benchmark's writes.
+The matrix runs the same benchmarks on different storage stacks, with every run alone on the host.
+Each stack gets exactly the same raw space: one 9 GiB logical volume, or a 9 GiB thin pool, on a
+brd RAM disk. A filesystem or a thin pool pays its own overhead from those 9 GiB, so a file
+backing is smaller than the raw LV. `--backing-mib max` sizes the file to the free space of its
+filesystem, less 32 MiB for the filesystem's own allocations. The NVMe sees none of the
+benchmark's writes.
 
-| Variant | Backing | What runs |
+| Variant | Stack under the client | Kind |
 |---|---|---|
-| `raw-lv` | `bench/raw`, 9 GiB | our daemon, block-device backing |
-| `xfs-lv` | file filling XFS on `bench/xfs`, 9 GiB | our daemon, file backing |
-| `ext4-lv` | file filling ext4 on `bench/ext4`, 9 GiB | our daemon, file backing |
-| `thin-xfs` | XFS on `bench/thin`, 8 GiB virtual, in a 9 GiB thin pool (64 MiB of metadata, no spare) | baseline, without our daemon |
+| `raw-lv` | our device on `bench/raw`, 9 GiB | filesystem and block |
+| `xfs-lv` | our device on a file filling XFS on `bench/xfs`, 9 GiB | filesystem and block |
+| `ext4-lv` | our device on a file filling ext4 on `bench/ext4`, 9 GiB | filesystem and block |
+| `thin-xfs` | `bench/thin`, 8 GiB virtual, in a 9 GiB thin pool (64 MiB of metadata, no spare) | filesystem baseline |
+| `plain-xfs` | `bench/xfs` itself, XFS on a plain 9 GiB LV | filesystem baseline |
+| `thin-raw` | `bench/thinfio`, 8 GiB virtual, in the same thin pool | block baseline |
+| `plain-raw` | `bench/raw` itself, a plain 9 GiB LV | block baseline |
 
-SQLite runs on XFS in every variant, so the baseline differs only in the layer below XFS: our
-engine and ublk, or dm-thin. Baseline mode (`--baseline-mount`) runs the same load, windows and
-database checks on a filesystem that the operator mounted. Its write amplification is the thin
-pool's data-device writes divided by the thin LV's writes.
+| Benchmark | Client | Unit | Default fill |
+|---|---|---|---|
+| `sqlite-a`, `sqlite-f` | go-ycsb with SQLite 3.51.3 (WAL, `synchronous=FULL`) | YCSB operation | 75% |
+| `rocksdb-a`, `rocksdb-f` | go-ycsb with RocksDB 9.11.2 (synced writes, no compression, 16 MiB block cache) | YCSB operation | 50% |
+| `fio-uniform`, `fio-zipf` | fio, the v2.0 aged-fio profile: fill every LBA, then 4 KiB random writes at queue depth 32 with an fsync every 256 writes | 4 KiB write | 100% |
+
+Filesystem benchmarks run on SQLite's or RocksDB's filesystem, which is XFS in
+every variant. So against a baseline, the only difference is the layer below XFS: our engine and
+ublk, dm-thin, or a plain LV. fio runs on the block device itself. The fills leave room for each
+engine's own space use: RocksDB's compaction output.
+
+Each client checks its data after aging and again after a restart:
+
+- **SQLite:** `PRAGMA integrity_check` and the record count.
+- **RocksDB:** `ldb checkconsistency` and the key count.
+- **fio:** none of its own. Our device still gets `blkctl check` and the restart.
+
+Baseline mode (`--baseline-device`, plus `--baseline-mount` for filesystem clients) runs the same
+load, windows and checks without our daemon. Its write amplification is the medium's writes
+divided by the device's writes, for example the thin pool's data device against the thin LV.
 
 ```sh
 sudo tools/aged-sqlite/ram-lvm.sh setup                   # brd, VG "bench", LVs, mounts under /mnt/bench
-make bench-aged-matrix MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --workloads a --repeats 3"
-make bench-aged-matrix MATRIX_ARGS="--variants raw-lv thin-xfs --workloads a f --repeats 3"
+make bench-aged-matrix MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --benchmarks sqlite-a --repeats 3"
+make bench-aged-matrix MATRIX_ARGS="--variants raw-lv thin-xfs plain-xfs thin-raw plain-raw \
+    --benchmarks sqlite-a rocksdb-a fio-uniform --repeats 3"
 sudo tools/aged-sqlite/ram-lvm.sh teardown
 ```
 
 The runner:
 
-- Runs one test at a time, in an order shuffled with a fixed seed.
-- Waits before each run until the 1-minute load average is below 0.5, then 30 s more.
-- Pins the daemon to CPUs 2 and 3 and go-ycsb to CPUs 0 and 1 (Zen 5). The harness, `blkctl`
-  samples, `mkfs` and `sqlite3` run on CPUs 4 to 11 (Zen 5c, a separate L3 cache).
+- Runs one test at a time, in an order shuffled with a fixed seed. It skips pairs that don't
+  apply, such as fio on a filesystem baseline.
+- Waits before each run until the measured CPUs are less than 5% busy over 5 s, then 30 s more.
+  It doesn't use the load average: a task blocked in the kernel counts as load without using a CPU.
+- Pins measured processes to the Zen 5 cores: the daemon to CPUs 2 and 3, and the client
+  (go-ycsb with SQLite or RocksDB inside, or fio) to CPUs 0 and 1. The harness, `blkctl` samples, `mkfs` and `sqlite3` run
+  on CPUs 4 to 11 (Zen 5c, a separate L3 cache).
 - Keeps passing runs when you start it again on the same `--out` directory.
 
-`report.html` has one table per workload, with a row per backing and a column per measure, and one
-bar chart per measure, with a bar per backing. Each cell is the median of the passing repeats with
-the min–max range. A run's measures come from its last two windows. Daemon CPU is the daemon's
-user and system time per operation. Client CPU is go-ycsb's own CPU time per operation, from
-`wait4`. Neither includes kernel work on behalf of other tasks, such as dm-thin.
+`report.html` has one section per benchmark: a table with a row per stack and a column per
+measure, and a bar chart per measure with a bar per stack. Each cell is the median of the passing
+repeats with the min–max range. A run's measures come from its last two windows. Daemon CPU is the
+daemon's user and system time per unit. Client CPU is the client's own CPU time per unit, from
+`wait4`. Neither includes kernel work for other tasks, such as dm-thin.
 
 ### First observations
 

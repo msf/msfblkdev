@@ -17,7 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 STEADY_WINDOWS = 2
-WRITE_OPERATION = {"a": "UPDATE", "f": "READ_MODIFY_WRITE"}
+# Matrices from before the client dimension: SQLite YCSB only, named variant-workload-rN.
+LEGACY_WRITE_OPERATION = {"a": "UPDATE", "f": "READ_MODIFY_WRITE"}
+LEGACY_BENCHMARKS = {"a": "sqlite-a", "f": "sqlite-f"}
 COLORS = ["#4269d0", "#efb118", "#ff725c", "#6cc5b0", "#3ca951", "#ff8ab7", "#a463f2", "#97bbf5"]
 
 
@@ -30,7 +32,7 @@ class Measure:
 
 
 MEASURES = [
-    Measure("tps", "Throughput", "ops/s", "higher"),
+    Measure("tps", "Throughput", "units/s", "higher"),
     Measure("write_p50", "Write latency p50", "µs", "lower"),
     Measure("write_p99", "Write latency p99", "µs", "lower"),
     Measure("write_p999", "Write latency p99.9", "µs", "lower"),
@@ -43,12 +45,11 @@ MEASURES = [
 
 def run_measures(summary: dict) -> dict[str, float | None]:
     """The steady-state value of every measure for one passing run."""
-    workload = summary["config"]["workload"]
+    write = summary["facts"].get("write_operation") or LEGACY_WRITE_OPERATION[summary["config"]["workload"]]
     windows = [phase for phase in summary["phases"] if phase["name"].startswith("window-")]
     steady = windows[-STEADY_WINDOWS:]
     if not steady:
         return {}
-    write = WRITE_OPERATION[workload]
 
     def mean(values: list[float]) -> float | None:
         values = [value for value in values if value is not None]
@@ -87,12 +88,27 @@ def aggregate(values: list[float | None]) -> Cell | None:
     return Cell(statistics.median(present), min(present), max(present), len(present))
 
 
-def collect(matrix: Path) -> tuple[dict, dict, list[dict]]:
+def parse_name(name: str) -> tuple[str, str]:
+    if "__" in name:
+        variant, benchmark, _ = name.split("__")
+        return variant, benchmark
+    variant, workload, _ = name.rsplit("-", 2)
+    return variant, LEGACY_BENCHMARKS[workload]
+
+
+def load_plan(matrix: Path) -> dict:
     plan = json.loads((matrix / "matrix.json").read_text())
+    if "benchmarks" not in plan:
+        plan["benchmarks"] = {LEGACY_BENCHMARKS[w]: f"YCSB {w.upper()} on SQLite" for w in plan["workloads"]}
+    return plan
+
+
+def collect(matrix: Path) -> tuple[dict, dict, list[dict]]:
+    plan = load_plan(matrix)
     per_cell: dict[tuple[str, str], list[dict[str, float | None]]] = {}
     runs = []
     for name in plan["order"]:
-        variant, workload, repeat = name.rsplit("-", 2)
+        variant, workload = parse_name(name)
         summary_path = matrix / "runs" / name / "summary.json"
         summary = json.loads(summary_path.read_text()) if summary_path.exists() else None
         result = summary["result"] if summary else "NOT RUN"
@@ -114,17 +130,17 @@ def number(value: float) -> str:
     return f"{value:.2f}"
 
 
-def bar_chart(measure: Measure, plan: dict, cells: dict) -> str:
-    """One SVG: a group per workload, a bar per variant, a whisker from min to max."""
-    variants, workloads = list(plan["variants"]), plan["workloads"]
-    values = [cell.high for key, row in cells.items() for m, cell in row.items() if m == measure.key and cell]
-    if not values:
+def bar_chart(measure: Measure, benchmark: str, plan: dict, cells: dict) -> str:
+    """One SVG for one benchmark: a bar per variant with a whisker from min to max."""
+    variants = [v for v in plan["variants"] if cells.get((v, benchmark), {}).get(measure.key)]
+    if not variants:
         return ""
-    width, height, left, bottom, top = 560, 300, 70, 40, 30
-    top_value = max(values) * 1.15
-    group_width = (width - left - 10) / len(workloads)
-    bar_width = min(48, group_width * 0.8 / len(variants))
+    width, height, left, bottom, top = 520, 280, 70, 20, 30
+    top_value = max(cells[(v, benchmark)][measure.key].high for v in variants) * 1.15 or 1
+    slot = (width - left - 10) / len(plan["variants"])
+    bar_width = min(56, slot * 0.7)
     plot_height = height - bottom - top
+    scale = plot_height / top_value
     parts = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(measure.title)}">',
              f'<text x="{left}" y="18" class="title">{html.escape(measure.title)} ({measure.unit}, '
              f'{measure.better} is better)</text>']
@@ -133,26 +149,20 @@ def bar_chart(measure: Measure, plan: dict, cells: dict) -> str:
         y = top + plot_height * (1 - tick / 4)
         parts.append(f'<line x1="{left}" x2="{width - 10}" y1="{y:.1f}" y2="{y:.1f}" class="grid"/>'
                      f'<text x="{left - 6}" y="{y + 4:.1f}" class="tick" text-anchor="end">{number(value)}</text>')
-    for group, workload in enumerate(workloads):
-        x0 = left + group * group_width + (group_width - bar_width * len(variants)) / 2
-        parts.append(f'<text x="{left + (group + 0.5) * group_width:.1f}" y="{height - 12}" class="axis" '
-                     f'text-anchor="middle">workload {workload.upper()}</text>')
-        for index, variant in enumerate(variants):
-            cell = cells.get((variant, workload), {}).get(measure.key)
-            if not cell:
-                continue
-            x = x0 + index * bar_width
-            scale = plot_height / top_value
-            y, low, high = (top + plot_height - v * scale for v in (cell.median, cell.low, cell.high))
-            color = COLORS[index % len(COLORS)]
-            label = f"{plan['variants'][variant]}: {number(cell.median)} {measure.unit} (n={cell.count})"
-            parts.append(
-                f'<rect x="{x + 2:.1f}" y="{y:.1f}" width="{bar_width - 4:.1f}" height="{top + plot_height - y:.1f}" '
-                f'fill="{color}"><title>{html.escape(label)}</title></rect>'
-                f'<line x1="{x + bar_width / 2:.1f}" x2="{x + bar_width / 2:.1f}" y1="{low:.1f}" y2="{high:.1f}" '
-                f'class="whisker"/>'
-                f'<text x="{x + bar_width / 2:.1f}" y="{min(y, high) - 4:.1f}" class="value" '
-                f'text-anchor="middle">{number(cell.median)}</text>')
+    for index, variant in enumerate(plan["variants"]):
+        cell = cells.get((variant, benchmark), {}).get(measure.key)
+        if not cell:
+            continue
+        x = left + index * slot + (slot - bar_width) / 2
+        y, low, high = (top + plot_height - v * scale for v in (cell.median, cell.low, cell.high))
+        label = f"{plan['variants'][variant]}: {number(cell.median)} {measure.unit} (n={cell.count})"
+        parts.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{top + plot_height - y:.1f}" '
+            f'fill="{COLORS[index % len(COLORS)]}"><title>{html.escape(label)}</title></rect>'
+            f'<line x1="{x + bar_width / 2:.1f}" x2="{x + bar_width / 2:.1f}" y1="{low:.1f}" y2="{high:.1f}" '
+            f'class="whisker"/>'
+            f'<text x="{x + bar_width / 2:.1f}" y="{min(y, high) - 4:.1f}" class="value" '
+            f'text-anchor="middle">{number(cell.median)}</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -163,19 +173,23 @@ def legend(plan: dict) -> str:
     return f'<div class="legend">{items}</div>'
 
 
-def table(workload: str, plan: dict, cells: dict, runs: list[dict]) -> str:
+def section(benchmark: str, plan: dict, cells: dict, runs: list[dict]) -> str:
     head = "".join(f"<th>{html.escape(m.title)}<br><small>{m.unit}</small></th>" for m in MEASURES)
     rows = []
     for variant, label in plan["variants"].items():
-        total = sum(1 for run in runs if run["variant"] == variant and run["workload"] == workload)
-        row = cells.get((variant, workload), {})
+        total = sum(1 for run in runs if run["variant"] == variant and run["workload"] == benchmark)
+        if not total:
+            continue
+        row = cells.get((variant, benchmark), {})
         passed = next((cell.count for cell in row.values() if cell), 0)
         values = "".join(
             f"<td>{number(cell.median)}<br><small>{number(cell.low)}–{number(cell.high)}</small></td>"
             if (cell := row.get(m.key)) else "<td>–</td>" for m in MEASURES)
         rows.append(f"<tr><th>{html.escape(label)}</th><td>{passed}/{total}</td>{values}</tr>")
-    return (f"<h2>Workload {workload.upper()}</h2><table><tr><th>Backing</th><th>Passed</th>{head}</tr>"
-            + "".join(rows) + "</table>")
+    charts = "".join(f"<div>{chart}</div>" for m in MEASURES if (chart := bar_chart(m, benchmark, plan, cells)))
+    return (f"<h2>{html.escape(plan['benchmarks'][benchmark])}</h2>"
+            f"<table><tr><th>Backing</th><th>Passed</th>{head}</tr>" + "".join(rows) + "</table>"
+            f"{legend(plan)}<div class=charts>{charts}</div>")
 
 
 def environment(runs: list[dict]) -> str:
@@ -212,14 +226,13 @@ svg{width:100%;background:#fafafa;border:1px solid #eee}.title{font-weight:600;f
 
 def write(matrix: Path) -> Path:
     plan, cells, runs = collect(matrix)
-    charts = "".join(f"<div>{bar_chart(m, plan, cells)}</div>" for m in MEASURES)
-    page = (f"<!doctype html><meta charset=utf-8><title>Aged SQLite matrix</title><style>{STYLE}</style>"
-            f"<h1>Aged SQLite matrix</h1>{environment(runs)}"
+    page = (f"<!doctype html><meta charset=utf-8><title>Aged workload matrix</title><style>{STYLE}</style>"
+            f"<h1>Aged workload matrix</h1>{environment(runs)}"
             f"<p>Each cell: median of passing repeats, min–max below. Measures come from the last "
-            f"{STEADY_WINDOWS} steady windows of each run. Write latency is "
-            f"{' / '.join(WRITE_OPERATION[w] for w in plan['workloads'])}.</p>"
-            + "".join(table(w, plan, cells, runs) for w in plan["workloads"])
-            + f"<h2>Charts</h2>{legend(plan)}<div class=charts>{charts}</div>" + run_list(runs))
+            f"{STEADY_WINDOWS} steady windows of each run. A unit is a YCSB operation or a 4 KiB "
+            f"fio write. Write latency is UPDATE (YCSB A), READ_MODIFY_WRITE (YCSB F) or the write "
+            f"completion (fio).</p>"
+            + "".join(section(b, plan, cells, runs) for b in plan["benchmarks"]) + run_list(runs))
     target = matrix / "report.html"
     target.write_text(page)
     return target

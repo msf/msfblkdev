@@ -122,11 +122,12 @@ def record_count(logical_bytes: int, client_fill: float, batch: int, page_bytes:
 MIN_DEVICE_BYTES_PER_OPERATION = 2048
 
 
-def window_operations(backing_bytes: int, device_bytes_per_operation: float) -> int:
+def window_operations(backing_bytes: int, device_bytes_per_operation: float,
+                      minimum: int = MIN_DEVICE_BYTES_PER_OPERATION) -> int:
     """Operations that write about one backing size to the device."""
-    if device_bytes_per_operation < MIN_DEVICE_BYTES_PER_OPERATION:
+    if device_bytes_per_operation < minimum:
         raise ValueError(f"calibration wrote {device_bytes_per_operation:.0f} device bytes per operation, "
-                         f"below {MIN_DEVICE_BYTES_PER_OPERATION}: the workload's writes don't reach the device")
+                         f"below {minimum}: the workload's writes don't reach the device")
     return max(1, math.ceil(backing_bytes / device_bytes_per_operation))
 
 
@@ -212,6 +213,19 @@ def summarize_latency(csv_path: Path, series_path: Path) -> LatencySummary:
                               **{name: percentile(values, f) for name, f in PERCENTILES.items()}}
     seconds = (last_end - first_start) / 1e6 if first_start is not None else 0.0
     return LatencySummary(seconds, summary)
+
+
+FIO_PERCENTILES = {"p50": "50.000000", "p99": "99.000000", "p999": "99.900000", "p9999": "99.990000"}
+
+
+def summarize_fio(job: dict) -> LatencySummary:
+    """Summarizes one fio JSON job: write completion latency percentiles in microseconds."""
+    write = job["write"]
+    clat = write["clat_ns"]
+    percentiles = clat.get("percentile", {})
+    summary = {"WRITE": {"count": write["total_ios"], "max": round(clat["max"] / 1000),
+                         **{name: round(percentiles.get(key, 0) / 1000) for name, key in FIO_PERCENTILES.items()}}}
+    return LatencySummary(write["runtime"] / 1000, summary)
 
 
 def write_series(path: Path, per_second: dict[tuple[int, str], list[int]]) -> None:
