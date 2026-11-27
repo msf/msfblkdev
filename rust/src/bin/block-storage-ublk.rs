@@ -1558,12 +1558,65 @@ fn format_planned(
         None => block_storage::format_with_options(backing_path, volume_bytes, options)?,
     }
     log_info!(
-        "event=format logical_bytes={volume_bytes} raw_bytes={backing_bytes} segment_bytes={} min_logical_fill_percent={} expected_max_logical_fill_percent={}",
-        plan.segment_bytes,
+        "event=format logical_mib={} raw_mib={} segment_mib={} segments={} reserve_segments={} min_logical_fill_percent={} expected_max_logical_fill_percent={}",
+        mib(volume_bytes),
+        mib(backing_bytes),
+        mib(plan.segment_bytes),
+        plan.segment_count,
+        plan.reserve_segments,
         sizes.min_logical_fill,
         plan.expected_max_logical_fill
     );
+    print!(
+        "{}",
+        format_summary(backing_path, backing_bytes, sizes, plan)
+    );
     Ok(())
+}
+
+/// Bytes as MiB with one decimal.
+fn mib(bytes: u64) -> String {
+    format!("{:.1}", bytes as f64 / (1 << 20) as f64)
+}
+
+/// What format made of the raw space, for the operator.
+fn format_summary(
+    backing_path: &Path,
+    backing_bytes: u64,
+    sizes: FormatSizes,
+    plan: block_storage::FormatPlan,
+) -> String {
+    let kind = match sizes.target {
+        FormatTarget::NewFile { .. } => "regular file",
+        FormatTarget::BlockDevice => "block device",
+    };
+    let logical = sizes.volume_bytes;
+    let log_bytes = u64::from(plan.segment_count) * plan.segment_bytes;
+    let spare = if backing_bytes >= logical {
+        format!(
+            "{} MiB ({:.1}% of logical) spare",
+            mib(backing_bytes - logical),
+            (backing_bytes - logical) as f64 * 100.0 / logical as f64
+        )
+    } else {
+        format!(
+            "{} MiB less than logical: thinly provisioned",
+            mib(logical - backing_bytes)
+        )
+    };
+    let reserve_bytes = u64::from(plan.reserve_segments) * plan.segment_bytes;
+    format!(
+        "formatted {}: {} MiB logical on {} MiB raw ({kind})\n  {} segments × {} MiB = {} MiB of log; {spare}\n  {} segments ({} MiB) kept free for cleaning and checkpoints with the default serve options\n  up to {}% of the logical size can be live\n",
+        backing_path.display(),
+        mib(logical),
+        mib(backing_bytes),
+        plan.segment_count,
+        mib(plan.segment_bytes),
+        mib(log_bytes),
+        plan.reserve_segments,
+        mib(reserve_bytes),
+        plan.expected_max_logical_fill,
+    )
 }
 
 fn run() -> io::Result<()> {
@@ -2063,6 +2116,28 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&backing.0)?, b"preserve me");
         Ok(())
+    }
+
+    #[test]
+    fn format_summary_reports_sizes_in_mib_and_the_spare_space() {
+        let plan = block_storage::FormatPlan {
+            segment_bytes: 32 << 20,
+            segment_count: 31,
+            reserve_segments: 4,
+            expected_max_logical_fill: 100,
+        };
+        let sizes = format_args(&["--block-device", "--size-mib", "640"]).unwrap();
+        assert_eq!(
+            format_summary(Path::new("/dev/vg0/vol"), 1 << 30, sizes, plan),
+            "formatted /dev/vg0/vol: 640.0 MiB logical on 1024.0 MiB raw (block device)\n  31 segments × 32.0 MiB = 992.0 MiB of log; 384.0 MiB (60.0% of logical) spare\n  4 segments (128.0 MiB) kept free for cleaning and checkpoints with the default serve options\n  up to 100% of the logical size can be live\n"
+        );
+        let thin = format_args(&["--size-mib", "51200", "--prealloc-mib", "30720"]).unwrap();
+        let summary = format_summary(Path::new("big.img"), 30 << 30, thin, plan);
+        assert!(
+            summary.contains("on 30720.0 MiB raw (regular file)"),
+            "{summary}"
+        );
+        assert!(summary.contains("20480.0 MiB less than logical: thinly provisioned"));
     }
 
     #[test]

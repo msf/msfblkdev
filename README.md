@@ -86,7 +86,7 @@ overwritten. A mounted or otherwise held device is refused.
 block-storage-ublk format /dev/vg0/blockvol --size-mib 102400 --block-device
 ```
 
-`--min-logical-fill-factor` sets the minimum percent of the **logical** volume that must fit as live payload while leaving room for cleaning. It defaults to `100`: for the 128 MiB volume above, all 128 MiB must fit. The formatter tries 32, 16, then 8 MiB segments and picks the largest size that meets the requested fill. If none fits, it rejects the request before creating the image. The reported maximum logical fill is a sizing estimate, not a measured endurance guarantee. The raw size sets the sparse file's length; it does not reserve that much free space on the host filesystem.
+`--min-logical-fill-factor` sets the minimum percent of the **logical** volume that must fit as live payload while leaving room for cleaning. It defaults to `100`: for the 128 MiB volume above, all 128 MiB must fit. The formatter tries 32, 16, then 8 MiB segments and picks the largest size that meets the requested fill. If none fits, it rejects the request before creating the image. The reported maximum logical fill is a sizing estimate, not a measured endurance guarantee. Format prints, in MiB, the logical and raw sizes, the segments, the spare space and the reserve: the free segments that writes never use, kept for cleaning and checkpoints. The reserve depends on the mapping cache, so the printed figure holds for the default serve options; `blkctl info` shows the same figure. The raw size sets the sparse file's length; it does not reserve that much free space on the host filesystem.
 
 The backing holds two checkpoint descriptors, then whole segments. New writes append on the user head. Relocated copies append on the relocation head. Both heads share one global LSN sequence.
 
@@ -327,14 +327,14 @@ The summary is `evidence/test-all-<time>/summary.md`. The link `evidence/test-al
 | Step | Make target | Requires | Creates |
 | --- | --- | --- | --- |
 | lint | `lint` | Rust with `rustfmt` and `clippy` | nothing |
-| unit | `test` | Rust | nothing (383 tests) |
+| unit | `test` | Rust | nothing (387 tests) |
 | blockcheck | `test-blockcheck-checker` | Rust | nothing; the checker uses an in-memory target |
 | python-tools | `test-python` | `python3`, `libxxhash0` for the ADR-05 image checker | nothing |
 | compaction-small | `test-compaction-small` | Rust | 185 MiB regular-file backing in a temporary directory |
 | fault-dst | `test-dst` | Rust, `python3` | regular-file backing; runs the ADR-05 medium-model controls and checkpoint-descriptor survival |
 | fsync01 | `test-fsync01` | Rust | regular-file backing; lost-writeback controls and the opt-in flush retry |
 | fault-seed | `test-fault-seed` | Rust | regular-file backing; runs seed 42, replays its saved plan, and requires an identical trace |
-| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (383 tests in crash mode) |
+| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (387 tests in crash mode) |
 | ublk-fio | `test-ublk-fio` | ublk access, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume) |
 | ext4, xfs | `test-ext4`, `test-xfs` | the above, mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
 | sqlite-standalone | none: `bash tools/sqlite/test-standalone.sh` | `make setup-sqlite` | SQLite files under `/tmp` |
