@@ -1,6 +1,6 @@
 //! Opt-in regression for premature ENOSPC on the formatter's 128/185 MiB geometry.
 use block_storage::{
-    DEFAULT_FORMAT_WRITE_BUFFER_BYTES, SelectionMode, Volume, VolumeOpenOptions,
+    DEFAULT_FORMAT_WRITE_BUFFER_BYTES, MonotonicClock, SelectionMode, Volume, VolumeOpenOptions,
     open_live_with_options,
 };
 use std::{env, io, path::PathBuf, process::Command, time::Duration};
@@ -72,7 +72,11 @@ fn overwrites_at_full_logical_fill_survive_restart() -> io::Result<()> {
         rng ^= rng << 17;
         let lba = (rng % LBAS as u64) as u32;
         if i.is_multiple_of(32) {
-            volume.maintain_for(SelectionMode::Idle, Duration::from_millis(2))?;
+            volume.maintain_for(
+                SelectionMode::Idle,
+                Duration::from_millis(2),
+                &MonotonicClock,
+            )?;
         }
         volume.write_block(lba, &payload(lba, i + 1)).map_err(|e| {
             io::Error::new(

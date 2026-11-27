@@ -235,20 +235,22 @@ impl Volume {
     }
 
     /// Runs maintenance steps until the volume is idle, waits on the cleaner, or `slice`
-    /// elapses, and returns the last step. Request loops call this at safe boundaries so
-    /// that maintenance never holds the writer longer than one step past the slice.
+    /// elapses on `clock`, and returns the last step. Request loops call this at safe boundaries
+    /// so that maintenance never holds the writer longer than one step past the slice.
     pub fn maintain_for(
         &mut self,
         mode: SelectionMode,
         slice: Duration,
+        clock: &dyn crate::Clock,
     ) -> io::Result<MaintenanceStep> {
-        let start = std::time::Instant::now();
-        // Bounded by the slice: every step that continues the loop did bounded work.
+        let deadline = clock.now() + slice;
+        // Bounded by the slice and by the work: every step that continues the loop did
+        // bounded work, and a clock that never moves still ends at Idle or Waiting.
         loop {
             let step = self.maintain(mode)?;
             match step {
                 MaintenanceStep::Idle | MaintenanceStep::Waiting => return Ok(step),
-                _ if start.elapsed() >= slice => return Ok(step),
+                _ if clock.now() >= deadline => return Ok(step),
                 _ => {}
             }
         }

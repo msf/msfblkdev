@@ -840,3 +840,31 @@ fn victim_left_with_only_current_metadata_is_released_after_the_next_publication
     assert_eq!(bytes, value(14));
     volume.close()
 }
+
+#[test]
+fn maintain_for_ends_its_slice_on_the_injected_clock() -> io::Result<()> {
+    let backing = wrap_fixture(128)?;
+    let mut volume = open_live_with_options(&backing.0, options(8))?;
+    // Three full overwrites empty the first segments, so freeing publications are due.
+    for pass in 1..=3 {
+        for lba in 0..128 {
+            volume.write_block(lba, &value(pass * 1000 + lba))?;
+        }
+        volume.flush()?;
+    }
+    assert!(volume.space_usage()?.pending_free_segments > 0);
+    let clock = crate::ManualClock::new(std::time::Instant::now());
+    // A zero slice ends after the first step that did work.
+    let first = volume.maintain_for(SelectionMode::Idle, Duration::ZERO, &clock)?;
+    assert!(
+        matches!(first, MaintenanceStep::Published { .. }),
+        "{first:?}"
+    );
+    // A clock that never reaches the deadline runs maintenance until nothing is left to do.
+    let last = volume.maintain_for(SelectionMode::Idle, Duration::from_secs(3600), &clock)?;
+    assert!(
+        matches!(last, MaintenanceStep::Idle | MaintenanceStep::Waiting),
+        "{last:?}"
+    );
+    Ok(())
+}

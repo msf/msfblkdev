@@ -7,8 +7,8 @@ mod io_ledger;
 mod request_counts;
 
 use block_storage::{
-    BackingDiscard, DEFAULT_IDLE_WAIT, DEFAULT_MAXIMUM_INTERVAL, HeapBudgetOptions,
-    MaintenanceStep, Scheduler, SelectionMode, log_debug, log_info,
+    BackingDiscard, Clock, DEFAULT_IDLE_WAIT, DEFAULT_MAXIMUM_INTERVAL, HeapBudgetOptions,
+    MaintenanceStep, MonotonicClock, Scheduler, SelectionMode, log_debug, log_info,
 };
 use io_uring::{opcode, types};
 use libublk::ctrl::{UblkCtrl, UblkCtrlBuilder};
@@ -925,7 +925,8 @@ fn close_after_queue(
 /// Timers carry a generation: when a request arrives while the armed timer is far away, a
 /// short timer is armed for the idle wait and the far one is ignored when it fires. That costs
 /// one SQE per burst of requests, never one per request.
-struct Maintenance {
+struct Maintenance<'c> {
+    clock: &'c dyn Clock,
     scheduler: Scheduler,
     /// Referenced by timeout SQEs until the ring flushes them; two generations can be pending.
     timers: [Box<types::Timespec>; 2],
@@ -945,10 +946,15 @@ struct Maintenance {
     last_step: Option<MaintenanceStep>,
 }
 
-impl Maintenance {
-    fn new(config: ServeConfig, depth: u16, wakeup_fd: i32, now: Instant) -> Self {
+impl<'c> Maintenance<'c> {
+    fn new(config: ServeConfig, depth: u16, wakeup_fd: i32, clock: &'c dyn Clock) -> Self {
         Self {
-            scheduler: Scheduler::new(now, config.idle_wait, config.maximum_maintenance_interval),
+            clock,
+            scheduler: Scheduler::new(
+                clock.now(),
+                config.idle_wait,
+                config.maximum_maintenance_interval,
+            ),
             timers: [
                 Box::new(types::Timespec::new()),
                 Box::new(types::Timespec::new()),
@@ -992,22 +998,29 @@ impl Maintenance {
         self.arm_timer_for(queue, wait)
     }
 
-    fn arm_timer_for(&mut self, queue: &UblkQueue, wait: Duration) -> Result<(), UblkError> {
+    /// Starts the next timer generation for `wait`. Returns its user data and Timespec slot.
+    fn next_timer(&mut self, wait: Duration) -> (u64, usize) {
         self.generation = self.generation.wrapping_add(1);
         self.timer_short = wait <= self.scheduler.idle_wait();
-        let slot = &mut self.timers[usize::from(self.generation % 2)];
-        **slot = types::Timespec::new()
+        let slot = usize::from(self.generation % 2);
+        *self.timers[slot] = types::Timespec::new()
             .sec(wait.as_secs())
             .nsec(wait.subsec_nanos());
-        let entry = opcode::Timeout::new(&**slot)
+        let user_data = UblkIOCtx::build_user_data(
+            self.timer_tag,
+            TARGET_OP_TIMER,
+            u32::from(self.generation),
+            true,
+        );
+        (user_data, slot)
+    }
+
+    fn arm_timer_for(&mut self, queue: &UblkQueue, wait: Duration) -> Result<(), UblkError> {
+        let (user_data, slot) = self.next_timer(wait);
+        let entry = opcode::Timeout::new(&*self.timers[slot])
             .flags(types::TimeoutFlags::ETIME_SUCCESS)
             .build()
-            .user_data(UblkIOCtx::build_user_data(
-                self.timer_tag,
-                TARGET_OP_TIMER,
-                u32::from(self.generation),
-                true,
-            ));
+            .user_data(user_data);
         queue.ublk_submit_sqe_sync(entry)
     }
 
@@ -1059,7 +1072,7 @@ impl Maintenance {
         if !idle {
             self.due_ticks += 1;
         }
-        let step = volume.maintain_for(SelectionMode::Idle, self.slice);
+        let step = volume.maintain_for(SelectionMode::Idle, self.slice, self.clock);
         let lateness = self.scheduler.maintained(now);
         if lateness > self.slice {
             log_debug!(
@@ -1148,8 +1161,8 @@ fn run_queue(
 
     let mut queue_error = None;
     let mut requests = request_counts::RequestCounts::new();
-    let mut maintenance =
-        Maintenance::new(config, depth, volume.cleaner_wakeup_fd(), Instant::now());
+    let clock = MonotonicClock;
+    let mut maintenance = Maintenance::new(config, depth, volume.cleaner_wakeup_fd(), &clock);
     // The first tick runs after one idle wait, then maintenance settles into its own cadence.
     if let Err(error) = maintenance
         .arm_timer_for(&queue, config.idle_wait)
@@ -1160,7 +1173,7 @@ fn run_queue(
     }
     queue.wait_and_handle_io(|queue, tag, context| {
         if context.is_tgt_io() {
-            let now = Instant::now();
+            let now = clock.now();
             let operation = UblkIOCtx::user_data_to_op(context.user_data());
             let rearm = match operation {
                 TARGET_OP_TIMER if !maintenance.timer_is_current(context.user_data()) => Ok(()),
@@ -1222,7 +1235,7 @@ fn run_queue(
                 queue_error = Some(ublk_error(error));
             }
         }
-        if let Err(error) = maintenance.request_completed(queue, Instant::now()) {
+        if let Err(error) = maintenance.request_completed(queue, clock.now()) {
             drain.queue_failed.store(true, Ordering::Release);
             queue_error.get_or_insert(ublk_error(error));
         }
@@ -1261,6 +1274,7 @@ fn stop_device(device_id: i32) -> io::Result<()> {
 fn wait_for_stop(
     device_id: i32,
     drain: &DrainState,
+    clock: &dyn Clock,
     stop_device: impl FnOnce(i32) -> io::Result<()>,
 ) -> io::Result<()> {
     loop {
@@ -1272,7 +1286,7 @@ fn wait_for_stop(
         if drain.target_done.load(Ordering::Acquire) {
             return Ok(());
         }
-        std::thread::sleep(SHUTDOWN_POLL_INTERVAL);
+        clock.sleep(SHUTDOWN_POLL_INTERVAL);
     }
 }
 
@@ -1281,17 +1295,17 @@ fn write_readiness_line(output: &mut impl io::Write, device_path: &str) -> io::R
     output.flush()
 }
 
-fn wait_for_device_removal(device_id: u32) -> io::Result<()> {
+fn wait_for_device_removal(device_id: u32, clock: &dyn Clock) -> io::Result<()> {
     let path = PathBuf::from(format!("/sys/class/ublk-char/ublkc{device_id}"));
-    let deadline = std::time::Instant::now() + DEVICE_REMOVAL_TIMEOUT;
+    let deadline = clock.now() + DEVICE_REMOVAL_TIMEOUT;
     while path.exists() {
-        if std::time::Instant::now() >= deadline {
+        if clock.now() >= deadline {
             return Err(io::Error::other(format!(
                 "{} still exists after controller drop",
                 path.display()
             )));
         }
-        std::thread::sleep(SHUTDOWN_POLL_INTERVAL);
+        clock.sleep(SHUTDOWN_POLL_INTERVAL);
     }
     Ok(())
 }
@@ -1376,8 +1390,9 @@ fn serve(
         let ready_error = Arc::clone(&readiness_error);
         let (target_result, stop_result) = std::thread::scope(|scope| {
             let stop_drain = Arc::clone(&drain);
-            let stop_thread =
-                scope.spawn(move || wait_for_stop(stop_device_id, &stop_drain, stop_device));
+            let stop_thread = scope.spawn(move || {
+                wait_for_stop(stop_device_id, &stop_drain, &MonotonicClock, stop_device)
+            });
             let target_result = controller
                 .run_target(
                     move |dev| {
@@ -1439,7 +1454,7 @@ fn serve(
         (target_result, stop_result, shutdown_result, device_id)
     };
 
-    let removal_result = wait_for_device_removal(device_id);
+    let removal_result = wait_for_device_removal(device_id, &MonotonicClock);
     let restore_result = signal_guard.restore();
     let readiness_result = match readiness_error.lock() {
         Ok(mut error) => error.take().map_or(Ok(()), Err),
@@ -2457,7 +2472,7 @@ mod tests {
             scope
                 .spawn(|| {
                     let stop_thread = std::thread::current().id();
-                    wait_for_stop(17, &drain, |device_id| {
+                    wait_for_stop(17, &drain, &MonotonicClock, |device_id| {
                         assert_eq!(device_id, 17);
                         assert_eq!(std::thread::current().id(), stop_thread);
                         assert_ne!(std::thread::current().id(), caller_thread);

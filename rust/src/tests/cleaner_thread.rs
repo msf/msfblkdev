@@ -246,7 +246,7 @@ fn scheduled_idle_and_due_ticks_run_and_the_workload_never_starves() -> io::Resu
                 } else {
                     due_ticks += 1;
                 }
-                volume.maintain_for(SelectionMode::Idle, idle_wait)?;
+                volume.maintain_for(SelectionMode::Idle, idle_wait, &crate::MonotonicClock)?;
                 scheduler.maintained(now);
             }
         }
@@ -354,7 +354,11 @@ fn aged_quarter_full_volume_closes_publishes_and_reopens() -> io::Result<()> {
         let now = Instant::now();
         scheduler.request_completed(now);
         if index % 16 == 15 && scheduler.maintenance_due(now) {
-            match volume.maintain_for(SelectionMode::Idle, Duration::from_millis(2)) {
+            match volume.maintain_for(
+                SelectionMode::Idle,
+                Duration::from_millis(2),
+                &crate::MonotonicClock,
+            ) {
                 Ok(_) => {}
                 Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {}
                 Err(error) => return Err(error),

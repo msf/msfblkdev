@@ -10,6 +10,7 @@ use xxhash_rust::xxh3::Xxh3;
 
 mod accounted_io;
 mod backing;
+pub mod clock;
 mod format_v4;
 mod mapping_cache;
 mod wakeup;
@@ -19,6 +20,7 @@ pub mod logging;
 
 use accounted_io::{BackingIo, submit_exact};
 pub use backing::BackingKind;
+pub use clock::{Clock, ManualClock, MonotonicClock};
 pub use format_v4::HeadId;
 pub use format_v4::budget::{
     DEFAULT_HEAP_PROPORTION_PPM, HeapBudget, HeapBudgetOptions, MINIMUM_HEAP_BYTES,

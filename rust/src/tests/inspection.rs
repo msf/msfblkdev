@@ -38,7 +38,11 @@ fn churn(volume: &mut Volume, rounds: u32) -> io::Result<()> {
             volume.write_block(lba, &value(lba, version + 2))?;
         }
         volume.flush()?;
-        volume.maintain_for(SelectionMode::Idle, Duration::from_millis(1))?;
+        volume.maintain_for(
+            SelectionMode::Idle,
+            Duration::from_millis(1),
+            &crate::MonotonicClock,
+        )?;
     }
     Ok(())
 }
