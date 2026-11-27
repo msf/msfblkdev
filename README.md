@@ -45,7 +45,7 @@ The open items, in priority order.
 1. Add crash tests that use the existing `discard-write-complete` and `recovery-snapshots-fsync-complete` failpoints (ADR-08). The released format has these crash points, but no test kills the process at them. The failpoint harness already exists, so the cost is small.
 2. Finish the ADR-05 retry work in the [campaign plan](docs/ADR05-CAMPAIGN.md): retry ownership across timeouts and cancellation, then checkpoint and cleaner faults. Extend the live checkpoint-B tests to the other publication boundaries.
 3. Run the [blockcheck device workloads](docs/BLOCKCHECK-PLAN.md), including aged SQLite A/F (ADR-08, ADR-10). The release has not been tested under aged database workloads.
-4. Fix BUG-4 in [BUGS.md](BUGS.md): after a write burst the daemon stops running idle maintenance, so freed segments return to the backing only under write pressure or at shutdown.
+4. Fix BUG-4 in [BUGS.md](BUGS.md): the daemon's maintenance timer stops after a write burst, so work that is due while the daemon is idle waits for the next write or for shutdown.
 5. Complete RocksDB correctness on ext4 and XFS (ADR-06).
 6. Later: logical growth (ADR-04), then a distributed replicated log.
 

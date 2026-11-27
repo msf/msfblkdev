@@ -5,23 +5,27 @@ GitHub issues are disabled on `msf/msfblkdev`, so we track them here.
 
 Each entry names the code sites, what is verified and what is inferred, and a proposed fix.
 
-## BUG-4 The daemon stops running idle maintenance after a write burst
+## BUG-4 The daemon's maintenance timer stops after a write burst
 
 Found 2026-11-26. Status: open.
 
-The README states that idle maintenance runs 2 ms after the last request, or at least every
-100 ms. Verified on a daemon that serves a 640 MiB volume on a 1 GiB regular file in tmpfs: two
-full sequential `dd` passes, then `blkdiscard` of the whole device and 2 s of idle. A temporary
-log line at the start of `tick` (`rust/src/bin/block-storage-ublk.rs`) recorded 221 timer
-completions during the writes, the last one with the queue not idle, and none after it. With no
-tick, no barrier publication runs: the daemon shut down with `reclaim_barrier_publications=0`,
-no segment freed and 13 segments pending-free. The engine itself frees and discards them when
+The daemon calls maintenance from a timer: 2 ms after the last request, and at least every
+100 ms. Maintenance itself decides whether there is work; idle cleaning rests while at least half
+the log is free (ADR-08), so most calls return at once. The bug is that the calls stop.
+
+Verified on a daemon that serves a 640 MiB volume on a 1 GiB regular file in tmpfs: two full
+sequential `dd` passes, then `blkdiscard` of the whole device and 2 s of idle. A temporary log
+line at the start of `tick` (`rust/src/bin/block-storage-ublk.rs`) recorded 221 timer
+completions during the writes, the last one with the queue not idle, and none in the 2 s after.
+At that point 5 of 31 segments were free and 13 were pending-free with no live data, so one
+barrier publication was due and needed no copying. The daemon shut down with
+`reclaim_barrier_publications=0`. The engine frees and discards the same segments when
 `maintain` runs (`rust/examples/device_discard.rs`).
 
-Effect: freed space returns to the backing only under write pressure or at shutdown, and a
-discard (`fstrim`) through the device frees nothing while the daemon is idle.
+Effect: work that is due while the daemon is idle waits for the next write or for shutdown. A
+discard (`fstrim`) through the device frees no backing space until then.
 
-Inferred, not verified: the timer is lost on a re-arm path. Candidates are `request_completed`,
+Inferred, not verified: a re-arm path loses the timer. Candidates are `request_completed`,
 which returns without arming while `timer_short` is set even if that short timer has already
 completed, and the stale-generation branch, which returns without arming.
 
