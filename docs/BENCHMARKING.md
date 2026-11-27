@@ -1247,6 +1247,47 @@ Pin the daemon and the client, for example
 start and the load average at the end; see
 [How do we keep results reproducible?](#how-do-we-keep-results-reproducible).
 
+### Run the matrix on RAM
+
+The matrix compares backings under the same workload, with every run alone on the host. Each
+variant gets exactly the same raw space: one 9 GiB logical volume on a brd RAM disk. A filesystem
+or a thin pool pays its own overhead from those 9 GiB, so a file backing is smaller than the raw
+LV. `--backing-mib max` sizes the file to the free space of its filesystem, less 32 MiB for the
+filesystem's own allocations. The NVMe sees none of the benchmark's writes.
+
+| Variant | Backing | What runs |
+|---|---|---|
+| `raw-lv` | `bench/raw`, 9 GiB | our daemon, block-device backing |
+| `xfs-lv` | file filling XFS on `bench/xfs`, 9 GiB | our daemon, file backing |
+| `ext4-lv` | file filling ext4 on `bench/ext4`, 9 GiB | our daemon, file backing |
+| `thin-xfs` | XFS on `bench/thin`, 8 GiB virtual, in a 9 GiB thin pool (64 MiB of metadata, no spare) | baseline, without our daemon |
+
+SQLite runs on XFS in every variant, so the baseline differs only in the layer below XFS: our
+engine and ublk, or dm-thin. Baseline mode (`--baseline-mount`) runs the same load, windows and
+database checks on a filesystem that the operator mounted. Its write amplification is the thin
+pool's data-device writes divided by the thin LV's writes.
+
+```sh
+sudo tools/aged-sqlite/ram-lvm.sh setup                   # brd, VG "bench", LVs, mounts under /mnt/bench
+make bench-aged-matrix MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --workloads a --repeats 3"
+make bench-aged-matrix MATRIX_ARGS="--variants raw-lv thin-xfs --workloads a f --repeats 3"
+sudo tools/aged-sqlite/ram-lvm.sh teardown
+```
+
+The runner:
+
+- Runs one test at a time, in an order shuffled with a fixed seed.
+- Waits before each run until the 1-minute load average is below 0.5, then 30 s more.
+- Pins the daemon to CPUs 2 and 3 and go-ycsb to CPUs 0 and 1 (Zen 5). The harness, `blkctl`
+  samples, `mkfs` and `sqlite3` run on CPUs 4 to 11 (Zen 5c, a separate L3 cache).
+- Keeps passing runs when you start it again on the same `--out` directory.
+
+`report.html` has one table per workload, with a row per backing and a column per measure, and one
+bar chart per measure, with a bar per backing. Each cell is the median of the passing repeats with
+the min–max range. A run's measures come from its last two windows. Daemon CPU is the daemon's
+user and system time per operation. Client CPU is go-ycsb's own CPU time per operation, from
+`wait4`. Neither includes kernel work on behalf of other tasks, such as dm-thin.
+
 ### First observations
 
 These come from plumbing probes on 2026-11-27, not from a benchmark run:

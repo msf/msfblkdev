@@ -64,6 +64,14 @@ bench-aged-sqlite:
 		--blkctl rust/target/$(BENCH_DAEMON_PROFILE)/blkctl \
 		$(if $(filter 1,$(PROFILE)),--perf) $(BENCH_ARGS)
 
+# Aged SQLite matrix on the RAM-backed LVM layout (sudo tools/aged-sqlite/ram-lvm.sh setup first).
+# Runs one at a time and writes report.html. Pass options with MATRIX_ARGS, for example
+# MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --workloads a --repeats 3".
+.PHONY: bench-aged-matrix
+bench-aged-matrix:
+	@cd rust && cargo build --locked --release --bin block-storage-ublk --bin blkctl
+	@python3 -B tools/aged-sqlite/matrix.py $(MATRIX_ARGS)
+
 # Engine write path under hyperfine: seeded random 4 KiB writes on a fresh tmpfs backing per run,
 # pinned to CPUS (default 2,3). Compares git revisions, e.g. make bench-write-path REVS="v2.1 HEAD".
 .PHONY: bench-write-path
