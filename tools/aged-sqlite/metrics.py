@@ -104,16 +104,17 @@ def parse_device_stat(text: str) -> DeviceStat:
                       discard_requests=fields[11], discard_sectors=fields[13], flush_requests=fields[15])
 
 
-def record_count(logical_bytes: int, client_fill: float, page_bytes: int = 4096) -> int:
+def record_count(logical_bytes: int, client_fill: float, batch: int, page_bytes: int = 4096) -> int:
     """Records that make the database about `client_fill` of the volume.
 
     With fieldlength=4000 one record and its leaf-cell overhead fit in one 4 KiB SQLite page
     (the inline payload limit of a 4096-byte table leaf is 4061 bytes), so the database holds
     about one page per record. Calibrate against the filesystem's used space after the load.
+    go-ycsb loads whole batches, so the count is a multiple of `batch`.
     """
     if not 0 < client_fill < 1:
         raise ValueError("client fill must be between 0 and 1")
-    return int(logical_bytes * client_fill) // page_bytes
+    return int(logical_bytes * client_fill) // page_bytes // batch * batch
 
 
 # Workloads A and F make half of their operations writes, and each write commits at least one

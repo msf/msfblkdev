@@ -54,12 +54,13 @@ class DeviceStatTest(unittest.TestCase):
 
 class SizingTest(unittest.TestCase):
     def test_record_count_fills_one_page_per_record(self):
-        self.assertEqual(metrics.record_count(8 * GIB, 0.75), 1_572_864)
+        self.assertEqual(metrics.record_count(8 * GIB, 0.75, 1), 1_572_864)
+        self.assertEqual(metrics.record_count(8 * GIB, 0.75, 100), 1_572_800)
 
     def test_record_count_rejects_fill_outside_zero_and_one(self):
         for fill in (0, 1, 1.5, -0.1):
             with self.assertRaises(ValueError):
-                metrics.record_count(GIB, fill)
+                metrics.record_count(GIB, fill, 100)
 
     def test_window_writes_one_backing(self):
         self.assertEqual(metrics.window_operations(8 * GIB, 8192.0), GIB // 1024)

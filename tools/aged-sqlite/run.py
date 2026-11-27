@@ -47,6 +47,8 @@ POLL_SECONDS = 0.05
 # Windows beyond the maximum multiple allow for a calibration that overestimates bytes per operation.
 MAX_WINDOWS_PER_MULTIPLE = 3
 NOTE_LOCK = threading.Lock()
+# go-ycsb loads in batches of this many records and always finishes the last batch.
+LOAD_BATCH = 100
 # The client-visible write of each workload. In F, UPDATE is the inner write of READ_MODIFY_WRITE.
 WRITE_OPERATION = {"a": "UPDATE", "f": "READ_MODIFY_WRITE"}
 
@@ -449,10 +451,12 @@ def measured_phase(bench: Bench, name: str, operations: int, seed: int) -> Phase
 
 def load(bench: Bench) -> None:
     config = bench.config
-    records = config.records or metrics.record_count(logical_bytes(config), config.client_fill)
+    records = config.records or metrics.record_count(logical_bytes(config), config.client_fill, LOAD_BATCH)
+    if records % LOAD_BATCH:
+        raise Failure(f"--records must be a multiple of the load batch, {LOAD_BATCH}")
     bench.facts["records"] = records
     device_before, ledger_before = counters(bench)
-    summary = ycsb(bench, "load", "load", {"recordcount": records, "batch.size": 100,
+    summary = ycsb(bench, "load", "load", {"recordcount": records, "batch.size": LOAD_BATCH,
                                            "workload.seed": config.seed})
     device_after, ledger_after = counters(bench)
     bench.facts["load"] = {
@@ -469,22 +473,27 @@ def used_bytes(path: Path) -> int:
     return usage.total - usage.free
 
 
+def next_window_operations(backing: int, previous: Phase) -> int:
+    try:
+        return metrics.window_operations(backing, previous.device_write_bytes / previous.operations)
+    except ValueError as error:
+        raise Failure(f"{previous.name}: {error}") from error
+
+
 def age(bench: Bench) -> str:
     """Runs workload windows until the stop rule decides. Returns the reason."""
     config = bench.config
     backing = bench.facts["backing_bytes"]
     calibration = measured_phase(bench, "calibration", config.calibration_operations, config.seed + 1)
-    try:
-        window_ops = metrics.window_operations(backing, calibration.device_write_bytes / calibration.operations)
-    except ValueError as error:
-        raise Failure(str(error)) from error
-    bench.facts["window_operations"] = window_ops
+    window_ops = next_window_operations(backing, calibration)
     device_bytes, windows = calibration.device_write_bytes, []
     # Bounded: every window writes about one backing size, so the maximum multiple ends the loop first.
     for number in range(1, MAX_WINDOWS_PER_MULTIPLE * math.ceil(config.stop.maximum_multiple) + 1):
         phase = measured_phase(bench, f"window-{number:02d}", window_ops, config.seed + 1 + number)
         device_bytes += phase.device_write_bytes
         windows.append(Window(phase.operations_per_second, phase.write_amplification))
+        # Each window sizes the next: the short calibration over- or underestimates bytes per op.
+        window_ops = next_window_operations(backing, phase)
         reason = config.stop.decide(device_bytes, backing, windows)
         if reason:
             return reason

@@ -1142,11 +1142,13 @@ formats with `--min-logical-fill-factor 90`. Change it with `--min-logical-fill`
    lazy initialization doesn't write in the background during the load. XFS uses the helper's
    `bench-format-xfs`, which runs default `mkfs.xfs`.
 4. Mounts through the helper and checks that the mount options include `discard`.
-5. Loads `client-fill × logical / 4096` records (default fill 0.75) with batches of 100.
+5. Loads `client-fill × logical / 4096` records (default fill 0.75), rounded down to a multiple
+   of 100, in batches of 100. go-ycsb always completes its last batch.
    `fieldlength=4000` keeps one record in one 4 KiB SQLite page: a 4 KiB table leaf holds at most
    4061 bytes inline. Use `--records` to override the count.
-6. Runs a calibration phase of 20,000 operations, then windows of the operation count that writes
-   one backing size to the device.
+6. Runs a calibration phase of 20,000 operations, then windows. Each window's operation count comes
+   from the device bytes per operation of the phase before it, so that a window writes about one
+   backing size to the device.
 7. Stops when the [stop rule](BLOCKCHECK-PLAN.md#endurance-stop-rule) decides. The minimum is
    3 × backing of device writes and the maximum 10 × backing; two consecutive windows must agree
    within 5% on throughput and write amplification. These are the 4 GiB-scale values. The count
