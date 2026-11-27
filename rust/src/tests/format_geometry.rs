@@ -307,3 +307,34 @@ fn format_three_images_are_rejected_without_modification() -> io::Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn planned_reserve_matches_what_open_live_reserves_with_default_serve_options() -> io::Result<()> {
+    const MIB: u64 = 1 << 20;
+    for (logical, raw) in [
+        (128 * MIB, 185 * MIB),
+        (4096 * MIB, 6144 * MIB),
+        (640 * MIB, 1024 * MIB),
+    ] {
+        let backing = TemporaryBacking::new()?;
+        backing.create_sized(raw)?;
+        let plan = crate::plan_format(logical, raw, 100)?;
+        let blocks_per_segment =
+            u32::try_from(plan.segment_bytes / BLOCK_SIZE as u64).expect("segment blocks fit u32");
+        format_with_options(&backing.0, logical, FormatOptions { blocks_per_segment })?;
+        let options = VolumeOpenOptions {
+            write_buffer_bytes: crate::DEFAULT_FORMAT_WRITE_BUFFER_BYTES,
+            ..VolumeOpenOptions::default()
+        };
+        let usage = open_live_with_options(&backing.0, options)?.space_usage()?;
+        assert_eq!(
+            usage.reserve_segments, plan.reserve_segments,
+            "{logical} on {raw}"
+        );
+        assert_eq!(
+            usage.segment_count, plan.segment_count,
+            "{logical} on {raw}"
+        );
+    }
+    Ok(())
+}

@@ -47,6 +47,10 @@ pub struct VolumeView {
     pub mapped_blocks: u64,
     /// Records after the checkpoint, indexed by [`HeadId`] as `usize`.
     pub tail: [TailSummary; 2],
+    /// Free segments that writes never use, kept for cleaning and checkpoints, as `open_live`
+    /// computes them with the daemon's default serve options. It isn't stored on disk; `None`
+    /// when the default heap can't open this geometry.
+    pub reserve_segments: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -406,6 +410,7 @@ impl Reader {
             segments: segments.into_boxed_slice(),
             mapped_blocks: walk.loaded.live_blocks,
             tail: self.summarize_tail(log)?,
+            reserve_segments: super::volume::default_reserve_segments(geometry).ok(),
         })
     }
 

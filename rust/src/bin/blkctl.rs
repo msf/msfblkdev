@@ -438,6 +438,14 @@ fn render_log(out: &mut String, view: &VolumeView, totals: &LogTotals, units: Un
         units.blocks(totals.open_free_blocks)
     );
     rows.row("free", units.blocks(totals.free_blocks), free_note);
+    if let Some(reserve) = view.reserve_segments {
+        let note = format!("{reserve} segments, default serve options");
+        rows.row(
+            "reserve",
+            units.blocks(u64::from(reserve) * segment_blocks),
+            note,
+        );
+    }
     rows.render(out);
     out.push('\n');
 }
@@ -810,6 +818,7 @@ mod tests {
                 },
                 TailSummary::default(),
             ],
+            reserve_segments: Some(4),
         }
     }
 
@@ -835,6 +844,7 @@ mod tests {
             "  mapped               32.8 MiB    25.6% of logical",
             "log        23 segments × 8.0 MiB = 184.0 MiB",
             "  high-water mark     104.0 MiB    end of segment 12",
+            "  reserve              32.0 MiB    4 segments, default serve options",
             "segments   sealed 6   pending-free 1   open 2   free 14",
             "  user head           segment 7",
             "  relocation head     segment 12",

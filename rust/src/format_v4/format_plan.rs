@@ -12,6 +12,11 @@ pub const DEFAULT_FORMAT_WRITE_BUFFER_BYTES: u64 = 4 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FormatPlan {
     pub segment_bytes: u64,
+    /// Whole segments in the raw capacity, after the two descriptors.
+    pub segment_count: u32,
+    /// Free segments that writes never use, kept for cleaning and checkpoints, with the
+    /// daemon's default serve options. Other heap or cache options change it.
+    pub reserve_segments: u32,
     pub expected_max_logical_fill: u8,
 }
 
@@ -49,6 +54,8 @@ pub fn plan_format(
         if expected_max_logical_fill >= min_logical_fill {
             return Ok(FormatPlan {
                 segment_bytes,
+                segment_count: geometry.segment_count,
+                reserve_segments: volume::default_reserve_segments(geometry)?,
                 expected_max_logical_fill,
             });
         }
@@ -57,7 +64,9 @@ pub fn plan_format(
     Err(io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "no supported segment size meets {min_logical_fill}% logical fill for {logical_bytes} logical bytes and {raw_bytes} raw bytes (best estimate {best}%)"
+            "no supported segment size meets {min_logical_fill}% logical fill for {:.1} MiB logical and {:.1} MiB raw (best estimate {best}%)",
+            logical_bytes as f64 / (1 << 20) as f64,
+            raw_bytes as f64 / (1 << 20) as f64
         ),
     ))
 }
@@ -164,6 +173,8 @@ mod tests {
             plan_format(4 << 30, 6 << 30, 100).unwrap(),
             FormatPlan {
                 segment_bytes: 32 * MIB,
+                segment_count: 191,
+                reserve_segments: 4,
                 expected_max_logical_fill: 100
             }
         );

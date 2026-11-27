@@ -105,21 +105,11 @@ pub(crate) fn open_with_io(
     }
     let buffer_blocks = clamp_write_buffer_blocks(options.write_buffer_bytes, geometry);
     let write_buffer = WriteBackBuffer::with_capacity(buffer_blocks);
-    let logical_bytes = u64::from(geometry.volume_blocks) * BLOCK_SIZE as u64;
-    let supporting = supporting_state(
+    let (budget, sizing, cleaner_shape) = divide_heap(
+        options,
         geometry,
-        log.segments.capacity(),
         buffer_blocks,
         write_buffer.lookup_bytes(),
-    );
-    let (budget, sizing, cleaner_shape) = budget::divide(
-        options.heap,
-        logical_bytes,
-        buffer_blocks as u64 * BLOCK_SIZE as u64,
-        options.cache_budget_bytes,
-        buffer_blocks.min(geometry.page_count as usize),
-        geometry,
-        supporting,
     )?;
     let payloads = buffer_blocks.min(geometry.volume_blocks as usize);
     let records = payloads.div_ceil(crate::MAXIMUM_PAYLOAD_BLOCKS);
@@ -186,6 +176,44 @@ pub(crate) fn open_with_io(
         volume.log.segments.release_if_empty(segment)?;
     }
     Ok(volume)
+}
+
+/// The heap division that `open_live` makes for `options` on `geometry`.
+fn divide_heap(
+    options: VolumeOpenOptions,
+    geometry: Geometry,
+    buffer_blocks: usize,
+    lookup_bytes: usize,
+) -> io::Result<(HeapBudget, crate::CacheSizing, CleanerShape)> {
+    let supporting = supporting_state(
+        geometry,
+        segment_capacity(options, geometry),
+        buffer_blocks,
+        lookup_bytes,
+    );
+    budget::divide(
+        options.heap,
+        u64::from(geometry.volume_blocks) * BLOCK_SIZE as u64,
+        buffer_blocks as u64 * BLOCK_SIZE as u64,
+        options.cache_budget_bytes,
+        buffer_blocks.min(geometry.page_count as usize),
+        geometry,
+        supporting,
+    )
+}
+
+/// Free segments that writes never use, as `open_live` computes them with the daemon's default
+/// serve options. The reserve depends on the mapping cache, and so on the open options; it isn't
+/// stored on disk. Nothing is opened.
+pub(crate) fn default_reserve_segments(geometry: Geometry) -> io::Result<u32> {
+    let options = VolumeOpenOptions {
+        write_buffer_bytes: crate::DEFAULT_FORMAT_WRITE_BUFFER_BYTES,
+        ..VolumeOpenOptions::default()
+    };
+    let buffer_blocks = clamp_write_buffer_blocks(options.write_buffer_bytes, geometry);
+    let lookup_bytes = WriteBackBuffer::new_lookup(buffer_blocks).allocation_size();
+    let (_, sizing, _) = divide_heap(options, geometry, buffer_blocks, lookup_bytes)?;
+    Ok(Reserve::compute(geometry, sizing.capacity as u64).segments)
 }
 
 fn supporting_state(
