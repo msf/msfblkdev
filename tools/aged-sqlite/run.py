@@ -64,7 +64,7 @@ class Config:
     workload: str
     size_gib: int
     backing: Path | None
-    backing_gib: int | None
+    backing_mib: str | None
     erase_backing_device: bool
     min_logical_fill: int
     client_fill: float
@@ -85,6 +85,10 @@ class Config:
     keep_latency_csv: bool
     daemon_cpus: str | None
     client_cpus: str | None
+    sampler_cpus: str | None
+    baseline_mount: Path | None
+    baseline_device: Path | None
+    baseline_medium: Path | None
     evidence: Path
 
 
@@ -99,6 +103,8 @@ class Phase:
     write_amplification: float
     latency: dict[str, dict[str, int]]
     discards: int
+    daemon_cpu_seconds: float | None
+    client_cpu_seconds: float
 
 
 @dataclass
@@ -140,8 +146,9 @@ def parse_args(argv: list[str]) -> Config:
     parser.add_argument("--backing", type=Path,
                         help="backing path: a new regular file (default: in the owned /tmp directory) "
                              "or an existing block device")
-    parser.add_argument("--backing-gib", type=int,
-                        help="regular-file backing size; default: the logical size")
+    parser.add_argument("--backing-mib",
+                        help="regular-file backing size in MiB, or 'max' to fill the free space of the "
+                             "filesystem that holds it; default: the logical size")
     parser.add_argument("--erase-backing-device", action="store_true",
                         help="required with a block-device backing: it is formatted in place")
     parser.add_argument("--min-logical-fill", type=int, default=90,
@@ -168,6 +175,14 @@ def parse_args(argv: list[str]) -> Config:
     parser.add_argument("--perf-frequency", type=int, default=499)
     parser.add_argument("--daemon-cpus", help="taskset CPU list for the daemon, e.g. 2,3")
     parser.add_argument("--client-cpus", help="taskset CPU list for go-ycsb, e.g. 0,1")
+    parser.add_argument("--sampler-cpus", help="taskset CPU list for blkctl samples, away from the measured CPUs")
+    parser.add_argument("--baseline-mount", type=Path,
+                        help="baseline mode: run on this already mounted filesystem without our daemon")
+    parser.add_argument("--baseline-device", type=Path,
+                        help="baseline mode: the block device of --baseline-mount, e.g. an LVM thin LV")
+    parser.add_argument("--baseline-medium", type=Path,
+                        help="baseline mode: the device that stores its data, e.g. the thin pool's tdata, "
+                             "for write amplification")
     parser.add_argument("--keep-latency-csv", action="store_true",
                         help="keep go-ycsb's per-operation csv next to the per-second series")
     parser.add_argument("--evidence", type=Path,
@@ -176,7 +191,7 @@ def parse_args(argv: list[str]) -> Config:
     daemon_args = [part for value in args.daemon_args for part in value.split("=", 1)]
     return Config(
         filesystem=args.filesystem, workload=args.workload, size_gib=args.size_gib,
-        backing=args.backing, backing_gib=args.backing_gib,
+        backing=args.backing, backing_mib=args.backing_mib,
         erase_backing_device=args.erase_backing_device, min_logical_fill=args.min_logical_fill,
         client_fill=args.client_fill, records=args.records,
         calibration_operations=args.calibration_operations,
@@ -185,8 +200,9 @@ def parse_args(argv: list[str]) -> Config:
         daemon=args.daemon, blkctl=args.blkctl, go_ycsb=args.go_ycsb, sqlite3=args.sqlite3,
         daemon_args=daemon_args, ycsb_properties=args.ycsb_properties, perf=args.perf,
         perf_frequency=args.perf_frequency, keep_latency_csv=args.keep_latency_csv,
-        daemon_cpus=args.daemon_cpus, client_cpus=args.client_cpus,
-        evidence=args.evidence,
+        daemon_cpus=args.daemon_cpus, client_cpus=args.client_cpus, sampler_cpus=args.sampler_cpus,
+        baseline_mount=args.baseline_mount, baseline_device=args.baseline_device,
+        baseline_medium=args.baseline_medium, evidence=args.evidence,
     )
 
 
@@ -217,6 +233,30 @@ def run(bench: Bench, label: str, argv: list[str], *, check: bool = True,
         tail = "\n".join(result.stdout.splitlines()[-20:])
         raise Failure(f"{label} exited with {result.returncode}:\n{tail}")
     return result
+
+
+def run_with_usage(bench: Bench, label: str, argv: list[str]) -> tuple[str, float]:
+    """Runs one bounded command like `run` and also returns its own CPU seconds from wait4."""
+    note(bench, f"run {label}: {shlex.join(str(part) for part in argv)}")
+    output = bench.config.evidence / f"{label}.out"
+    deadline = time.monotonic() + min(COMMAND_SECONDS, remaining(bench))
+    with open(output, "w") as sink:
+        process = subprocess.Popen([str(part) for part in argv], stdout=sink, stderr=subprocess.STDOUT)
+        while True:  # bounded by the deadline
+            pid, status, usage = os.wait4(process.pid, os.WNOHANG)
+            if pid:
+                break
+            if time.monotonic() > deadline:
+                process.kill()
+                process.wait()
+                raise Failure(f"{label} exceeded its deadline")
+            time.sleep(POLL_SECONDS)
+    process.returncode = os.waitstatus_to_exitcode(status)
+    text = output.read_text(errors="replace")
+    if process.returncode != 0:
+        tail = "\n".join(text.splitlines()[-20:])
+        raise Failure(f"{label} exited with {process.returncode}:\n{tail}")
+    return text, usage.ru_utime + usage.ru_stime
 
 
 def remaining(bench: Bench) -> float:
@@ -303,7 +343,8 @@ def warn_unstable_host(bench: Bench, host: dict[str, object]) -> None:
         note(bench, "warning: CPU boost is on; clock speed follows temperature")
     if float(host["loadavg"][0]) > 1.0:
         note(bench, f"warning: load average {host['loadavg'][0]} at start; other work competes for CPU")
-    if not (bench.config.daemon_cpus and bench.config.client_cpus):
+    unpinned = not bench.config.client_cpus or not (bench.config.daemon_cpus or bench.config.baseline_mount)
+    if unpinned:
         note(bench, "warning: daemon or client is not pinned (--daemon-cpus, --client-cpus)")
 
 
@@ -317,14 +358,27 @@ def check_backing(bench: Bench) -> None:
         return
     if bench.backing.exists():
         raise Failure(f"{bench.backing} exists; the benchmark formats only a new file or a block device")
-    need = backing_bytes(config) + GIB
+    bench.facts["requested_backing_bytes"] = requested_backing_bytes(bench)
     free = shutil.disk_usage(bench.backing.parent).free
-    if free < need:
-        raise Failure(f"{bench.backing.parent} has {free // MIB} MiB free, needs {need // MIB} MiB")
+    if free < bench.facts["requested_backing_bytes"]:
+        raise Failure(f"{bench.backing.parent} has {free // MIB} MiB free, "
+                      f"needs {bench.facts['requested_backing_bytes'] // MIB} MiB")
 
 
-def backing_bytes(config: Config) -> int:
-    return (config.backing_gib or config.size_gib) * GIB
+# A file that fills its filesystem leaves this much for the filesystem's own allocations, such as
+# extent-tree blocks, as the engine writes into the sparse file.
+FILESYSTEM_SLACK_BYTES = 32 * MIB
+
+
+def requested_backing_bytes(bench: Bench) -> int:
+    value = bench.config.backing_mib
+    if value is None:
+        return logical_bytes(bench.config)
+    if value != "max":
+        return int(value) * MIB
+    usage = os.statvfs(bench.backing.parent)
+    available = usage.f_bavail * usage.f_frsize - FILESYSTEM_SLACK_BYTES
+    return max(0, available) // MIB * MIB
 
 
 def logical_bytes(config: Config) -> int:
@@ -338,7 +392,7 @@ def format_backing(bench: Bench) -> None:
     if bench.backing_kind == "block-device":
         argv.append("--block-device")
     else:
-        argv += ["--prealloc-mib", str(backing_bytes(config) // MIB)]
+        argv += ["--prealloc-mib", str(bench.facts["requested_backing_bytes"] // MIB)]
     metrics.create_ledger(bench.ledger)
     result = run(bench, "format", argv, env=daemon_env(bench))
     bench.created_backing = bench.backing_kind == "regular-file"
@@ -420,13 +474,18 @@ def unmount(bench: Bench) -> None:
 
 
 def mount_options(target: Path) -> str:
-    """Mount and superblock options of `target` from /proc/self/mountinfo."""
+    """Mount and superblock options of the mount that holds `target`, from /proc/self/mountinfo."""
+    best, options = "", None
+    resolved = str(target.resolve())
     for line in Path("/proc/self/mountinfo").read_text().splitlines():
         fields = line.split()
-        if fields[4] == str(target):
+        point = fields[4]
+        if (resolved == point or resolved.startswith(point.rstrip("/") + "/")) and len(point) >= len(best):
             separator = fields.index("-")
-            return f"{fields[5]},{fields[separator + 3]}"
-    raise Failure(f"{target} is not mounted")
+            best, options = point, f"{fields[5]},{fields[separator + 3]}"
+    if options is None:
+        raise Failure(f"{target} is not mounted")
+    return options
 
 
 def stop_daemon(bench: Bench, label: str) -> dict[str, dict[str, str]]:
@@ -448,7 +507,9 @@ def stop_daemon(bench: Bench, label: str) -> dict[str, dict[str, str]]:
 # ---------------------------------------------------------------- workload
 
 
-def ycsb(bench: Bench, label: str, command: str, properties: dict[str, object]) -> metrics.LatencySummary:
+def ycsb(bench: Bench, label: str, command: str,
+         properties: dict[str, object]) -> tuple[metrics.LatencySummary, float]:
+    """Runs go-ycsb and returns its latency summary and its own CPU seconds."""
     config = bench.config
     latency_csv = config.evidence / f"{label}-latency.csv"
     base = {
@@ -464,12 +525,12 @@ def ycsb(bench: Bench, label: str, command: str, properties: dict[str, object]) 
         argv += ["-p", f"{name}={value}"]
     for extra in config.ycsb_properties:
         argv += ["-p", extra]
-    result = run(bench, label, argv)
-    check_client_output(label, result.stdout)
+    output, cpu_seconds = run_with_usage(bench, label, argv)
+    check_client_output(label, output)
     summary = metrics.summarize_latency(latency_csv, config.evidence / f"{label}-series.csv")
     if not config.keep_latency_csv:
         latency_csv.unlink()
-    return summary
+    return summary, cpu_seconds
 
 
 def check_client_output(label: str, output: str) -> None:
@@ -478,20 +539,40 @@ def check_client_output(label: str, output: str) -> None:
         raise Failure(f"{label}: {problem}; see {label}.out")
 
 
-def counters(bench: Bench) -> tuple[metrics.DeviceStat, metrics.LedgerSnapshot]:
+def counters(bench: Bench) -> tuple[metrics.DeviceStat, int]:
+    """The client device's counters and the bytes written to the medium below it."""
+    config = bench.config
+    if config.baseline_mount:
+        device = metrics.parse_device_stat(block_stat_path(config.baseline_device).read_text())
+        medium = metrics.parse_device_stat(block_stat_path(config.baseline_medium).read_text())
+        return device, medium.write_bytes
     return (metrics.parse_device_stat(bench.daemon.stat_path.read_text()),
-            metrics.read_ledger(bench.ledger))
+            metrics.read_ledger(bench.ledger).write_completed_bytes)
+
+
+def block_stat_path(device: Path) -> Path:
+    return Path("/sys/class/block") / device.resolve().name / "stat"
+
+
+def daemon_cpu_seconds(bench: Bench) -> float | None:
+    if not bench.daemon:
+        return None
+    return process_usage(bench.daemon.process.pid)["cpu_ticks"] / os.sysconf("SC_CLK_TCK")
+
+
 
 
 def measured_phase(bench: Bench, name: str, operations: int, seed: int) -> Phase:
-    if bench.daemon.process.poll() is not None:
+    if bench.daemon and bench.daemon.process.poll() is not None:
         raise Failure(f"daemon exited with {bench.daemon.process.returncode} before {name}")
-    device_before, ledger_before = counters(bench)
-    summary = ycsb(bench, name, "run", {"recordcount": bench.facts["records"],
-                                        "operationcount": operations, "workload.seed": seed})
-    device_after, ledger_after = counters(bench)
+    device_before, medium_before = counters(bench)
+    daemon_before = daemon_cpu_seconds(bench)
+    summary, client_cpu = ycsb(bench, name, "run", {"recordcount": bench.facts["records"],
+                                                    "operationcount": operations, "workload.seed": seed})
+    device_after, medium_after = counters(bench)
+    daemon_after = daemon_cpu_seconds(bench)
     device_bytes = device_after.write_bytes - device_before.write_bytes
-    backing = ledger_after.write_completed_bytes - ledger_before.write_completed_bytes
+    backing = medium_after - medium_before
     phase = Phase(
         name=name, operations=operations, seconds=round(summary.seconds, 3),
         operations_per_second=round(operations / summary.seconds, 1) if summary.seconds else 0.0,
@@ -499,6 +580,8 @@ def measured_phase(bench: Bench, name: str, operations: int, seed: int) -> Phase
         write_amplification=round(backing / device_bytes, 4) if device_bytes else 0.0,
         latency=summary.per_operation,
         discards=device_after.discard_requests - device_before.discard_requests,
+        daemon_cpu_seconds=round(daemon_after - daemon_before, 3) if daemon_before is not None else None,
+        client_cpu_seconds=round(client_cpu, 3),
     )
     bench.phases.append(phase)
     note(bench, f"{name}: {phase.operations} ops {phase.operations_per_second} ops/s "
@@ -513,14 +596,14 @@ def load(bench: Bench) -> None:
     if records % LOAD_BATCH:
         raise Failure(f"--records must be a multiple of the load batch, {LOAD_BATCH}")
     bench.facts["records"] = records
-    device_before, ledger_before = counters(bench)
-    summary = ycsb(bench, "load", "load", {"recordcount": records, "batch.size": LOAD_BATCH,
-                                           "workload.seed": config.seed})
-    device_after, ledger_after = counters(bench)
+    device_before, medium_before = counters(bench)
+    summary, _ = ycsb(bench, "load", "load", {"recordcount": records, "batch.size": LOAD_BATCH,
+                                              "workload.seed": config.seed})
+    device_after, medium_after = counters(bench)
     bench.facts["load"] = {
         "records": records, "seconds": round(summary.seconds, 3),
         "device_write_bytes": device_after.write_bytes - device_before.write_bytes,
-        "backing_write_bytes": ledger_after.write_completed_bytes - ledger_before.write_completed_bytes,
+        "backing_write_bytes": medium_after - medium_before,
         "filesystem_used_bytes": used_bytes(bench.mount),
     }
     note(bench, f"load: {bench.facts['load']}")
@@ -591,14 +674,17 @@ class Sampler:
 
     def sample(self) -> None:
         bench, self.sequence = self.bench, self.sequence + 1
-        device, ledger = counters(bench)
-        info = subprocess.run([str(bench.config.blkctl), "info", "--blocks", "--color=never",
-                               str(bench.backing)], capture_output=True, text=True, timeout=120)
-        info_path = bench.config.evidence / "blkctl" / f"info-{self.sequence:05d}.txt"
-        info_path.write_text(info.stdout + info.stderr)
-        record = {"time": time.time(), "device": asdict(device), "ledger": asdict(ledger),
-                  "daemon": process_usage(bench.daemon.process.pid), "filesystem_used": used_bytes(bench.mount),
-                  "blkctl_exit": info.returncode, "blkctl": metrics.parse_blkctl_info(info.stdout)}
+        device, medium_write_bytes = counters(bench)
+        record = {"time": time.time(), "device": asdict(device), "medium_write_bytes": medium_write_bytes,
+                  "filesystem_used": used_bytes(bench.mount)}
+        if bench.daemon:
+            info = subprocess.run([*pinned(bench.config.sampler_cpus), str(bench.config.blkctl), "info",
+                                   "--blocks", "--color=never", str(bench.backing)],
+                                  capture_output=True, text=True, timeout=120)
+            info_path = bench.config.evidence / "blkctl" / f"info-{self.sequence:05d}.txt"
+            info_path.write_text(info.stdout + info.stderr)
+            record |= {"daemon": process_usage(bench.daemon.process.pid), "blkctl_exit": info.returncode,
+                       "blkctl": metrics.parse_blkctl_info(info.stdout)}
         self.output.write(json.dumps(record) + "\n")
         self.output.flush()
 
@@ -621,7 +707,7 @@ class Profiler:
         self.data = bench.config.evidence / "perf.data"
 
     def __enter__(self) -> Profiler:
-        if self.bench.config.perf:
+        if self.bench.config.perf and self.bench.daemon:
             argv = ["perf", "record", "-F", str(self.bench.config.perf_frequency), "--call-graph", "fp",
                     "-p", str(self.bench.daemon.process.pid), "-o", str(self.data)]
             note(self.bench, f"perf: {shlex.join(argv)}")
@@ -713,7 +799,49 @@ def execute(bench: Bench) -> None:
         raise Failure("the device received no discards")
 
 
+def execute_baseline(bench: Bench) -> None:
+    """Runs the same load, windows and database checks on a filesystem that the operator mounted."""
+    preflight_baseline(bench)
+    bench.database.parent.mkdir(mode=0o700)
+    with Sampler(bench):
+        load(bench)
+        bench.facts["stop_reason"] = age(bench)
+    check_writable(bench)
+    verify_database(bench, "aged")
+    bench.gates["device_discards"] = sum(phase.discards for phase in bench.phases) > 0
+
+
+def preflight_baseline(bench: Bench) -> None:
+    config = bench.config
+    for tool in (config.go_ycsb, config.sqlite3):
+        if not os.access(tool, os.X_OK):
+            raise Failure(f"missing executable {tool}")
+    if not (config.baseline_device and config.baseline_medium):
+        raise Failure("baseline mode needs --baseline-device and --baseline-medium")
+    for device in (config.baseline_device, config.baseline_medium):
+        if not block_stat_path(device).exists():
+            raise Failure(f"{device} has no block stat counters")
+    if "discard" not in mount_options(config.baseline_mount).split(","):
+        raise Failure(f"{config.baseline_mount} is not mounted with discard")
+    if not os.access(config.baseline_mount, os.W_OK):
+        raise Failure(f"{config.baseline_mount} is not writable")
+    bench.facts["environment_start"] = environment(bench)
+    warn_unstable_host(bench, bench.facts["environment_start"])
+    bench.facts["backing_bytes"] = size_of_block_device(config.baseline_medium)
+
+
+def size_of_block_device(device: Path) -> int:
+    with open(device, "rb") as source:
+        return source.seek(0, os.SEEK_END)
+
+
 def teardown(bench: Bench, succeeded: bool) -> None:
+    if bench.config.baseline_mount:
+        # The database directory is ours; removing it returns its space to the thin pool.
+        if bench.database.parent.exists():
+            shutil.rmtree(bench.database.parent)
+        shutil.rmtree(bench.owned)
+        return
     if bench.mounted:
         try:
             unmount(bench)
@@ -729,6 +857,9 @@ def teardown(bench: Bench, succeeded: bool) -> None:
     if succeeded:
         if bench.created_backing and bench.backing.parent != bench.owned:
             bench.backing.unlink()
+        if bench.backing_kind == "block-device":
+            # Return a RAM disk's pages; the next run formats the device again anyway.
+            run(bench, "blkdiscard", ["blkdiscard", bench.backing], check=False)
         shutil.rmtree(bench.owned)
     else:
         note(bench, f"preserved {bench.owned} (backing {bench.backing}); remove it with: rm -rf {bench.owned}")
@@ -769,12 +900,16 @@ def new_bench(config: Config) -> Bench:
     owned = Path("/tmp") / f"my-block-storage-ublk.{os.getpid()}.{secrets.randbelow(10**9)}"
     owned.mkdir(mode=0o700)
     (owned / "mount").mkdir(mode=0o700)
-    backing = config.backing or owned / "backing.img"
+    backing = config.baseline_device or config.backing or owned / "backing.img"
     kind = "block-device" if backing.exists() and stat.S_ISBLK(backing.stat().st_mode) else "regular-file"
+    if config.baseline_mount:
+        kind = "baseline"
     config.evidence.mkdir(parents=True)
     (config.evidence / "blkctl").mkdir()
+    mount = config.baseline_mount or owned / "mount"
+    work = mount / f"aged-sqlite-{os.getpid()}-{time.time_ns()}" if config.baseline_mount else mount / "work"
     bench = Bench(config=config, owned=owned, backing=backing, backing_kind=kind, created_backing=False,
-                  ledger=owned / "io-ledger", mount=owned / "mount", database=owned / "mount/work/ycsb.db",
+                  ledger=owned / "io-ledger", mount=mount, database=work / "ycsb.db",
                   log=open(config.evidence / "run.log", "a"))
     bench.deadline = time.monotonic() + config.max_hours * 3600
     return bench
@@ -786,7 +921,7 @@ def main(argv: list[str]) -> int:
     note(bench, f"evidence: {config.evidence}")
     result = "FAIL"
     try:
-        execute(bench)
+        execute_baseline(bench) if config.baseline_mount else execute(bench)
         result = "PASS"
     except (Failure, OSError, subprocess.SubprocessError) as error:
         note(bench, f"FAIL: {error}")
