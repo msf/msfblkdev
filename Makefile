@@ -136,7 +136,7 @@ setup-native:
 setup-rocksdb:
 	@timeout --kill-after=10s 1000s bash tools/rocksdb/setup.sh
 
-setup-go-ycsb: setup-native
+setup-go-ycsb: setup-native setup-sqlite
 	@timeout --kill-after=5s 300s bash tools/go-ycsb/setup.sh
 
 check-sqlite: build-ext4

@@ -56,7 +56,7 @@ fetch_archive() {
   }
 }
 
-for tool in cc curl patch sha256sum unzip; do
+for tool in ar cc curl patch sha256sum unzip; do
   require_tool "${tool}"
 done
 mkdir -p -- "${CACHE}" "${BUILD}"
@@ -83,6 +83,7 @@ rm -rf -- "${work}"
 trap - EXIT
 
 rm -f -- "${BUILD}"/*.o "${BUILD}/speedtest1" "${BUILD}/kvtest" "${BUILD}/sqlite3"
+rm -rf -- "${BUILD}/lib" "${BUILD}/include"
 # Build serially: the amalgamation is compiled once and shared by all three tools.
 cc ${COMMON_FLAGS} ${UPSTREAM_WARNINGS} -I"${SOURCE}" \
   -c "${SOURCE}/sqlite3.c" -o "${BUILD}/sqlite3.o"
@@ -108,6 +109,10 @@ cc ${COMMON_FLAGS} ${UPSTREAM_WARNINGS} -DHAVE_READLINE=0 -I"${SOURCE}" \
   -c "${SOURCE}/shell.c" -o "${BUILD}/shell.o"
 cc "${BUILD}/shell.o" "${BUILD}/sqlite3.o" "${BUILD}/wal-observer.o" \
   -lpthread -lm -o "${BUILD}/sqlite3"
+# go-ycsb links this archive, so the benchmark client and the lab tools run the same SQLite.
+mkdir -p -- "${BUILD}/lib" "${BUILD}/include"
+ar rcs "${BUILD}/lib/libsqlite3.a" "${BUILD}/sqlite3.o" "${BUILD}/wal-observer.o"
+cp -- "${SOURCE}/sqlite3.h" "${BUILD}/include/sqlite3.h"
 
 source_id="$(${BUILD}/sqlite3 ':memory:' 'SELECT sqlite_source_id();')"
 compile_options="$(${BUILD}/sqlite3 -json ':memory:' 'PRAGMA compile_options;')"
@@ -119,6 +124,7 @@ sqlite_object_sha="$(sha256sum "${BUILD}/sqlite3.o" | awk '{print $1}')"
 speedtest_sha="$(sha256sum "${BUILD}/speedtest1" | awk '{print $1}')"
 kvtest_sha="$(sha256sum "${BUILD}/kvtest" | awk '{print $1}')"
 shell_sha="$(sha256sum "${BUILD}/sqlite3" | awk '{print $1}')"
+library_sha="$(sha256sum "${BUILD}/lib/libsqlite3.a" | awk '{print $1}')"
 cat > "${DEST}/build-manifest.json" <<EOF
 {
   "sqlite_version": "${VERSION}",
@@ -162,7 +168,8 @@ cat > "${DEST}/build-manifest.json" <<EOF
     "sqlite3.o": "${sqlite_object_sha}",
     "speedtest1": "${speedtest_sha}",
     "kvtest": "${kvtest_sha}",
-    "sqlite3": "${shell_sha}"
+    "sqlite3": "${shell_sha}",
+    "lib/libsqlite3.a": "${library_sha}"
   }
 }
 EOF

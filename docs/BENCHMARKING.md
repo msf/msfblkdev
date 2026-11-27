@@ -828,8 +828,10 @@ The source findings below describe the unmodified upstream commit
 
 The vendored-code lint check keeps two findings: the seeded benchmark PRNG triggers G404, and the
 external baseline forbids upstream-style `fmt.Errorf` in favor of a different errors dependency. No
-lint rule was disabled. The go-ycsb package prefix supplies SQLite 3.46.1 and RocksDB 9.11.2, while
-the SQLite acceptance suite uses SQLite 3.51.3; their results are not interchangeable.
+lint rule was disabled. The go-ycsb package prefix supplies RocksDB 9.11.2. Until 2026-11-27 it
+also supplied SQLite 3.46.1, while the SQLite acceptance suite used 3.51.3. Since then go-ycsb links
+the lab's static SQLite 3.51.3 from `make setup-sqlite`: the same object, compile options and
+checkpoint observer as the `sqlite3` shell. go-ycsb results from before that date ran SQLite 3.46.1.
 
 #### What the RocksDB tools audit found
 
@@ -1165,6 +1167,10 @@ The harness differs from the plan in these ways:
 The SQLite settings are durable and fixed: WAL, `synchronous=FULL` (every commit syncs the WAL),
 4 KiB pages, a 16 MiB page cache, no mmap and `wal_autocheckpoint=1000`. The pinned
 [msf/go-ycsb](https://github.com/msf/go-ycsb) reads each setting back and fails on a mismatch.
+go-ycsb links the lab's SQLite 3.51.3, the same build as the `sqlite3` shell that checks the
+database. The harness fails a run unless go-ycsb reports that version. The lab build also reports
+every automatic WAL checkpoint, which upstream SQLite runs without checking the result, and the
+harness fails a run when one fails.
 go-ycsb runs one thread with uniform keys and `dataintegrity=true`. The harness sets
 `silence=false`, so go-ycsb prints operation errors, and any error fails the run.
 

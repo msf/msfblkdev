@@ -133,5 +133,25 @@ class ParserTest(unittest.TestCase):
         self.assertNotIn("request", events)
 
 
+class ClientOutputTest(unittest.TestCase):
+    good = ("lab-setting sqlite_version=3.51.3\nlab-setting journal_mode=wal\n"
+            'sqlite-lab {"record":"auto_checkpoint","database":"main","trigger_frames":1000,"rc":0,'
+            '"wal_frames":1000,"checkpointed_frames":1000,"policy":"passive"}\n')
+
+    def test_confirmed_settings_and_successful_checkpoints_pass(self):
+        self.assertIsNone(metrics.client_output_problem(self.good, "3.51.3"))
+
+    def test_each_failure_is_named(self):
+        cases = {
+            "operation errors": self.good + "operation err: disk I/O error\n",
+            "sqlite_version=3.51.3": self.good.replace("3.51.3", "3.46.1"),
+            "journal_mode=wal": self.good.replace("journal_mode=wal", "journal_mode=delete"),
+            "checkpoint failed": self.good.replace('"rc":0,', '"rc":10,'),
+        }
+        for expected, output in cases.items():
+            with self.subTest(expected):
+                self.assertIn(expected, metrics.client_output_problem(output, "3.51.3"))
+
+
 if __name__ == "__main__":
     unittest.main()

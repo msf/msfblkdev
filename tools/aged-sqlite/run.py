@@ -32,9 +32,11 @@ from metrics import GIB, MIB, StopRule, Window
 ROOT = Path(__file__).resolve().parents[2]
 MOUNT_HELPER = "/usr/local/libexec/block-storage-mount"
 HELPER_PROTOCOL = "protocol=4"
-GO_YCSB_DEFAULT = ROOT / "tools/build/go-ycsb-39ccca7/bin/go-ycsb"
+GO_YCSB_DEFAULT = ROOT / "tools/build/go-ycsb-8633137/bin/go-ycsb"
 SQLITE_DEFAULT = ROOT / "tools/build/sqlite-3.51.3/build/sqlite3"
 WORKLOADS = ROOT / "tools/go-ycsb/workloads"
+# go-ycsb and the sqlite3 shell both link the lab build of this version (tools/sqlite/setup.sh).
+SQLITE_VERSION = "3.51.3"
 READINESS = re.compile(r"^/dev/ublkb(\d+)\n$")
 # The helper's bench allowlist (rust/src/bin/fs_support/mod.rs) fixes the device sizes it mounts.
 BENCH_SIZES_GIB = (4, 8, 16, 32, 64)
@@ -401,12 +403,17 @@ def ycsb(bench: Bench, label: str, command: str, properties: dict[str, object]) 
     for extra in config.ycsb_properties:
         argv += ["-p", extra]
     result = run(bench, label, argv)
-    if "operation err" in result.stdout or "lab-setting journal_mode=wal" not in result.stdout:
-        raise Failure(f"{label} reported operation errors or did not confirm WAL; see {label}.out")
+    check_client_output(label, result.stdout)
     summary = metrics.summarize_latency(latency_csv, config.evidence / f"{label}-series.csv")
     if not config.keep_latency_csv:
         latency_csv.unlink()
     return summary
+
+
+def check_client_output(label: str, output: str) -> None:
+    problem = metrics.client_output_problem(output, SQLITE_VERSION)
+    if problem:
+        raise Failure(f"{label}: {problem}; see {label}.out")
 
 
 def counters(bench: Bench) -> tuple[metrics.DeviceStat, metrics.LedgerSnapshot]:

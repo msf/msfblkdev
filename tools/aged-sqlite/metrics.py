@@ -245,3 +245,19 @@ def parse_daemon_events(text: str) -> dict[str, dict[str, str]]:
         name = match.group(1) + (f".{match.group(2)}" if match.group(2) else "")
         events[name] = dict(pair.split("=", 1) for pair in match.group(3).split() if "=" in pair)
     return events
+
+
+FAILED_AUTO_CHECKPOINT = re.compile(r'"record":"auto_checkpoint".*"rc":(?!0,)')
+
+
+def client_output_problem(output: str, sqlite_version: str) -> str | None:
+    """Returns why a go-ycsb run's combined output fails the lab checks, or None."""
+    if "operation err" in output:
+        return "go-ycsb reported operation errors"
+    for setting in ("journal_mode=wal", f"sqlite_version={sqlite_version}"):
+        if f"lab-setting {setting}\n" not in output:
+            return f"go-ycsb did not confirm {setting}"
+    # The lab SQLite reports each automatic WAL checkpoint; upstream SQLite drops failures.
+    if FAILED_AUTO_CHECKPOINT.search(output):
+        return "an automatic WAL checkpoint failed"
+    return None

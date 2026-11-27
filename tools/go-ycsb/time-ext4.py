@@ -12,7 +12,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-BINARY = ROOT / "tools/build/go-ycsb-39ccca7/bin/go-ycsb"
+BINARY = ROOT / "tools/build/go-ycsb-8633137/bin/go-ycsb"
 LDB = ROOT / "tools/build/rocksdb-9.11.2/build/tools/ldb"
 PROPERTIES = ROOT / "tools/go-ycsb/workloads"
 EVIDENCE = ROOT / "evidence" / f"raw-ext4-timing-{time.time_ns()}"

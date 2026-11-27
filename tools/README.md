@@ -14,10 +14,10 @@ system services, or require containers.
 |---|---|---|
 | `make setup-sqlite` | `tools/build/sqlite-3.51.3/build/` | SQLite archives, adapter and observer hashes, compiler flags and binary hashes |
 | `make setup-native` | `tools/build/workbench-native/root/` | Ubuntu resolute amd64 packages by version and SHA-256; extraction only |
-| `make setup-go-ycsb` | `tools/build/go-ycsb-39ccca7/bin/go-ycsb` | Fork repository and commit, Go module versions/checksums, native packages and build tags |
+| `make setup-go-ycsb` | `tools/build/go-ycsb-8633137/bin/go-ycsb` | Fork repository and commit, Go module versions/checksums, native packages and build tags |
 | `make setup-rocksdb` | `tools/build/rocksdb-9.11.2/build/` | RocksDB 9.11.2 and gflags 2.2.2 source hashes; GCC 13; static build without compression |
 
-The go-ycsb recipe builds commit `39ccca7c0f406d997683ed6f490f0352630f223b` of the
+The go-ycsb recipe builds commit `86331371b032ee0265e40a2a209d5d4acfcaad09` of the
 fork [msf/go-ycsb](https://github.com/msf/go-ycsb). It reads `~/play/go-ycsb` by
 default; set `GO_YCSB_SOURCE` to use another checkout. It clones the fork if the
 checkout is absent and fetches `master` if the commit is missing. It exports that
@@ -30,6 +30,9 @@ v1.9.9 and adds `workload.seed`, SQLite WAL/FULL settings with readback of the j
 a 16 MiB SQLite cache with mmap disabled, synchronous RocksDB writes, and a
 16 MiB RocksDB cache with compression disabled. It also orders SQLite scans,
 frees RocksDB scan values and removes empty rows from short scan results.
+The SQLite driver links the static `libsqlite3.a` that `make setup-sqlite` builds,
+so `make setup-go-ycsb` runs `make setup-sqlite` first and the client uses the
+same SQLite 3.51.3 as the lab tools.
 
 `go-ycsb/workloads/common.properties` sets the project's 4 KiB value default,
 8,192 initial records and 131,072 requests (the original three-run request budget
