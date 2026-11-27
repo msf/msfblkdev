@@ -20,3 +20,9 @@ serde_json = { version = "=1.0.154", optional = true, features = ["float_roundtr
 xxhash-rust = { version = "=0.8.21", features = ["xxh3"] }
 
 hashbrown = { version = "=0.17.1", default-features = false }
+
+# Release code with line tables for perf. Build it with RUSTFLAGS="-C force-frame-pointers=yes"
+# (see the Makefile's bench-aged-sqlite target) so that `perf record --call-graph fp` can unwind.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"

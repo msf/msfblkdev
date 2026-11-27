@@ -47,7 +47,22 @@ test-blockcheck-checker:
 test-python:
 	@python3 -m unittest discover -s tools/workbench -p 'test_*.py'
 	@python3 -m unittest discover -s tools/sqlite -p 'test_*.py'
+	@python3 -B -m unittest discover -s tools/aged-sqlite -p 'test_*.py'
 	@cd tools/adr05-fault-lab/checker && python3 -B -m unittest
+
+# Linux, operator-run benchmark: aged SQLite A/F (docs/BENCHMARKING.md). It needs ublk access,
+# the protocol-4 mount helper, make setup-go-ycsb and make setup-sqlite. The default backing is an
+# 8 GiB tmpfs file. Pass options with BENCH_ARGS, for example BENCH_ARGS="--fs xfs --workload f".
+# PROFILE=1 serves a frame-pointer build and records the daemon with perf.
+.PHONY: bench-aged-sqlite
+BENCH_DAEMON_PROFILE := $(if $(filter 1,$(PROFILE)),profiling,release)
+bench-aged-sqlite:
+	@cd rust && $(if $(filter 1,$(PROFILE)),RUSTFLAGS="-C force-frame-pointers=yes") \
+		cargo build --locked --profile $(BENCH_DAEMON_PROFILE) --bin block-storage-ublk --bin blkctl
+	@python3 -B tools/aged-sqlite/run.py \
+		--daemon rust/target/$(BENCH_DAEMON_PROFILE)/block-storage-ublk \
+		--blkctl rust/target/$(BENCH_DAEMON_PROFILE)/blkctl \
+		$(if $(filter 1,$(PROFILE)),--perf) $(BENCH_ARGS)
 
 # Linux, opt-in: block-device backing on a ublk device that a tmpfs file backs. Needs ublk
 # access, not root. See tools/device-backing/nested-ublk.sh.

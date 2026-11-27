@@ -8,3 +8,4 @@
 /tools/blockcheck/target/
 /evidence/vm-test-*
 /evidence/vm-latest
+/evidence/aged-sqlite-*
