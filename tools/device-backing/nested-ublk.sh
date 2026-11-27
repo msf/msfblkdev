@@ -4,19 +4,18 @@
 # An outer daemon serves a tmpfs file as /dev/ublkbN, which the normal user owns. That device
 # is the backing under test:
 #   1. The daemon formats it in place with --block-device.
-#   2. examples/device_discard writes, discards and cleans a volume on it, so the engine
-#      issues BLKDISCARD; the outer volume must unmap the discarded ranges.
-#   3. An inner daemon serves it, and a second format and blkctl check must be refused.
-#   4. blkctl check must pass on the device after the inner daemon stops.
+#   2. An inner daemon serves it, and a second format and blkctl check must be refused.
+#   3. After a write burst and a blkdiscard of the whole volume, the idle inner daemon must
+#      free segments and release them with BLKDISCARD (BUG-4 once stopped its maintenance).
+#   4. blkctl check must pass on the device, and the outer volume must have unmapped the
+#      discarded ranges.
 #
-# Usage: tools/device-backing/nested-ublk.sh <directory with block-storage-ublk, blkctl
-#        and examples/device_discard>
+# Usage: tools/device-backing/nested-ublk.sh <directory with block-storage-ublk and blkctl>
 set -euo pipefail
 
 bin=${1:?usage: nested-ublk.sh <cargo target directory, such as rust/target/release>}
 daemon=$bin/block-storage-ublk
 blkctl=$bin/blkctl
-device_discard=$bin/examples/device_discard
 dir=$(mktemp -d -p /tmp nested-ublk.XXXXXX)
 pids=()
 keep=0
@@ -80,16 +79,6 @@ echo "outer device: $outer"
   || fail "device format: $(cat "$dir/format.err")"
 "$blkctl" info --color=never "$outer" | grep -q "block device" || fail "info: not a block device"
 
-"$device_discard" "$outer" || fail "device_discard"
-"$blkctl" check "$outer" || fail "check of the device after device_discard"
-stop_last
-mapped=$(mapped_blocks "$dir/outer.img")
-echo "outer volume mapped blocks after the engine's discards: $mapped of 262144"
-# The inner volume wrote 1280 MiB through a 1 GiB device; only BLKDISCARD unmaps any of it.
-[ "$mapped" -lt 196608 ] || fail "BLKDISCARD never reached the outer volume"
-serve "$dir/outer.img" outer
-outer=$device
-echo "outer device again: $outer"
 
 serve "$outer" inner
 inner=$device
@@ -97,7 +86,11 @@ echo "inner device: $inner"
 "$daemon" format "$outer" --size-mib 640 --block-device 2>"$dir/busy.err" \
   && fail "formatted a device that the inner daemon owns"
 echo "second format refused: $(cat "$dir/busy.err")"
-dd if=/dev/urandom of="$inner" bs=1M count=640 oflag=direct status=none
+for _pass in 1 2; do
+  dd if=/dev/urandom of="$inner" bs=1M count=640 oflag=direct status=none
+done
+blkdiscard "$inner"
+sleep 1
 set +e
 "$blkctl" check "$outer" >/dev/null 2>"$dir/check-live.err"
 code=$?
@@ -106,6 +99,12 @@ set -e
 echo "check while served: exit 8 ($(cat "$dir/check-live.err"))"
 
 stop_last
+stats=$(grep "event=reclaim_stats" "$dir/inner.err" | tail -1 | tr ' ' '\n')
+grep -E "reclaim_(barrier_publications|segments_freed|discards_issued)" <<<"$stats"
+publications=$(grep -o "reclaim_barrier_publications=[0-9]*" <<<"$stats" | cut -d= -f2)
+issued=$(grep -o "reclaim_discards_issued=[0-9]*" <<<"$stats" | cut -d= -f2)
+[ "${publications:-0}" -gt 0 ] || fail "the idle inner daemon ran no barrier publication"
+[ "${issued:-0}" -gt 0 ] || fail "the idle inner daemon discarded nothing"
 grep -q "event=backing_discard_disabled" "$dir/inner.err" \
   && fail "inner daemon disabled discard: $(grep backing_discard_disabled "$dir/inner.err")"
 grep "event=space phase=shutdown" "$dir/inner.err" | tr ' ' '\n' \
@@ -114,4 +113,8 @@ grep "event=space phase=shutdown" "$dir/inner.err" | tr ' ' '\n' \
 
 stop_last
 "$blkctl" check "$dir/outer.img" >/dev/null || fail "check of the outer image"
+mapped=$(mapped_blocks "$dir/outer.img")
+echo "outer volume mapped blocks after the inner discards: $mapped of 262144"
+# The inner volume wrote 1280 MiB through a 1 GiB device; only BLKDISCARD unmaps any of it.
+[ "$mapped" -lt 196608 ] || fail "BLKDISCARD never reached the outer volume"
 echo "PASS"

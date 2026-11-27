@@ -53,7 +53,7 @@ test-python:
 # access, not root. See tools/device-backing/nested-ublk.sh.
 .PHONY: test-device-backing
 test-device-backing:
-	@cd rust && cargo build --locked --release --bin block-storage-ublk --bin blkctl --example device_discard
+	@cd rust && cargo build --locked --release --bin block-storage-ublk --bin blkctl
 	@timeout --kill-after=10s 300s tools/device-backing/nested-ublk.sh rust/target/release
 
 # Linux, opt-in: one disposable regular file. The timeout covers I/O, not compilation.

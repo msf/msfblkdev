@@ -922,6 +922,14 @@ fn close_after_queue(
 /// hints and one poll SQE on the cleaner's wake-up descriptor. Both complete as target I/O,
 /// classified by operation code before any tag indexes a request buffer.
 ///
+/// The timer generation in `user_data`. libublk 0.4.8's `UblkIOCtx::build_user_data` computes
+/// `tgt_data << 24` in `u32` before widening to `u64`, so only the low 8 bits of the generation
+/// survive. Comparing more bits made every timer after the 255th look stale, and a stale timer
+/// isn't re-armed, so maintenance stopped (BUG-4).
+fn timer_generation(user_data: u64) -> u8 {
+    ((user_data >> 24) & 0xff) as u8
+}
+
 /// Timers carry a generation: when a request arrives while the armed timer is far away, a
 /// short timer is armed for the idle wait and the far one is ignored when it fires. That costs
 /// one SQE per burst of requests, never one per request.
@@ -930,7 +938,8 @@ struct Maintenance<'c> {
     scheduler: Scheduler,
     /// Referenced by timeout SQEs until the ring flushes them; two generations can be pending.
     timers: [Box<types::Timespec>; 2],
-    generation: u16,
+    /// Wraps at 256: libublk keeps only 8 bits of it in the user data (see `timer_generation`).
+    generation: u8,
     /// Whether the newest timer fires within one idle wait of arming.
     timer_short: bool,
     timer_tag: u16,
@@ -1026,8 +1035,7 @@ impl<'c> Maintenance<'c> {
 
     /// Whether a timer completion belongs to the newest generation.
     fn timer_is_current(&mut self, user_data: u64) -> bool {
-        let generation = ((user_data >> 24) & 0xffff) as u16;
-        if generation == self.generation {
+        if timer_generation(user_data) == self.generation {
             true
         } else {
             self.stale_timers += 1;
@@ -2131,6 +2139,26 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&backing.0)?, b"preserve me");
         Ok(())
+    }
+
+    #[test]
+    fn every_timer_generation_survives_libublk_user_data_packing() {
+        // libublk keeps 8 bits of target data, so generation 256 packs like generation 0.
+        let packed = UblkIOCtx::build_user_data(9, TARGET_OP_TIMER, 256, true);
+        assert_eq!((packed >> 24) & 0xffff, 0);
+        let clock = block_storage::ManualClock::new(Instant::now());
+        let mut maintenance = Maintenance::new(ServeConfig::default(), 4, -1, &clock);
+        let mut previous = None;
+        // Several wraps of the 8-bit generation: the newest timer is always current.
+        for _ in 0..1000 {
+            let (user_data, _) = maintenance.next_timer(Duration::from_millis(2));
+            assert!(maintenance.timer_is_current(user_data));
+            if let Some(previous) = previous {
+                assert!(!maintenance.timer_is_current(previous));
+            }
+            previous = Some(user_data);
+        }
+        assert_eq!(maintenance.stale_timers, 999);
     }
 
     #[test]
