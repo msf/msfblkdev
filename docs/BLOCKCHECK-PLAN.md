@@ -260,54 +260,7 @@ a 256 MiB + 8 KiB backing with a 128 MiB window.
 
 ## Aged fio and SQLite cases
 
-These two cases add sustained load from standard tools. They do not use the checker: `aged-fio`
-measures device performance, and `aged-sqlite` checks database and filesystem integrity. Both use
-the same daemon adapters, sampler, memory cap, stall limits and stop rule as the other cases. Each
-runs on the candidate's default segment size only.
-
-v1.2.3 runs both cases on the same backing until its log is full. We report the bytes it wrote
-before its first error, as a multiple of the backing size. That error is expected and does not
-count as a failure.
-
-### `aged-fio`
-
-The device has 4 GiB logical size and 6 GiB + 8 KiB backing (fill factor 0.67, a gated row). The
-procedure is:
-
-1. Write every LBA sequentially, then flush (live fraction 1.00).
-2. Run fio with `rw=randwrite bs=4k direct=1 ioengine=io_uring iodepth=32 fsync=256`.
-   Run once with uniform addresses and once with `random_distribution=zipf:1.2`.
-3. Run fio in windows of one backing size each. Between windows, apply the
-   [stop rule](#endurance-stop-rule).
-
-fio logs bandwidth and latency per second (`log_avg_msec=1000`). The sampler reads device writes
-from `/sys/block/ublkbN/stat` and backing writes from the backing LV's `/sys/block/dm-N/stat`.
-
-### `aged-sqlite`
-
-The device has 4 GiB logical size and 4 GiB + 8 KiB backing. The client uses 75% of the volume,
-so live data is about 3 GiB and the fill factor is about 0.75. ext4 must discard freed blocks;
-otherwise every block that ext4 ever used stays live. The procedure is:
-
-1. Format the device with `mkfs.ext4`, then run `tune2fs -o discard`. The existing mount helper
-   mounts without options, and ext4 applies this superblock default. A loop-device test on
-   2026-10-20 confirmed that deleted files then release space.
-2. Mount the device through the existing mount helper.
-3. Load go-ycsb SQLite records with 4 KiB values. Calibrate `recordcount` so that ext4 reports
-   about 3 GiB used after the load.
-4. Repeat the run phase of workload A (50% reads, 50% updates). Use a separate fresh device for
-   workload F (50% reads, 50% read-modify-write). Count progress in device bytes written, and
-   apply the [stop rule](#endurance-stop-rule) between run phases.
-5. Run `PRAGMA integrity_check` and compare the record count with the loaded count.
-6. Unmount and run `e2fsck -fn`.
-7. Stop the daemon cleanly, serve the same backing again, mount it and repeat step 5.
-
-`findmnt` does not show the superblock default. The device's discard fields in
-`/sys/block/ublkbN/stat` prove that discards reached the device.
-
-The gate assumes at most 3136 MiB of live data: at that size, 4 GiB of backing is at least
-1.25 times the ADR-08 floor for 8, 16 and 32 MiB segments. The sampler records ext4 used space
-every second. If it exceeds 3136 MiB, the run is outside the gate and is reported as measured only.
+The `aged-fio` and `aged-sqlite` cases, their gates and their delivery are in [BENCHMARKING.md](BENCHMARKING.md#aged-fio-and-sqlite-cases).
 
 ## ENOSPC under pressure
 
@@ -333,8 +286,8 @@ acceptable only for raw-device clients.
 | Exhaustion | Real exhaustion returns ENOSPC, not EIO or a hang; flushed data survives; writes resume after discard. |
 | Memory | No OOM under the [memory cap](#how-is-the-memory-cap-set); peak memory has no upward trend. |
 | Stalls | No request takes longer than 1 s under `write-pressure`, excluding ENOSPC retries. ENOSPC retries follow [ENOSPC under pressure](#enospc-under-pressure): backoff at most 1 s, 30 s total. |
-| Aged fio | Both `aged-fio` runs reach the stop rule without ENOSPC or EIO. |
-| Aged SQLite | Both `aged-sqlite` runs reach the stop rule without ENOSPC, EIO or a read-only remount. `PRAGMA integrity_check` passes and the record count matches before and after the restart. `e2fsck -fn` reports no errors. The device's discard count is greater than zero. |
+
+The aged fio and aged SQLite gates are in [BENCHMARKING.md](BENCHMARKING.md#gates-for-the-aged-cases).
 
 Performance has no gate. ADR-08 states that fresh-volume throughput cannot gate this design, and
 the candidate enables overwrite-heavy workloads that format 3 cannot sustain. That capability is
@@ -367,27 +320,11 @@ heap reports are diagnostics.
 The cgroup also charges page cache. The backing uses O_DIRECT, so we assume this adds little. The
 noise baseline must confirm that assumption.
 
-## What do we report without a gate?
-
-| Measurement | Report |
-|---|---|
-| Fresh comparison | A reproducible throughput loss above 10% or a P99 increase above 20% is a finding. A throughput loss above 50% or a P99 increase above 2× is a severe finding. Neither fails the candidate. |
-| Compaction memory | Candidate peak minus `P_base`, compared with the 16 MiB allowance. If the candidate's `--help` exposes heap or eviction budgets, we set them explicitly and report peak memory against them. |
-| Memory spike | Candidate peak minus `P_base` of at least one segment size is a finding. It suggests that the cleaner retains a whole victim, which ADR-08 forbids. Other causes are possible, so the finding needs diagnosis. |
-| Steady state | Whether each `aged-overwrite` run reached steady state before its maximum multiple. |
-| Live fraction 0.90 | Endurance, write amplification and latency, beside the gated 1.00 runs. |
-
-### Which baseline do these numbers need?
-
-Earlier performance results come from other hardware. Before the first candidate run, we run the
-fresh comparison for v1.2.3 against itself on this host. If that noise exceeds the 10% or 20%
-trigger, we revisit the trigger before the candidate run. The same runs measure `P_base`.
+The measurements reported without a gate, and the noise baseline they need, are in [BENCHMARKING.md](BENCHMARKING.md#ungated-blockcheck-measurements).
 
 ### Why these values?
 
-- **Regression trigger:** the implementation prompt's 10% and 20% replace the template's 90% and
-  110%. We expect P99 on ublk to vary more than throughput. This is not measured; the noise
-  baseline checks it.
+- **Regression trigger:** see [ungated blockcheck measurements](BENCHMARKING.md#ungated-blockcheck-measurements).
 - **Stall limits:** 1 s is far above normal device latency, and a cleaner wait of seconds is a real
   defect. 30 s matches the request timeout we expect from ublk. Read
   `/sys/block/ublkbN/queue/io_timeout` to confirm it.
@@ -427,8 +364,6 @@ The same applies if the run exceeds a resource or time limit before finishing it
    the raw LV.
 3. Add the remaining cases, sequence replay and reduction, backing-size sweep and ADR-10 parser.
    Freeze the gates before judging the reclamation candidate. Record its commit and binary identity.
-4. Add `aged-fio` and `aged-sqlite`, using the adapters from delivery 2. Calibrate the SQLite
-   `recordcount` on a 4 GiB host ext4 image before the candidate run. v1.2.3's log may fill
-   during the load itself.
+4. Add `aged-fio` and `aged-sqlite`: see [BENCHMARKING.md](BENCHMARKING.md#delivery).
 5. Connect ADR-05's simulated backing to the logical checker and its separate structural and
    record-order checks. Run it in process first, then as an unprivileged ublk backing target.

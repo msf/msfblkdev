@@ -30,7 +30,7 @@ make test-sqlite-xfs-one SQLITE_CASE=speedtest-main \
 ```
 
 `make test` remains unprivileged and creates no live device or mount. The XFS
-matrix runs separately from ext4. Baseline validation requires matching
+matrix runs separately from ext4. [Baseline validation](BENCHMARKING.md#compare-a-sqlite-baseline) requires matching
 filesystems; it rejects a mixed matrix or an ext4/XFS performance comparison.
 
 ## Acceptance evidence

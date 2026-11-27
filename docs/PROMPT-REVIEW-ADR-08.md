@@ -19,7 +19,7 @@ Read these completely before you write anything:
    format 3, the vocabulary and the ADR form this project uses.
 3. `ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md` and `ADR-09-RELOCATION-COMPRESSION.md`, the
    documents under review.
-4. `TMD-WORKBENCH.md`, the measurement plan the ADR depends on.
+4. `TMD-WORKBENCH.md` (now "Workbench layer proposal" in `docs/BENCHMARKING.md`), the measurement plan the ADR depends on.
 5. `papers/README.md`, then the PDFs named below. Read the sections you cite. Do not cite a section
    you did not read. If you rely on recollection of a paper, say so.
 6. `rust/src/mapping_cache.rs`, `rust/src/format_v3/checkpoint.rs`,

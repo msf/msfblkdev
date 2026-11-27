@@ -7,7 +7,7 @@ Status: accepted and released in `v2.0` (`031d778`), on-disk format 4. See [rele
 Updates: ADR-07 (reusable log and mapping index), ADR-04 (segment reclamation replaces
 replacement-image compaction), ADR-03 (discard advertisement)
 Related: [ADR-09 compression follow-up](ADR-09-RELOCATION-COMPRESSION.md),
-[prior-art review](papers/README.md), [workbench](TMD-WORKBENCH.md),
+[prior-art review](papers/README.md), [benchmarking](docs/BENCHMARKING.md),
 [technical review and amendments](docs/REVIEW-ADR-08.md), [implementation record](GOAL-ADR08.md)
 
 How to read this document: the sections before [Implementation decisions](#implementation-decisions)
@@ -835,7 +835,7 @@ segments emptied by writes, freed segments, barrier publications, discards and p
 `LogWrites` counts user payloads, relocation payloads, footers, metadata and links separately. The
 daemon logs all three at close. Engine amplification does not measure the SSD's internal writes.
 
-The [workbench](TMD-WORKBENCH.md) defines simulation, trace replay and live workloads. It compares
+The [workbench](docs/BENCHMARKING.md#workbench-layer-proposal) defines simulation, trace replay and live workloads. It compares
 raw-cleaning policies before fixing constants, then measures aged behavior at 128 MiB and 4 GiB
 logical sizes. Report latency, CPU, memory, recovery cost and amplification after the log has
 wrapped. Fresh-volume throughput cannot gate this design.
@@ -1103,7 +1103,7 @@ These results apply to `v2.0-rc` (`8c7f650`), not the `v2.0` release:
   Installing helpers was out of scope for the implementation clone.
 
 Logs live under `evidence/adr08-implementation/`.
-[ADR-08-PERF-RESULTS.md](ADR-08-PERF-RESULTS.md) summarizes the performance comparisons.
+[BENCHMARKING.md](docs/BENCHMARKING.md#adr-08-engine-comparison-v20-rc) summarizes the performance comparisons.
 
 ## Proposed deliveries
 

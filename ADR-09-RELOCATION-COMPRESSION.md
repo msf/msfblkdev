@@ -4,7 +4,7 @@ Date: 2026-09-20 Author: Miguel Filipe Status: deferred draft, split from ADR-08
 and activation remain undecided. Nothing is implemented. On-disk format: future extension; version
 or incompatible-feature gate must be decided before activation. Compressed records are not valid
 format-4 records. Would extend: [ADR-08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) Related:
-[workbench](TMD-WORKBENCH.md), [original technical review](docs/REVIEW-ADR-08.md)
+[workbench layer proposal](docs/BENCHMARKING.md#workbench-layer-proposal), [original technical review](docs/REVIEW-ADR-08.md)
 
 ## Context
 

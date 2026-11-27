@@ -278,9 +278,9 @@ Before accepting a new buffered LBA, let `N` be the resulting payload count, `R 
 
 No checkpoint occurs inside the group. Each pending mapping page therefore needs at most one later snapshot, even when its updates cross a packed-record boundary. A buffered overwrite of an existing LBA adds no reservation. Capacity rejection occurs before modifying the buffer or issuing backing I/O.
 
-This write-batching amendment supersedes v1.2's one-mapping-page-per-record rule. The [v1.1/v1.2 measurements](ADR-07-PERF-RESULTS.md#historical-measurements-before-the-batching-fix) found 4,080 backing writes instead of 128 for the same scattered batch. The minimum compatible cache replaces that rule without changing the version-3 disk layout. Historical delivery entries below describe the original v1.2 implementation.
+This write-batching amendment supersedes v1.2's one-mapping-page-per-record rule. The [v1.1/v1.2 measurements](docs/BENCHMARKING.md#original-v12-before-the-batching-fix) found 4,080 backing writes instead of 128 for the same scattered batch. The minimum compatible cache replaces that rule without changing the version-3 disk layout. Historical delivery entries below describe the original v1.2 implementation.
 
-The [packed-write measurements](ADR-07-PERF-RESULTS.md) repeat the release baselines and report the amended implementation's throughput, latency, memory, and checkpoint costs.
+The [packed-write measurements](docs/BENCHMARKING.md#v121-packed-data-correction) repeat the release baselines and report the amended implementation's throughput, latency, memory, and checkpoint costs.
 
 ### How does bounded recovery work?
 
@@ -372,7 +372,7 @@ Each delivery uses isolated commits. Checkboxes record executed evidence, not in
 
 Implemented whole-buffer sorting, 338-payload packing across mapping pages, and cache/checkpoint configuration validation. Tests cover 338, 339, 1,024, and 1,500 scattered payloads, exact record offsets, one final data-log fsync, dirty-page overlap, pressure before release, partial in-memory mapping updates, and checkpoint interruptions. No disk-format or dependency change was needed.
 
-`make lint test` passed all 301 commands. The exhaustive process-crash gate, 21 live ublk/fio cases, ext4 and XFS lifecycles, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#packed-write-amendment-validation-2026-09-19) lists the evidence. [The performance report](ADR-07-PERF-RESULTS.md) retains 105 engine and 60 fio measurements against both earlier release tags, including the remaining flush-tail and checkpoint costs. The corrected implementation is released as v1.2.1. Raw benchmark rows retain their pre-release label `working`.
+`make lint test` passed all 301 commands. The exhaustive process-crash gate, 21 live ublk/fio cases, ext4 and XFS lifecycles, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#packed-write-amendment-validation-2026-09-19) lists the evidence. [The performance report](docs/BENCHMARKING.md#v121-packed-data-correction) retains 105 engine and 60 fio measurements against both earlier release tags, including the remaining flush-tail and checkpoint costs. The corrected implementation is released as v1.2.1. Raw benchmark rows retain their pre-release label `working`.
 
 ### Checkpoint batching validation (2026-09-19)
 
@@ -380,13 +380,13 @@ The checkpoint writer groups at most 32 contiguous snapshot or index blocks into
 
 `make lint test test-acceptance` passed all 305 commands in both bounded and exhaustive modes. New tests verify 1/2/31/32/33/65 dirty pages, 1/32/33 index blocks, exact completed write counts and bytes, consecutive snapshot LSNs, failed-publication latching after a successful earlier batch, and replay with holes before later snapshot records. Eight batched-publication boundaries passed 20 SIGKILL repetitions each in exhaustive mode. A further short-write test verifies that a sub-page write missing the independent header checksum leaves the old root valid and reopening fails closed without changing the backing. Focused tests and lint passed again after adding that case.
 
-The existing authorized live ublk/fio, ext4, XFS, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#checkpoint-batching-validation-2026-09-19) records the evidence. The [performance rerun](ADR-07-PERF-RESULTS.md#v122-checkpoint-batching-2026-09-19) passed 105 engine, 60 fio, and 25 I/O-accounting cases. Automatic-cache scattered writes improved 52% in the engine and 46% through fio versus v1.2.1. Full-cache close fell from 58.06 ms to 11.66 ms, with 76 backing writes instead of 2,363 and unchanged bytes/barriers. Released as v1.2.2; the measured Rust sources match the release.
+The existing authorized live ublk/fio, ext4, XFS, and all 87 SQLite/ext4 cases passed. [The delivery plan](PLAN-PAGED-MAPPING.md#checkpoint-batching-validation-2026-09-19) records the evidence. The [performance rerun](docs/BENCHMARKING.md#v122-checkpoint-batching) passed 105 engine, 60 fio, and 25 I/O-accounting cases. Automatic-cache scattered writes improved 52% in the engine and 46% through fio versus v1.2.1. Full-cache close fell from 58.06 ms to 11.66 ms, with 76 backing writes instead of 2,363 and unchanged bytes/barriers. Released as v1.2.2; the measured Rust sources match the release.
 
 ### Packing and prefetch refinement (2026-09-19)
 
 Refined format 3 to 336 entries per page without changing its version number, as explicitly authorized for this prototype. Snapshot publication sorts dirty page IDs using accounted preallocated scratch. Sequential read misses can load up to four adjacent current snapshots into unused or cold clean slots. Unconditional prefetch was rejected after it regressed random reads by 22–27%; the released policy requires sequential mapping-page demand.
 
-The [combined experiment](ADR-07-PERF-RESULTS.md#v123-336-entry-pages-and-adjacent-page-prefetch-2026-09-19) passed 48 cases against fresh v1.2.2 baselines. Sequential mapping-page scans improve 45–51%, with about 76% fewer metadata read submissions. Random throughput stays within 0.5% of baseline; ordinary sequential payload results are mixed. The [validation record](PLAN-PAGED-MAPPING.md#packing-and-prefetch-validation-2026-09-19) retains isolated packing/sorting checks, all 311 bounded and exhaustive commands, live ublk/fio, ext4, XFS, and all 87 SQLite cases. Released as v1.2.3. These measurements do not establish general workload or power-loss guarantees.
+The [combined experiment](docs/BENCHMARKING.md#v123-336-entry-pages-and-adjacent-page-prefetch) passed 48 cases against fresh v1.2.2 baselines. Sequential mapping-page scans improve 45–51%, with about 76% fewer metadata read submissions. Random throughput stays within 0.5% of baseline; ordinary sequential payload results are mixed. The [validation record](PLAN-PAGED-MAPPING.md#packing-and-prefetch-validation-2026-09-19) retains isolated packing/sorting checks, all 311 bounded and exhaustive commands, live ublk/fio, ext4, XFS, and all 87 SQLite cases. Released as v1.2.3. These measurements do not establish general workload or power-loss guarantees.
 
 ## FUTURE WORK
 

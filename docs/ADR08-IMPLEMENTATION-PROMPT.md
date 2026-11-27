@@ -57,8 +57,8 @@ Never turn an infrastructure limitation into a claim that the test passed.
 
 Read the private clone's `AGENTS.md`, `README.md`, `RALPH.md`, ADR-08 and
 `docs/REVIEW-ADR-08.md` fully. Read ADR-09 only to establish the excluded compression boundary.
-Read the relevant ADR-01/03/04/07 contracts and `ADR-07-PERF-RESULTS.md`.
-Read `TMD-WORKBENCH.md` as background; do not implement its general framework.
+Read the relevant ADR-01/03/04/07 contracts and `ADR-07-PERF-RESULTS.md` (now the format-3 results in `docs/BENCHMARKING.md`).
+Read `TMD-WORKBENCH.md` (now "Workbench layer proposal" in `docs/BENCHMARKING.md`) as background; do not implement its general framework.
 Read `ADR-10-WORKBENCH-TESTS-AND-REPORTS.md` as a candidate system or tool suite to use or adapt for testing/benchmarking.
 At this pinned revision, `RALPH.md` and `SQLITE-EXT4.md` are at the repository root.
 Do not follow their uncommitted moves in the source checkout.

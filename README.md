@@ -19,7 +19,7 @@ The table shows how much of each ADR is in the code. The percentages are estimat
 | [07](ADR-07-PAGED-MAPPING-AND-CACHE.md) | Paged mapping and bounded cache | 100% | Format 4 replaced the format-3 schema. It keeps the cache, prefetch and bounded recovery. |
 | [08](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) | Segmented log and space reclamation | ~90%, released in v2.0 | Open: aged SQLite A/F; crash tests for the existing discard and windowed-recovery failpoints. Dropped: Delivery 0 simulator, one-head and multi-victim experiments, bounded selection scan. `BLKDISCARD` for block-device backing landed after v2.0. |
 | [09](ADR-09-RELOCATION-COMPRESSION.md) | Compression at relocation | **Not implemented** | Deferred draft. Format 4 already rejects the reserved record kind 6 and mapping bit 31. |
-| [10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) | Workbench tests and reports | ~70% | Done: reporting CLI, test matrix, pinned tool recipes, KVM boot probe, blockcheck checker library. Open: blockcheck device runs. Deferred: the comparison against LVM thin provisioning and LVM-VDO in memory-bounded VMs; the KVM boot probe is kept for it. Dropped: the v1.x historical comparison, the TMD-WORKBENCH layers. |
+| [10](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) | Workbench tests and reports | ~70% | Done: reporting CLI, test matrix, pinned tool recipes, KVM boot probe, blockcheck checker library. Open: blockcheck device runs. Deferred: the comparison against LVM thin provisioning and LVM-VDO in memory-bounded VMs; the KVM boot probe is kept for it. Dropped: the v1.x historical comparison, the workbench layers (TMD-WORKBENCH). |
 | [11](ADR-11-BLKCTL-INSPECTION-TOOL.md) | `blkctl` volume inspection and offline check | ~90% | Done: `open_live` with its ownership claim, `open_readonly`, `blkctl info` and `blkctl check`, which the filesystem lab runs after each clean stop. Open: the 500 GiB `info` timing on NVMe. |
 
 Not implemented:
@@ -32,7 +32,7 @@ The evidence for these results:
 
 - The [v2.0 qualification](docs/V2.0-QUALIFICATION.md) covers engine and process-crash tests, live ublk/fio, ext4, XFS, and 87 SQLite clean-restart cases on each filesystem. It does not cover aged SQLite A/F or power loss.
 - [SQLite/ext4](docs/SQLITE-EXT4.md) and [SQLite/XFS](docs/SQLITE-XFS.md) record the suites and baselines. Each matrix runs DELETE/EXTRA, WAL/FULL and WAL/NORMAL.
-- The [ADR-07 performance results](ADR-07-PERF-RESULTS.md) compare v1.2 to v1.2.3. The [v2.0-rc performance report](ADR-08-PERF-RESULTS.md) records measurements before the release.
+- [Benchmarking](docs/BENCHMARKING.md) records every performance result: the [v2.0-rc engine comparison](docs/BENCHMARKING.md#adr-08-engine-comparison-v20-rc) measured before the release, and the format-3 [v1.2 to v1.2.3 experiments](docs/BENCHMARKING.md#results-history).
 - The [ADR-05 campaign README](docs/adr05/README.md) lists the fault results, the two engine fixes and the open gates. The [fault results explorer](docs/adr05-report.html) links each case to its trace. The campaign was qualified on native arm64.
 - The [blockcheck plan](docs/BLOCKCHECK-PLAN.md) specifies the device-level checks that are still open.
 
@@ -44,7 +44,7 @@ The open items, in priority order.
 
 1. Add crash tests that use the existing `discard-write-complete` and `recovery-snapshots-fsync-complete` failpoints (ADR-08). The released format has these crash points, but no test kills the process at them. The failpoint harness already exists, so the cost is small.
 2. Finish the ADR-05 retry work in the [campaign plan](docs/ADR05-CAMPAIGN.md): retry ownership across timeouts and cancellation, then checkpoint and cleaner faults. Extend the live checkpoint-B tests to the other publication boundaries.
-3. Run the [blockcheck device workloads](docs/BLOCKCHECK-PLAN.md), including aged SQLite A/F (ADR-08, ADR-10). The release has not been tested under aged database workloads.
+3. Run the [blockcheck device workloads](docs/BLOCKCHECK-PLAN.md), including [aged SQLite A/F](docs/BENCHMARKING.md#aged-fio-and-sqlite-cases) (ADR-08, ADR-10). The release has not been tested under aged database workloads.
 4. Complete RocksDB correctness on ext4 and XFS (ADR-06).
 5. Later: logical growth (ADR-04), then a distributed replicated log.
 
@@ -59,7 +59,8 @@ The open items, in priority order.
 - [ADR-07: paged mapping and bounded cache](ADR-07-PAGED-MAPPING-AND-CACHE.md) defines the mapping cache, checkpoint publication and bounded recovery. Format 4 keeps these contracts.
 - [ADR-08: segmented log and space reclamation](ADR-08-SEGMENTED-LOG-AND-SPACE-RECLAMATION.md) defines format 4: segments, two fixed heads, the mapping index tree, raw relocation, the two-publication freeing barrier, discard, backing growth and the heap budget.
 - [ADR-09: compression at relocation](ADR-09-RELOCATION-COMPRESSION.md) is a deferred extension of ADR-08.
-- [ADR-10: workbench tests and reports](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines test goals, commands and KPIs. [TMD-WORKBENCH](TMD-WORKBENCH.md), the [VM environment](docs/WORKBENCH-VM.md) and the [v1.3 benchmark plan](docs/V1.3-BENCHMARK-PLAN.md) support it.
+- [ADR-10: workbench tests and reports](ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) defines test goals, commands and KPIs.
+- [Benchmarking](docs/BENCHMARKING.md) is the single document for performance: how to run the benchmarks, the workloads and KPIs, the VM environment, the open plans and the recorded results.
 - [ADR-11: blkctl volume inspection and offline check](ADR-11-BLKCTL-INSPECTION-TOOL.md) defines the read-only open, the ownership claim of `open_live` and the `blkctl` tool.
 - [Distributed reliable block storage](DISTRIBUTED_RELIABLE_BLOCK_STORAGE.md) is a non-authoritative future design note. It is not an implementation plan.
 
@@ -322,6 +323,14 @@ daemon serves it. After a write burst, the test discards the whole inner volume 
 `blkdiscard`, as `fstrim` would. The idle inner daemon must then free segments and release them
 with `BLKDISCARD`, the outer volume must unmap them, and `blkctl check` must pass.
 
+### Aged SQLite benchmark
+
+`make bench-aged-sqlite` runs YCSB workload A or F against SQLite on ext4 or XFS on an aged 8 GiB
+device, and records throughput, latency, write amplification and `blkctl info` samples.
+`PROFILE=1` also records a perf profile of the daemon. It is operator-run and not part of
+`make test-all`. It needs the protocol-4 mount helper. See
+[Aged SQLite A/F](docs/BENCHMARKING.md#aged-sqlite-af).
+
 ### Running every test
 
 `make test-all` runs every test step in order of required access and writes one summary page. It continues after a failed step. It skips each step that the host cannot run and records the command that fixes the prerequisite.
@@ -513,7 +522,7 @@ make test-sqlite-xfs
 
 SQLite builds are explicit and pinned to 3.51.3. Normal `make test` needs neither SQLite tools nor mounts. The 87-run gate uses three fresh repetitions, a 512 MiB cumulative backing-write limit per run, and the existing 60-second command / 600-second suite limits. The accepted run took 131.696 seconds with tmpfs backing. The helper and filesystem defaults are unchanged.
 
-See [SQLite/ext4](docs/SQLITE-EXT4.md) for cases, single-run selectors, measurement limits, baseline comparison, and the upstream multiprocess audit. [SQLite/XFS](docs/SQLITE-XFS.md) records its 160.073-second acceptance run, audit and separate baseline. These are clean-restart correctness results and initial timing baselines, not crash, power-loss or sustainable-throughput claims.
+See [SQLite/ext4](docs/SQLITE-EXT4.md) for cases, single-run selectors, measurement limits and the upstream multiprocess audit. [Benchmarking](docs/BENCHMARKING.md#compare-a-sqlite-baseline) describes baseline comparison. [SQLite/XFS](docs/SQLITE-XFS.md) records its 160.073-second acceptance run, audit and separate baseline. These are clean-restart correctness results and initial timing baselines, not crash, power-loss or sustainable-throughput claims.
 
 ### Normal-user ublk setup
 

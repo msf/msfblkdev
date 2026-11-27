@@ -1,7 +1,7 @@
 # Native lab tools
 
 To inspect the planned test matrix or generate readable KPI reports from
-existing evidence, use the [workbench reporting CLI](workbench/README.md).
+existing evidence, use the [workbench reporting CLI](../docs/BENCHMARKING.md#read-the-matrix-and-reports).
 See [ADR-10](../ADR-10-WORKBENCH-TESTS-AND-REPORTS.md) for test goals,
 execution commands, KPI definitions and the remaining VM integration.
 
@@ -38,7 +38,7 @@ or `e75.properties`. The E75 profile adds ordered 16-record scans
 and inserts alongside the existing A and F workloads. These are workload
 inputs, not a complete benchmark runner: restart, full-content verification,
 space accounting and stricter I/O calibration still need the integration in the
-[v1.3 benchmark plan](../docs/V1.3-BENCHMARK-PLAN.md).
+[benchmarking document](../docs/BENCHMARKING.md#the-ycsb-portfolio-a-f-and-e75).
 
 `go-ycsb/time-ext4.py` measures the six cases in a temporary directory on the
 existing `/var/tmp` ext4 mount. Run it in a user cgroup with `MemoryMax=256M` and

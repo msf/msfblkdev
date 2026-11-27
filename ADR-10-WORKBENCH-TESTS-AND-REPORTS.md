@@ -3,7 +3,9 @@
 Date: 2026-09-20
 Revised: 2026-10-06 (planned testing only)
 Status: accepted interface and measurement scope; VM workload execution remains open
-Related: [ADR-05 fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md), [ADR-06 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [benchmark plan](docs/V1.3-BENCHMARK-PLAN.md), [VM environment](docs/WORKBENCH-VM.md), [blockcheck plan](docs/BLOCKCHECK-PLAN.md)
+Related: [ADR-05 fault testing](ADR-05-GOAL-3-BACKING-MEDIUM-FAULT-RESILIENCE.md), [ADR-06 correctness](ADR-06-FILESYSTEM-AND-POSTGRESQL-CORRECTNESS.md), [benchmarking](docs/BENCHMARKING.md), [blockcheck plan](docs/BLOCKCHECK-PLAN.md)
+
+[BENCHMARKING.md](docs/BENCHMARKING.md) holds the benchmark procedures, workloads, VM environment, plans and recorded results that this ADR's interface serves.
 
 ## Context
 
@@ -204,8 +206,8 @@ integration work; the boot probe does not establish them.
 
 The eventual launcher must accept a configuration and test selection, preserve
 evidence on failure, generate these reports automatically and print their paths.
-[The VM decision](docs/WORKBENCH-VM.md) defines the execution boundary;
-[readiness](docs/WORKBENCH-READINESS.md) records the missing implementation.
+[The VM environment](docs/BENCHMARKING.md#vm-environment) defines the execution boundary;
+[the integration status](docs/BENCHMARKING.md#workbench-integration-status) records the missing implementation.
 
 ## Consequences
 

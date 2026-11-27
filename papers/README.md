@@ -308,4 +308,4 @@ Paged mapping is the smaller first change because it preserves old bytes. Segmen
 
 Build the necessary fault injection with these persistence transitions. Completing the broader ADR-05 medium-fault project is not a prerequisite for designing them. Use disposable files and extend the existing recovery tests rather than starting a separate simulation framework.
 
-[The performance plan](../PLAN-SQLITE-EXT4-PERFORMANCE.md) remains a separate workstream for larger requests, record batching and cheaper checkpoint I/O. Neither finishing that plan nor implementing growth is a prerequisite for these design changes.
+[The performance plan](../docs/BENCHMARKING.md#sqliteext4-performance-spike) remains a separate workstream for larger requests, record batching and cheaper checkpoint I/O. Neither finishing that plan nor implementing growth is a prerequisite for these design changes.

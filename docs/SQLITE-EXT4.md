@@ -1,12 +1,12 @@
 # SQLite on ext4
 
-SQLite 3.51.3 passed all 87 ext4 runs in 131.696 seconds on 2026-09-13, with tmpfs backing. [The audit](evidence/sqlite-ext4-audit.json) verifies 348 filesystem checks, 174 logical validations and complete cleanup. Each WAL stress run completed 12 automatic checkpoints. [The selected run](evidence/sqlite-1789293925836503146/summary.json) is the initial baseline.
+SQLite 3.51.3 passed all 87 ext4 runs in 131.696 seconds on 2026-09-13, with tmpfs backing. [The audit](../evidence/sqlite-ext4-audit.json) verifies 348 filesystem checks, 174 logical validations and complete cleanup. Each WAL stress run completed 12 automatic checkpoints. [The selected run](../evidence/sqlite-1789293925836503146/summary.json) is the initial baseline.
 
 This suite uses clean shutdown and restart only. It does not complete ADR-06 Delivery 3: SQLite on XFS and RocksDB remain separate work.
 
 ## Run the suite
 
-Use the normal-user ublk setup and installed protocol-3 mount helper described in [README.md](README.md). Do not reinstall the helper for this suite. The Makefile builds the helper without the optional `lab` feature, then builds the JSON-enabled lab separately.
+Use the normal-user ublk setup and installed protocol-3 mount helper described in [README.md](../README.md). Do not reinstall the helper for this suite. The Makefile builds the helper without the optional `lab` feature, then builds the JSON-enabled lab separately.
 
 Build the pinned tools explicitly:
 
@@ -75,29 +75,7 @@ KV reads are warm from initialization. `speedtest1` starts with a fresh database
 
 ## Select and compare a baseline
 
-Only a complete correctness-passing 87-run matrix can become a baseline. The repository already contains `evidence/sqlite-ext4-baseline.json`. To select another run, replace the example run path and choose a new output filename. Selection refuses to overwrite an existing file:
-
-```sh
-uv run --quiet python tools/sqlite/baseline.py select \
-  evidence/sqlite-RUN evidence/new-sqlite-baseline.json
-```
-
-To compare a later complete run, replace the candidate path with its evidence directory:
-
-```sh
-uv run --quiet python tools/sqlite/baseline.py compare \
-  evidence/sqlite-ext4-baseline.json evidence/sqlite-CANDIDATE
-```
-
-Comparisons require matching workloads, settings, SQLite build, hardware, kernel, backing geometry, medium, and cache conditions. An intentional block-device commit change requires `--allow-commit-change`. Database or benchmark upgrades require a new baseline. Artifact hashes detect changes to the selected results.
-
-The report includes percentage changes in median workload time, workload-plus-drain time, throughput, and available tail latency. It marks overlapping ranges inconclusive and applies no regression threshold. A self-comparison is explicitly labeled; its zero changes are not an independent performance result. Rerun apparent changes that overlap observed variation, preferably with interleaved baseline and candidate runs.
-
-Run the non-root baseline parser tests without SQLite or mounts:
-
-```sh
-uv run --quiet python tools/sqlite/test_baseline.py
-```
+Baseline selection and comparison are in [BENCHMARKING.md](BENCHMARKING.md#compare-a-sqlite-baseline).
 
 ## Upstream multiprocess audit
 
