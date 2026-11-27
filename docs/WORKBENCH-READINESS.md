@@ -84,11 +84,11 @@ These source findings constrain integration:
 | E workload definition | The supplied `workloade` sets `maxscanlength=1`; the new local profiles request 16 records and ordered, zero-padded insert keys. Uniform scan starts remain in the initial loaded range. |
 | Tail latency | `pkg/measurement/histogram.go` already computes p99.99 with HDRHistogram. Retain per-operation counts and raw histograms; sparse tails need an explicit label. |
 
-The local `tools/go-ycsb/lab.patch` now supplies a fixed workload seed, verifies
+The [msf/go-ycsb](https://github.com/msf/go-ycsb) fork now supplies a fixed workload seed, verifies
 SQLite FULL/cache/mmap settings, enables RocksDB synchronous writes, sets its
 block cache and disables its compression. It adds SQLite's ordering clause and
 fixes RocksDB's short-scan result length and native scan-value leak. These are
-local adaptations; the source findings above describe the unmodified commit.
+fork commits; the source findings above describe the unmodified commit.
 The timing runner checks sync calls and operation/row counts, but independent
 scan-content verification and the full restart lifecycle remain open.
 

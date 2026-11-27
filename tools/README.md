@@ -14,17 +14,19 @@ system services, or require containers.
 |---|---|---|
 | `make setup-sqlite` | `tools/build/sqlite-3.51.3/build/` | SQLite archives, adapter and observer hashes, compiler flags and binary hashes |
 | `make setup-native` | `tools/build/workbench-native/root/` | Ubuntu resolute amd64 packages by version and SHA-256; extraction only |
-| `make setup-go-ycsb` | `tools/build/go-ycsb-427715a/bin/go-ycsb` | Local source commit, Go module versions/checksums, native packages and build tags |
+| `make setup-go-ycsb` | `tools/build/go-ycsb-39ccca7/bin/go-ycsb` | Fork repository and commit, Go module versions/checksums, native packages and build tags |
 | `make setup-rocksdb` | `tools/build/rocksdb-9.11.2/build/` | RocksDB 9.11.2 and gflags 2.2.2 source hashes; GCC 13; static build without compression |
 
-The go-ycsb recipe reads `~/play/go-ycsb` by default. Set `GO_YCSB_SOURCE` to use
-another checkout containing commit `427715abeef2186b123cc93ced4acb385ff59ce1`.
-It exports that commit into its own build directory and leaves the source checkout
-unchanged. Its private adaptation replaces the obsolete RocksDB binding with
-`github.com/linxGnu/grocksdb` v1.9.9 and adjusts four option types. Both database
-drivers are enabled explicitly.
+The go-ycsb recipe builds commit `39ccca7c0f406d997683ed6f490f0352630f223b` of the
+fork [msf/go-ycsb](https://github.com/msf/go-ycsb). It reads `~/play/go-ycsb` by
+default; set `GO_YCSB_SOURCE` to use another checkout. It clones the fork if the
+checkout is absent and fetches `master` if the commit is missing. It exports that
+commit into its own build directory and doesn't otherwise change the checkout.
+Both database drivers are enabled explicitly.
 
-`go-ycsb/lab.patch` adds `workload.seed`, SQLite WAL/FULL settings with readback,
+Every lab change to go-ycsb is a commit on the fork's `master`, not a local patch.
+The fork replaces the obsolete RocksDB binding with `github.com/linxGnu/grocksdb`
+v1.9.9 and adds `workload.seed`, SQLite WAL/FULL settings with readback of the journal mode and sync level,
 a 16 MiB SQLite cache with mmap disabled, synchronous RocksDB writes, and a
 16 MiB RocksDB cache with compression disabled. It also orders SQLite scans,
 frees RocksDB scan values and removes empty rows from short scan results.
