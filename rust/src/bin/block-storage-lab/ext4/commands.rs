@@ -305,14 +305,7 @@ impl<'a> Lab<'a> {
             "helper-preflight",
             Command::new("sudo").args(["-n", "--", MOUNT_HELPER, "check"]),
         )?;
-        let expected = format!(
-            "protocol=3 uid={} ext4={}/{} xfs={}/{}",
-            fs::metadata(self.owned.path())?.uid(),
-            fs_support::VOLUME_BYTES,
-            fs_support::BACKING_BYTES,
-            Filesystem::Xfs.volume_bytes(),
-            Filesystem::Xfs.backing_bytes()
-        );
+        let expected = fs_support::helper_check_fields(fs::metadata(self.owned.path())?.uid());
         if !helper_output.contains(&expected) {
             return Err(io::Error::other(
                 "installed helper reported an unexpected protocol or geometry",

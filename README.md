@@ -463,7 +463,9 @@ sudo bash scripts/install-ext4-helper.sh
 
 The installer copies the already-built `block-storage-mount` binary into `/usr/local/libexec` and installs a sudo rule for the invoking user. It also creates `/run/ublksrvd` as a private directory for that user. A tmpfiles rule recreates it after reboot: libublk writes its device metadata there. This setup supports one developer and refuses to take over a runtime directory owned by someone else. It does not build code, load modules, create devices or mount filesystems. Reinstall after changing the helper; preflight refuses a stale installed binary. Never grant passwordless sudo to the lab binary in the writable build directory.
 
-The helper validates the kernel-recorded ublk owner, device geometry and the owned directory under `/tmp`. It pins device/directory descriptors and serializes helper calls with a root-owned lock. Protocol 3 permits only ext4 and XFS with `nosuid,nodev`; filesystem journaling and barrier defaults remain unchanged. It creates a caller-owned `work` directory inside the filesystem. Unmount validates the exact mount and refuses aliases, nested mounts, force and lazy unmount.
+The helper validates the kernel-recorded ublk owner, device geometry and the owned directory under `/tmp`. It pins device/directory descriptors and serializes helper calls with a root-owned lock. Protocol 4 permits only ext4 and XFS with `nosuid,nodev`; filesystem journaling and barrier defaults remain unchanged. It creates a caller-owned `work` directory inside the filesystem. Unmount validates the exact mount and refuses aliases, nested mounts, force and lazy unmount.
+
+Protocol 4 adds bench actions for long benchmarks on larger devices: `bench-mount` and `bench-unmount` for ext4, and `bench-format-xfs`, `bench-mount-xfs` and `bench-unmount-xfs` for XFS. They use the same `<ublk-id> <owned-name>` arguments and the same `/tmp/<owned-name>` directory, mount-target, `work` and unmount rules. They do not check `backing.img`: the backing can be a file in a different location or a block device. The device must be an unprivileged ublk device that the sudo caller owns. It must have 4096-byte logical blocks and a size of 4, 8, 16, 32 or 64 GiB. The helper reads the size from the kernel, not from its arguments. Lab and bench sizes do not overlap, so a lab action cannot use a bench device. Bench mounts also set `discard`, so the filesystem sends freed space to the device as discards. Lab mounts do not set `discard`. `bench-format-xfs` runs the same default `mkfs.xfs` command as `format-xfs`. `check` prints the protocol, the lab geometry and the bench size list. Reinstall the helper after an upgrade to protocol 4: preflight refuses an earlier protocol.
 
 This is a privilege grant for a trusted local developer, not a sandbox for hostile filesystem images. The kernel still parses filesystem data supplied by that developer. Use a disposable VM for untrusted images.
 
@@ -483,7 +485,7 @@ To revoke the helper grant, remove `/etc/sudoers.d/block-storage-ext4-<user>` an
 
 ### XFS development and acceptance
 
-After operator approval and protocol-3 helper installation, run:
+After operator approval and protocol-4 helper installation, run:
 
 ```sh
 make check-xfs
@@ -492,7 +494,7 @@ make test-xfs
 
 `check-xfs` checks tool versions, kernel support, helper identity, device access, memory and temporary space without creating a device or mount. `test-xfs` runs the same file workload and restart lifecycle as ext4, using three fresh 512 MiB devices with 4 GiB backing files. It uses default `mkfs.xfs` and four unmounted `xfs_repair -n` checks per repetition. `fsck.xfs` is not a filesystem check.
 
-Default `mkfs.xfs` requires privilege for Linux's `BLKBSZSET` ioctl even when the block size is already correct. Protocol 3 adds a scoped `format-xfs` action alongside `mount-xfs` and `unmount-xfs`. It runs only `/usr/sbin/mkfs.xfs` with default options on the validated, unmounted XFS fixture. The helper keeps the device descriptor, lock and 60-second alarm across exec and clears the formatter environment. The daemon, lab, workload and read-only checker remain unprivileged. No general formatter sudo grant or developer capability is needed.
+Default `mkfs.xfs` requires privilege for Linux's `BLKBSZSET` ioctl even when the block size is already correct. The helper has a scoped `format-xfs` action alongside `mount-xfs` and `unmount-xfs`. It runs only `/usr/sbin/mkfs.xfs` with default options on the validated, unmounted XFS fixture. The helper keeps the device descriptor, lock and 60-second alarm across exec and clears the formatter environment. The daemon, lab, workload and read-only checker remain unprivileged. No general formatter sudo grant or developer capability is needed.
 
 The committed implementation `0a5af77` passed in 6783 ms with XFS tools 6.18.0 on Linux 7.0.0-31-generic. See `evidence/xfs-1789263094765541439.log` and the release audit. The ext4 regression passed in 3858 ms. Backing files were on tmpfs; these are correctness results, not durability or performance claims.
 

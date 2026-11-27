@@ -6,6 +6,30 @@ pub const MOUNT_HELPER: &str = "/usr/local/libexec/block-storage-mount";
 pub const VOLUME_BYTES: u64 = Filesystem::Ext4.volume_bytes();
 pub const BACKING_BYTES: u64 = Filesystem::Ext4.backing_bytes();
 
+/// Helper protocol version; bump it whenever an action, validation rule or check field changes.
+pub const MOUNT_HELPER_PROTOCOL: u32 = 4;
+
+const GIB: u64 = 1024 * 1024 * 1024;
+
+/// Device sizes the helper's bench actions accept, read from the kernel-recorded ublk geometry.
+// The list is fixed for the same reason as the lab ceilings: the privileged helper never takes a
+// size from its caller. All values are far above the lab volumes, so a device matches only one
+// fixture class.
+pub const BENCH_VOLUME_BYTES: [u64; 5] = [4 * GIB, 8 * GIB, 16 * GIB, 32 * GIB, 64 * GIB];
+
+/// Logical block size the helper's bench actions require.
+pub const BENCH_LOGICAL_BLOCK_BYTES: u64 = 4096;
+
+/// Fields the installed helper prints for `check` after its own name.
+pub fn helper_check_fields(uid: u32) -> String {
+    let bench = BENCH_VOLUME_BYTES.map(|bytes| bytes.to_string()).join(",");
+    format!(
+        "protocol={MOUNT_HELPER_PROTOCOL} uid={uid} ext4={VOLUME_BYTES}/{BACKING_BYTES} xfs={}/{} bench={bench} bench-block={BENCH_LOGICAL_BLOCK_BYTES}",
+        Filesystem::Xfs.volume_bytes(),
+        Filesystem::Xfs.backing_bytes()
+    )
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Filesystem {
     Ext4,
@@ -220,6 +244,15 @@ mod tests {
         assert_eq!(Filesystem::Ext4.backing_bytes(), BACKING_BYTES);
         assert_eq!(Filesystem::Xfs.volume_bytes(), 536_870_912);
         assert_eq!(Filesystem::Xfs.backing_bytes(), 4_294_967_296);
+    }
+
+    #[test]
+    fn helper_check_fields_report_protocol_4_and_bench_allowlist() {
+        assert_eq!(
+            helper_check_fields(1000),
+            "protocol=4 uid=1000 ext4=134217728/1073741824 xfs=536870912/4294967296 \
+             bench=4294967296,8589934592,17179869184,34359738368,68719476736 bench-block=4096"
+        );
     }
 
     #[test]
