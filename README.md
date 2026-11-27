@@ -45,9 +45,8 @@ The open items, in priority order.
 1. Add crash tests that use the existing `discard-write-complete` and `recovery-snapshots-fsync-complete` failpoints (ADR-08). The released format has these crash points, but no test kills the process at them. The failpoint harness already exists, so the cost is small.
 2. Finish the ADR-05 retry work in the [campaign plan](docs/ADR05-CAMPAIGN.md): retry ownership across timeouts and cancellation, then checkpoint and cleaner faults. Extend the live checkpoint-B tests to the other publication boundaries.
 3. Run the [blockcheck device workloads](docs/BLOCKCHECK-PLAN.md), including aged SQLite A/F (ADR-08, ADR-10). The release has not been tested under aged database workloads.
-4. Fix BUG-4 in [BUGS.md](BUGS.md): the daemon's maintenance timer stops after a write burst, so work that is due while the daemon is idle waits for the next write or for shutdown.
-5. Complete RocksDB correctness on ext4 and XFS (ADR-06).
-6. Later: logical growth (ADR-04), then a distributed replicated log.
+4. Complete RocksDB correctness on ext4 and XFS (ADR-06).
+5. Later: logical growth (ADR-04), then a distributed replicated log.
 
 ## Design and delivery specifications
 
@@ -103,6 +102,10 @@ Idle maintenance runs 2 ms after the last request, or at least every 100 ms. Spa
 inline, inside the write. `Volume::maintain`, `maintain_for` and `wait_for_cleaner` drive
 maintenance from a request loop. `reclaim_stats`, `log_writes`, `heap_budget` and `space_usage`
 report it.
+
+The engine and the daemon read time and sleep only through the `Clock` trait. `MonotonicClock`
+is `CLOCK_MONOTONIC`, the clock io_uring timeouts use; a test passes `ManualClock`, which moves
+only when the test advances it.
 
 The heap budget is `max(1% of the logical volume, 16 MiB)`. It is divided between the write buffer,
 the cleaner, the mapping cache and the supporting state. A 1 GiB volume runs under a 12 MiB total.
@@ -189,6 +192,7 @@ Volume::discard_blocks, Volume::write_zeroes
 Volume::flush
 Volume::close
 Volume::maintain, Volume::maintain_for, Volume::wait_for_cleaner
+Clock, MonotonicClock, ManualClock
 Volume::grow_backing
 Volume::space_usage, reclaim_stats, log_writes, heap_budget, mapping_stats
 Scheduler
@@ -310,9 +314,10 @@ The VM setup was tested on a Linux x86_64 host with Lima 2.3.0 and QEMU/KVM. The
 
 `make test-device-backing` runs `tools/device-backing/nested-ublk.sh`. It needs ublk access but
 no root and no spare disk. An outer daemon serves a tmpfs file as `/dev/ublkbN`, and that
-device is the backing under test: the daemon formats it with `--block-device`,
-`examples/device_discard.rs` makes the engine issue `BLKDISCARD`, an inner daemon serves it, and
-`blkctl check` verifies it. The test fails unless the outer volume unmaps the discarded ranges.
+device is the backing under test: the daemon formats it with `--block-device`, and an inner
+daemon serves it. After a write burst, the test discards the whole inner volume with
+`blkdiscard`, as `fstrim` would. The idle inner daemon must then free segments and release them
+with `BLKDISCARD`, the outer volume must unmap them, and `blkctl check` must pass.
 
 ### Running every test
 
@@ -327,14 +332,14 @@ The summary is `evidence/test-all-<time>/summary.md`. The link `evidence/test-al
 | Step | Make target | Requires | Creates |
 | --- | --- | --- | --- |
 | lint | `lint` | Rust with `rustfmt` and `clippy` | nothing |
-| unit | `test` | Rust | nothing (387 tests) |
+| unit | `test` | Rust | nothing (391 tests) |
 | blockcheck | `test-blockcheck-checker` | Rust | nothing; the checker uses an in-memory target |
 | python-tools | `test-python` | `python3`, `libxxhash0` for the ADR-05 image checker | nothing |
 | compaction-small | `test-compaction-small` | Rust | 185 MiB regular-file backing in a temporary directory |
 | fault-dst | `test-dst` | Rust, `python3` | regular-file backing; runs the ADR-05 medium-model controls and checkpoint-descriptor survival |
 | fsync01 | `test-fsync01` | Rust | regular-file backing; lost-writeback controls and the opt-in flush retry |
 | fault-seed | `test-fault-seed` | Rust | regular-file backing; runs seed 42, replays its saved plan, and requires an identical trace |
-| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (387 tests in crash mode) |
+| acceptance | `test-acceptance` | Rust | regular-file backing in a temporary directory (391 tests in crash mode) |
 | ublk-fio | `test-ublk-fio` | ublk access, `fio` | ublk device, format-4 regular-file backing (ten 32-block segments, thin 4 MiB volume) |
 | ext4, xfs | `test-ext4`, `test-xfs` | the above, mount helper, `mkfs`/`fsck` tools | ublk device, filesystem, mount |
 | sqlite-standalone | none: `bash tools/sqlite/test-standalone.sh` | `make setup-sqlite` | SQLite files under `/tmp` |
