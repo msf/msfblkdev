@@ -21,7 +21,7 @@ impl Volume {
         let mut reservation = Reservation::admit(
             &self.write_buffer.lbas,
             self.buffered_pages,
-            self.mapping.cache.dirty_pages().count(),
+            self.mapping.cache.dirty_count(),
             lba,
         )?;
         let demanded = reservation.demanded_blocks(self.log.geometry) + self.maintenance_debt();
@@ -31,7 +31,7 @@ impl Volume {
             reservation = Reservation::admit(
                 &self.write_buffer.lbas,
                 self.buffered_pages,
-                self.mapping.cache.dirty_pages().count(),
+                self.mapping.cache.dirty_count(),
                 lba,
             )?;
         }

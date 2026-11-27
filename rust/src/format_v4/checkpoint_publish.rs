@@ -322,7 +322,7 @@ impl Log {
 
     /// Whether a publication would write anything.
     pub(crate) fn has_dirty_state(&self, cache: &MappingCache) -> bool {
-        cache.dirty_pages().next().is_some()
+        cache.dirty_count() != 0
             || self.index.dirty_page_count() != 0
             || self.segments.dirty_table_page_count() != 0
     }

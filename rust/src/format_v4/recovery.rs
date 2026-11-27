@@ -291,7 +291,7 @@ impl Recovery<'_> {
             start = window.end;
             self.replay_window(cache, window)?;
             self.log.append_snapshots(self.io, self.backing, cache)?;
-            self.stats.snapshot_writes += cache.dirty_pages().count() as u64;
+            self.stats.snapshot_writes += cache.dirty_count() as u64;
             self.count_lookups(cache);
             cache.reset();
         }

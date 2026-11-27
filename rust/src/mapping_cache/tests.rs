@@ -397,3 +397,41 @@ fn sorted_dirty_pages_and_prefetch_are_bounded_and_allocation_free() {
     assert_eq!(cache.counters.prefetch_hits, 1);
     assert_eq!(cache.counters.prefetch_unused_evictions, 1);
 }
+
+#[test]
+fn dirty_count_follows_flag_changes_without_double_counting() {
+    let mut cache = cache(4, 2);
+    let mut page = install(&mut cache, 0, Access::Foreground);
+    page.update(0, 10, 100).unwrap();
+    page.update(1, 11, 101).unwrap();
+    page.mark_dirty();
+    assert_eq!(
+        cache.dirty_count(),
+        1,
+        "repeated changes to one page count once"
+    );
+    install(&mut cache, 1, Access::Foreground).mark_dirty();
+    assert_eq!(cache.dirty_count(), 2);
+    let Ok(Acquisition::Resident(mut resident)) = cache.acquire(1, Access::Foreground) else {
+        panic!("page 1 stays resident")
+    };
+    resident.update(0, 12, 102).unwrap();
+    assert_eq!(
+        cache.dirty_count(),
+        2,
+        "a dirty resident page is not counted again"
+    );
+    cache.checkpoint_published();
+    assert_eq!(cache.dirty_count(), 0);
+    // Page 2 evicts a clean victim; the count must not change.
+    install(&mut cache, 2, Access::Foreground);
+    assert_eq!(cache.dirty_count(), 0);
+    let Ok(Acquisition::Resident(mut resident)) = cache.acquire(2, Access::Foreground) else {
+        panic!("page 2 is resident")
+    };
+    resident.update(0, 13, 103).unwrap();
+    assert_eq!(cache.dirty_count(), 1);
+    assert_eq!(cache.snapshot().dirty_slots, 1);
+    cache.reset();
+    assert_eq!(cache.dirty_count(), 0);
+}

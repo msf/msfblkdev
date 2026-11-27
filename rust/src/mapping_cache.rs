@@ -109,6 +109,10 @@ pub(super) struct MappingCache {
     sizing: Sizing,
     volume_blocks: u32,
     resident: usize,
+    /// Resident slots whose `dirty` flag is set. Every flag change goes through
+    /// `CachedPage::set_dirty`, `checkpoint_published` or `reset`, so the hot write path reads
+    /// this instead of scanning every slot.
+    dirty_slots: usize,
     counters: Counters,
 }
 
@@ -124,6 +128,7 @@ pub(super) enum Acquisition<'a> {
 pub(super) struct CachedPage<'a> {
     slot: &'a mut Slot,
     valid_entries: usize,
+    dirty_slots: &'a mut usize,
 }
 
 pub(super) struct VacantPage<'a> {
@@ -170,6 +175,7 @@ impl MappingCache {
             volume_blocks: u32::try_from(logical_bytes / crate::BLOCK_SIZE as u64)
                 .expect("validated geometry"),
             resident: 0,
+            dirty_slots: 0,
             counters: Counters::default(),
         })
     }
@@ -224,6 +230,7 @@ impl MappingCache {
             return Acquisition::Resident(CachedPage {
                 slot: self.slots.get_mut(slot).expect("resident slot in range"),
                 valid_entries,
+                dirty_slots: &mut self.dirty_slots,
             });
         }
         let slot = if self.resident < self.slots.len() {
@@ -321,6 +328,7 @@ impl MappingCache {
         self.lookup.clear();
         self.clock = Clock::new(self.sizing.capacity).expect("validated capacity");
         self.resident = 0;
+        self.dirty_slots = 0;
         for slot in self.slots.iter_mut() {
             slot.dirty = false;
             slot.prefetched = false;
@@ -337,13 +345,24 @@ impl MappingCache {
         for slot in self.slots.iter_mut().take(self.resident) {
             slot.dirty = false;
         }
+        self.dirty_slots = 0;
+    }
+
+    /// The number of dirty resident pages, without scanning the slots.
+    pub(super) fn dirty_count(&self) -> usize {
+        debug_assert_eq!(
+            self.dirty_slots,
+            self.dirty_pages().count(),
+            "dirty counter must match the dirty flags"
+        );
+        self.dirty_slots
     }
 
     pub(super) fn snapshot(&self) -> Snapshot {
         Snapshot {
             counters: self.counters,
             resident_slots: self.resident,
-            dirty_slots: self.dirty_pages().count(),
+            dirty_slots: self.dirty_count(),
             sizing: self.sizing,
         }
     }
@@ -356,7 +375,14 @@ impl CachedPage<'_> {
 
     /// Forces the next publication to rewrite this page's snapshot without changing entries.
     pub(super) fn mark_dirty(&mut self) {
-        self.slot.dirty = true;
+        self.set_dirty();
+    }
+
+    fn set_dirty(&mut self) {
+        if !self.slot.dirty {
+            self.slot.dirty = true;
+            *self.dirty_slots += 1;
+        }
     }
 
     pub(super) fn update(
@@ -383,7 +409,7 @@ impl CachedPage<'_> {
             .payload_checksum
             .get_mut(entry)
             .expect("validated entry") = checksum;
-        self.slot.dirty = true;
+        self.set_dirty();
         Ok(())
     }
 }
@@ -459,6 +485,7 @@ impl<'a> VacantPage<'a> {
         Ok(CachedPage {
             slot,
             valid_entries,
+            dirty_slots: &mut self.cache.dirty_slots,
         })
     }
 }

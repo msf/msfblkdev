@@ -315,7 +315,7 @@ impl Volume {
     /// Blocks one publication appends now: dirty snapshots, dirty index and table pages, and
     /// the links a crossing on each head could need.
     fn publication_blocks(&self) -> u64 {
-        self.mapping.cache.dirty_pages().count() as u64
+        self.mapping.cache.dirty_count() as u64
             + self.log.index.dirty_page_count()
             + u64::from(self.log.segments.dirty_table_page_count())
             + 2
@@ -935,7 +935,7 @@ impl Volume {
         // Dirty snapshots and indexes need writing once. The table group must fit one
         // segment in each of the three publications, wasting at most table_pages-1 blocks
         // per publication. Keep the two link slots charged by publication_fits, too.
-        let required = self.mapping.cache.dirty_pages().count() as u64
+        let required = self.mapping.cache.dirty_count() as u64
             + u64::from(g.direct_pages + g.indirect_pages)
             + 3 * u64::from(2 * g.table_pages - 1)
             + 2;

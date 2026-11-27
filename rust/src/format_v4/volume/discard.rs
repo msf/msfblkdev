@@ -61,7 +61,7 @@ impl Volume {
             self.mapping.pressure_checkpoints += 1;
         }
         let reservation =
-            Reservation::for_metadata(1, page_count, self.mapping.cache.dirty_pages().count())?;
+            Reservation::for_metadata(1, page_count, self.mapping.cache.dirty_count())?;
         let demanded = reservation.demanded_blocks(self.log.geometry) + self.maintenance_debt();
         if ensure_user_space(&self.log, self.reserve, demanded).is_err() {
             self.reclaim_for_space(demanded)?;
