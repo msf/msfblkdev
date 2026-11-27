@@ -64,6 +64,13 @@ bench-aged-sqlite:
 		--blkctl rust/target/$(BENCH_DAEMON_PROFILE)/blkctl \
 		$(if $(filter 1,$(PROFILE)),--perf) $(BENCH_ARGS)
 
+# Engine write path under hyperfine: seeded random 4 KiB writes on a fresh tmpfs backing per run,
+# pinned to CPUS (default 2,3). Compares git revisions, e.g. make bench-write-path REVS="v2.1 HEAD".
+.PHONY: bench-write-path
+REVS ?= HEAD
+bench-write-path:
+	@tools/write-path/compare.sh $(REVS)
+
 # Linux, opt-in: block-device backing on a ublk device that a tmpfs file backs. Needs ublk
 # access, not root. See tools/device-backing/nested-ublk.sh.
 .PHONY: test-device-backing

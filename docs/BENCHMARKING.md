@@ -59,11 +59,56 @@ block device only with `--erase-backing-device`.
 | `tools/adr08-bench/` | Current, compares with format 3 | Engine: fresh volume, aged reclamation, maintenance, memory and restart | [ADR-08 engine comparison](#adr-08-engine-comparison-v20-rc) |
 | `tools/manual-qualification/aged_fio_profile.py` | Current | fio argument generator for the aged-fio profile; doesn't run fio | [v2.0 aged fio](#v20-aged-fio-qualification) |
 | `tools/aged-sqlite/` | Current | Aged SQLite A/F | [Aged SQLite A/F](#aged-sqlite-af) |
+| `tools/write-path/compare.sh` | Current | Engine write path of git revisions under hyperfine | [Compare the write path of two revisions](#compare-the-write-path-of-two-revisions) |
 | `tools/workbench/workbench.py` | Format-independent | Planned matrix and reports from existing evidence | [Read the matrix and reports](#read-the-matrix-and-reports) |
 | `tools/sqlite/baseline.py` | Format-independent | Matched SQLite baseline selection and comparison | [Compare a SQLite baseline](#compare-a-sqlite-baseline) |
 | `tools/go-ycsb/time-ext4.py` | Host ext4, no device | Duration calibration of the YCSB portfolio | [YCSB host-ext4 calibration](#run-the-ycsb-host-ext4-calibration) |
 | `tools/vm/setup.sh`, `tools/vm/boot-probe.sh` | No device | KVM guest prerequisites | [KVM boot probe](#run-the-kvm-boot-probe) |
 | `tools/mapping-bench/` | Historical (formats 1 and 3) | v1.1 to v1.2.3 engine and fio comparisons | [Results history](#results-history) |
+
+### How do we keep results reproducible?
+
+Short, independent runs go through [hyperfine](https://github.com/sharkdp/hyperfine): warm-up runs,
+at least 15 measured runs, mean and standard deviation, and JSON output. A long, stateful run such
+as [Aged SQLite A/F](#aged-sqlite-af) can't repeat inside hyperfine. Its stability measure is the
+stop rule instead: two consecutive windows must agree within 5%. Repeat the whole run to compare
+builds.
+
+Both kinds of run do the following:
+
+- Fix every random input with a seed: the go-ycsb `workload.seed` and the write-path seed.
+- Start from a freshly formatted backing.
+- Pin the measured processes to CPUs with `taskset`. Give the daemon and the client different
+  physical cores of the same type. The Ryzen AI 9 HX 370 is a hybrid CPU: CPUs 0 to 3 are Zen 5
+  cores (5.16 GHz maximum) that share one L3 cache, and CPUs 4 to 11 are Zen 5c cores (3.29 GHz
+  maximum) on a second L3 cache. CPU `n` and CPU `n + 12` are the two threads of one core. Use
+  only CPUs 0 to 3 for measured processes.
+- Record the host state that changes results: kernel, CPU model, frequency governor, boost, load
+  average, available memory, and the commit and SHA-256 of every binary.
+
+The harnesses warn about, but don't fix, these host settings, which need root:
+
+```sh
+sudo cpupower frequency-set -g performance                      # or write each scaling_governor
+echo 0 | sudo tee /sys/devices/system/cpu/cpufreq/boost         # fixed clock, no thermal drift
+```
+
+Close other work before a run. Compare results only when their recorded host state matches.
+
+### Compare the write path of two revisions
+
+```sh
+make bench-write-path REVS="v2.1 HEAD"     # or: tools/write-path/compare.sh <rev>...
+```
+
+For each revision, the script builds the engine with the current
+`rust/examples/write_path_bench.rs`, so an older revision gets the same benchmark. Each run formats
+a fresh tmpfs backing in hyperfine's `--prepare` step, which isn't timed. It then measures 262,144
+seeded random 4 KiB writes through `Volume::write_block`, with a flush every 64 writes, on a 4 GiB
+volume with 6 GiB of raw backing. The engine runs in process, without ublk, so the result is
+engine CPU. Change the workload with `WRITES`, `FLUSH_EVERY`, `LOGICAL_MIB`, `RAW_MIB`, `SEED`,
+`RUNS`, `WARMUP` and `CPUS`. The evidence goes to `evidence/write-path-<ns>/`: `hyperfine.json`,
+`hyperfine.md`, `environment.txt` and `revisions.txt` (commit and binary hash).
 
 ### Run the ADR-08 engine comparison
 
@@ -1197,6 +1242,11 @@ If a step fails, the harness unmounts and stops the daemon if it can. It keeps t
 and the backing, and prints the command that removes them. A tmpfs backing keeps its RAM until you
 remove it.
 
+Pin the daemon and the client, for example
+`BENCH_ARGS="--daemon-cpus 2,3 --client-cpus 0,1"` on the Zen 5 cores. `summary.json` records the host state at the
+start and the load average at the end; see
+[How do we keep results reproducible?](#how-do-we-keep-results-reproducible).
+
 ### First observations
 
 These come from plumbing probes on 2026-11-27, not from a benchmark run:
@@ -1206,7 +1256,9 @@ These come from plumbing probes on 2026-11-27, not from a benchmark run:
   ublk device's `/sys/block` counters and the daemon's `log_writes` record.
 - Under fio 4 KiB random writes at queue depth 8 on a 4 GiB device, `Volume::write_block` took
   13.7% of the daemon's samples. 5.7% was the `dirty_pages().count()` scan of the mapping cache
-  that `write_block` calls; xxh3 took 4.6%.
+  that `write_block` calls; xxh3 took 4.6%. Branch `fix/dirty-page-count` keeps the count instead.
+  The write-path comparison measured it at 1.744 s ± 0.027 s against 2.118 s ± 0.035 s for v2.1
+  (1.21 times faster, 15 runs each). The host ran the powersave governor with boost on.
 
 ## Results history
 

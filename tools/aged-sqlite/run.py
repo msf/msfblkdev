@@ -10,6 +10,7 @@ optionally a perf profile of the daemon. docs/BENCHMARKING.md describes the proc
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -82,6 +83,8 @@ class Config:
     perf: bool
     perf_frequency: int
     keep_latency_csv: bool
+    daemon_cpus: str | None
+    client_cpus: str | None
     evidence: Path
 
 
@@ -163,6 +166,8 @@ def parse_args(argv: list[str]) -> Config:
                         help="extra go-ycsb property NAME=VALUE, repeatable")
     parser.add_argument("--perf", action="store_true", help="perf record the daemon during the run phases")
     parser.add_argument("--perf-frequency", type=int, default=499)
+    parser.add_argument("--daemon-cpus", help="taskset CPU list for the daemon, e.g. 2,3")
+    parser.add_argument("--client-cpus", help="taskset CPU list for go-ycsb, e.g. 0,1")
     parser.add_argument("--keep-latency-csv", action="store_true",
                         help="keep go-ycsb's per-operation csv next to the per-second series")
     parser.add_argument("--evidence", type=Path,
@@ -180,6 +185,7 @@ def parse_args(argv: list[str]) -> Config:
         daemon=args.daemon, blkctl=args.blkctl, go_ycsb=args.go_ycsb, sqlite3=args.sqlite3,
         daemon_args=daemon_args, ycsb_properties=args.ycsb_properties, perf=args.perf,
         perf_frequency=args.perf_frequency, keep_latency_csv=args.keep_latency_csv,
+        daemon_cpus=args.daemon_cpus, client_cpus=args.client_cpus,
         evidence=args.evidence,
     )
 
@@ -248,6 +254,57 @@ def preflight(bench: Bench) -> None:
     if config.perf and Path("/proc/sys/kernel/kptr_restrict").read_text().strip() != "0":
         note(bench, "warning: kernel.kptr_restrict != 0, so perf can't name kernel symbols")
     check_backing(bench)
+    bench.facts["environment_start"] = environment(bench)
+    warn_unstable_host(bench, bench.facts["environment_start"])
+
+
+def pinned(cpus: str | None) -> list[str]:
+    return ["taskset", "-c", cpus] if cpus else []
+
+
+def environment(bench: Bench) -> dict[str, object]:
+    """The host and build state that changes results, recorded with every run."""
+    cpufreq = Path("/sys/devices/system/cpu")
+    governors = sorted({path.read_text().strip() for path in cpufreq.glob("cpu*/cpufreq/scaling_governor")})
+    boost = cpufreq / "cpufreq/boost"
+    meminfo = Path("/proc/meminfo").read_text()
+    available = re.search(r"^MemAvailable:\s+(\d+) kB", meminfo, re.MULTILINE)
+    commit = subprocess.run(["git", "-C", str(ROOT), "describe", "--tags", "--always", "--dirty", "--long"],
+                            capture_output=True, text=True, check=False).stdout.strip()
+    config = bench.config
+    binaries = {name: sha256(path) for name, path in
+                (("daemon", config.daemon), ("blkctl", config.blkctl), ("go_ycsb", config.go_ycsb),
+                 ("sqlite3", config.sqlite3))}
+    return {"commit": commit, "kernel": os.uname().release, "cpu": cpu_model(), "governors": governors,
+            "boost": boost.read_text().strip() if boost.exists() else "unknown",
+            "loadavg": Path("/proc/loadavg").read_text().split()[:3],
+            "mem_available_kib": int(available.group(1)) if available else None,
+            "daemon_cpus": config.daemon_cpus, "client_cpus": config.client_cpus, "sha256": binaries}
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def cpu_model() -> str:
+    match = re.search(r"^model name\s*: (.*)$", Path("/proc/cpuinfo").read_text(), re.MULTILINE)
+    return match.group(1) if match else "unknown"
+
+
+def warn_unstable_host(bench: Bench, host: dict[str, object]) -> None:
+    """Warns about host settings that add run-to-run variance; the run still proceeds."""
+    if host["governors"] != ["performance"]:
+        note(bench, f"warning: CPU governor {host['governors']}, not performance")
+    if host["boost"] == "1":
+        note(bench, "warning: CPU boost is on; clock speed follows temperature")
+    if float(host["loadavg"][0]) > 1.0:
+        note(bench, f"warning: load average {host['loadavg'][0]} at start; other work competes for CPU")
+    if not (bench.config.daemon_cpus and bench.config.client_cpus):
+        note(bench, "warning: daemon or client is not pinned (--daemon-cpus, --client-cpus)")
 
 
 def check_backing(bench: Bench) -> None:
@@ -306,7 +363,8 @@ def start_daemon(bench: Bench, label: str) -> None:
     config = bench.config
     stdout_path = config.evidence / f"daemon-{label}.stdout"
     stderr_path = config.evidence / f"daemon-{label}.stderr"
-    argv = [str(config.daemon), "serve", str(bench.backing), "-1", *config.daemon_args]
+    argv = [*pinned(config.daemon_cpus), str(config.daemon), "serve", str(bench.backing), "-1",
+            *config.daemon_args]
     note(bench, f"start daemon {label}: {shlex.join(argv)}")
     with open(stdout_path, "w") as stdout, open(stderr_path, "w") as stderr:
         process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
@@ -400,7 +458,7 @@ def ycsb(bench: Bench, label: str, command: str, properties: dict[str, object]) 
         "dataintegrity": "false", "silence": "false", "measurementtype": "csv",
         "measurement.output_file": latency_csv, **properties,
     }
-    argv = [config.go_ycsb, command, "sqlite", "-P", WORKLOADS / "common.properties",
+    argv = [*pinned(config.client_cpus), config.go_ycsb, command, "sqlite", "-P", WORKLOADS / "common.properties",
             "-P", WORKLOADS / f"{config.workload}.properties"]
     for name, value in base.items():
         argv += ["-p", f"{name}={value}"]
@@ -678,6 +736,8 @@ def teardown(bench: Bench, succeeded: bool) -> None:
 
 def write_summary(bench: Bench, result: str) -> None:
     config = bench.config
+    if "environment_start" in bench.facts:
+        bench.facts["loadavg_end"] = Path("/proc/loadavg").read_text().split()[:3]
     report = {"result": result, "config": {k: str(v) for k, v in asdict(config).items()},
               "facts": bench.facts, "gates": bench.gates, "phases": [asdict(p) for p in bench.phases]}
     (config.evidence / "summary.json").write_text(json.dumps(report, indent=2, default=str) + "\n")
@@ -686,7 +746,9 @@ def write_summary(bench: Bench, result: str) -> None:
              f"- device {config.size_gib} GiB, backing {bench.backing_kind} `{bench.backing}`, "
              f"{bench.facts.get('backing_bytes', 0) // MIB} MiB",
              f"- records {bench.facts.get('records')}, stop {bench.facts.get('stop_reason')}",
-             f"- load {bench.facts.get('load')}", "",
+             f"- load {bench.facts.get('load')}",
+             f"- environment {bench.facts.get('environment_start')}, load average at end "
+             f"{bench.facts.get('loadavg_end')}", "",
              "| phase | ops | ops/s | device MiB | backing MiB | WA | discards | p50 us | p99 us | p99.9 us |",
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     write_operation = WRITE_OPERATION[config.workload]

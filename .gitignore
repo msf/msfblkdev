@@ -9,3 +9,4 @@
 /evidence/vm-test-*
 /evidence/vm-latest
 /evidence/aged-sqlite-*
+/evidence/write-path-*
