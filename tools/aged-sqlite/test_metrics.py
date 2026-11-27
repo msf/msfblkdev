@@ -63,8 +63,9 @@ class SizingTest(unittest.TestCase):
 
     def test_window_writes_one_backing(self):
         self.assertEqual(metrics.window_operations(8 * GIB, 8192.0), GIB // 1024)
-        with self.assertRaises(ValueError):
-            metrics.window_operations(GIB, 0)
+        for too_little in (0, 1, metrics.MIN_DEVICE_BYTES_PER_OPERATION - 1):
+            with self.assertRaises(ValueError):
+                metrics.window_operations(GIB, too_little)
 
 
 class StopRuleTest(unittest.TestCase):

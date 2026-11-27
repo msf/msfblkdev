@@ -392,8 +392,10 @@ def ycsb(bench: Bench, label: str, command: str, properties: dict[str, object]) 
     config = bench.config
     latency_csv = config.evidence / f"{label}-latency.csv"
     base = {
+        # dataintegrity stays off: it makes every update write the value the record already
+        # holds, and SQLite commits an unchanged row without writing anything.
         "sqlite.db": bench.database, "sqlite.journalmode": "WAL", "fieldlength": 4000,
-        "dataintegrity": "true", "silence": "false", "measurementtype": "csv",
+        "dataintegrity": "false", "silence": "false", "measurementtype": "csv",
         "measurement.output_file": latency_csv, **properties,
     }
     argv = [config.go_ycsb, command, "sqlite", "-P", WORKLOADS / "common.properties",
@@ -472,7 +474,10 @@ def age(bench: Bench) -> str:
     config = bench.config
     backing = bench.facts["backing_bytes"]
     calibration = measured_phase(bench, "calibration", config.calibration_operations, config.seed + 1)
-    window_ops = metrics.window_operations(backing, calibration.device_write_bytes / calibration.operations)
+    try:
+        window_ops = metrics.window_operations(backing, calibration.device_write_bytes / calibration.operations)
+    except ValueError as error:
+        raise Failure(str(error)) from error
     bench.facts["window_operations"] = window_ops
     device_bytes, windows = calibration.device_write_bytes, []
     # Bounded: every window writes about one backing size, so the maximum multiple ends the loop first.

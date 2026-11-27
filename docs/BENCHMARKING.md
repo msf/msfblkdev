@@ -1171,7 +1171,10 @@ go-ycsb links the lab's SQLite 3.51.3, the same build as the `sqlite3` shell tha
 database. The harness fails a run unless go-ycsb reports that version. The lab build also reports
 every automatic WAL checkpoint, which upstream SQLite runs without checking the result, and the
 harness fails a run when one fails.
-go-ycsb runs one thread with uniform keys and `dataintegrity=true`. The harness sets
+go-ycsb runs one thread with uniform keys and random values. `dataintegrity` stays off: it makes
+every update write the value that the record already holds, and SQLite commits an unchanged row
+without a write, so no update would reach the device. The calibration phase fails the run if the
+workload writes less than 2 KiB to the device per operation. The harness sets
 `silence=false`, so go-ycsb prints operation errors, and any error fails the run.
 
 ### What it measures
@@ -1202,9 +1205,6 @@ These come from plumbing probes on 2026-11-27, not from a benchmark run:
 - Under fio 4 KiB random writes at queue depth 8 on a 4 GiB device, `Volume::write_block` took
   13.7% of the daemon's samples. 5.7% was the `dirty_pages().count()` scan of the mapping cache
   that `write_block` calls; xxh3 took 4.6%.
-- go-ycsb F directly on tmpfs, without the device, took a p50 of 666 µs per `READ_MODIFY_WRITE`.
-  A's `UPDATE` took 10 µs. So the client alone limits F to about 1,800 operations per second on
-  this host.
 
 ## Results history
 

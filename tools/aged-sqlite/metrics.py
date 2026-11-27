@@ -116,10 +116,16 @@ def record_count(logical_bytes: int, client_fill: float, page_bytes: int = 4096)
     return int(logical_bytes * client_fill) // page_bytes
 
 
+# Workloads A and F make half of their operations writes, and each write commits at least one
+# 4 KiB WAL frame. Less than this per operation means the writes never reached the device.
+MIN_DEVICE_BYTES_PER_OPERATION = 2048
+
+
 def window_operations(backing_bytes: int, device_bytes_per_operation: float) -> int:
     """Operations that write about one backing size to the device."""
-    if device_bytes_per_operation <= 0:
-        raise ValueError("calibration wrote nothing to the device")
+    if device_bytes_per_operation < MIN_DEVICE_BYTES_PER_OPERATION:
+        raise ValueError(f"calibration wrote {device_bytes_per_operation:.0f} device bytes per operation, "
+                         f"below {MIN_DEVICE_BYTES_PER_OPERATION}: the workload's writes don't reach the device")
     return max(1, math.ceil(backing_bytes / device_bytes_per_operation))
 
 
