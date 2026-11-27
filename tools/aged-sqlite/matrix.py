@@ -52,6 +52,12 @@ VARIANTS = {
                    "--baseline-medium", "/dev/bench/xfs"]),
     "thin-raw": ("baseline: LVM thin LV", "block",
                  ["--baseline-device", "/dev/bench/thinfio", "--baseline-medium", "/dev/mapper/bench-pool_tdata"]),
+    # The medium is the LV under dm-integrity: it sees the journal, in-place and checksum writes.
+    "thin-integ-xfs": ("baseline: XFS on LVM thin on dm-integrity", "filesystem",
+                       ["--baseline-mount", "/mnt/bench/thin-integ", "--baseline-device", "/dev/benchi/thin",
+                        "--baseline-medium", "/dev/bench/integ"]),
+    "thin-integ-raw": ("baseline: LVM thin LV on dm-integrity", "block",
+                       ["--baseline-device", "/dev/benchi/thinfio", "--baseline-medium", "/dev/bench/integ"]),
     "plain-raw": ("baseline: plain LV", "block",
                   ["--baseline-device", "/dev/bench/raw", "--baseline-medium", "/dev/bench/raw"]),
 }

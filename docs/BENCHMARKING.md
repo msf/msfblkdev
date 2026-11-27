@@ -1310,6 +1310,8 @@ benchmark's writes.
 | `thin-xfs` | `bench/thin`, 8 GiB virtual, in a 9 GiB thin pool (64 MiB of metadata, no spare) | filesystem baseline |
 | `plain-xfs` | `bench/xfs` itself, XFS on a plain 9 GiB LV | filesystem baseline |
 | `thin-raw` | `bench/thinfio`, 8 GiB virtual, in the same thin pool | block baseline |
+| `thin-integ-xfs` | `benchi/thin`, 8 GiB virtual, in a thin pool on dm-integrity on a 9 GiB LV | filesystem baseline with checksums |
+| `thin-integ-raw` | `benchi/thinfio`, 8 GiB virtual, in the same pool | block baseline with checksums |
 | `plain-raw` | `bench/raw` itself, a plain 9 GiB LV | block baseline |
 
 | Benchmark | Client | Unit | Default fill |
@@ -1328,6 +1330,20 @@ Each client checks its data after aging and again after a restart:
 - **SQLite:** `PRAGMA integrity_check` and the record count.
 - **RocksDB:** `ldb checkconsistency` and the key count.
 - **fio:** none of its own. Our device still gets `blkctl check` and the restart.
+
+dm-thin has no checksums, and our engine checksums every block. The `thin-integ` baselines put
+dm-integrity under the thin pool, in journal mode with crc32c on 4 KiB sectors: like ours, its
+checksums stay valid after a crash. Journal mode writes every block twice, to its journal and in
+place, so their medium is the LV under dm-integrity. LVM's own `--raidintegrity` needs a RAID LV
+and would double the writes again. ext4 is made with `-m 0`: its 5% root reservation is a policy,
+not overhead, and the backing file's owner can't use it.
+
+| Stack | Raw | Overhead before the client's 8 GiB device |
+|---|---:|---|
+| `raw-lv` | 9 GiB | none; our engine keeps the rest of the 9 GiB as cleaning space |
+| `xfs-lv`, `ext4-lv` | 9 GiB | the host filesystem's metadata and journal, and 32 MiB of slack; our engine keeps the rest |
+| `thin-*` | 9 GiB | 64 MiB thin-pool metadata; 0.94 GiB of pool data stays unused |
+| `thin-integ-*` | 9 GiB | dm-integrity's journal and checksums (about 75 MiB by kernel defaults; `ram-lvm.sh status` prints the real size), the PV label, then the thin pool |
 
 Baseline mode (`--baseline-device`, plus `--baseline-mount` for filesystem clients) runs the same
 load, windows and checks without our daemon. Its write amplification is the medium's writes
