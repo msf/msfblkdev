@@ -31,6 +31,7 @@ from pathlib import Path
 
 import clients
 import metrics
+import observe
 from metrics import GIB, MIB, StopRule, Window
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,6 +78,7 @@ class Config:
     ycsb_properties: list[str]
     perf: bool
     perf_frequency: int
+    kallsyms: Path | None
     keep_latency_csv: bool
     daemon_cpus: str | None
     client_cpus: str | None
@@ -100,6 +102,7 @@ class Phase:
     discards: int
     daemon_cpu_seconds: float | None
     client_cpu_seconds: float
+    observation: dict[str, object] | None = None
 
 
 @dataclass
@@ -199,6 +202,8 @@ def parse_args(argv: list[str]) -> Config:
                         help="extra go-ycsb property NAME=VALUE, repeatable")
     parser.add_argument("--perf", action="store_true", help="perf record the daemon during the run phases")
     parser.add_argument("--perf-frequency", type=int, default=499)
+    parser.add_argument("--kallsyms", type=Path, help="copy of /proc/kallsyms from this boot, made with sudo, so "
+                        "perf report names kernel symbols; this kernel hides them from unprivileged users")
     parser.add_argument("--daemon-cpus", help="taskset CPU list for the daemon, e.g. 2,3")
     parser.add_argument("--client-cpus", help="taskset CPU list for the client, e.g. 0,1")
     parser.add_argument("--sampler-cpus", help="taskset CPU list for blkctl samples, away from the measured CPUs")
@@ -226,7 +231,8 @@ def parse_args(argv: list[str]) -> Config:
         stop=StopRule(args.min_multiple, args.max_multiple, args.steady_tolerance),
         sample_seconds=args.sample_seconds, max_hours=args.max_hours, seed=args.seed,
         daemon=args.daemon, blkctl=args.blkctl, daemon_args=daemon_args, ycsb_properties=args.ycsb_properties,
-        perf=args.perf, perf_frequency=args.perf_frequency, keep_latency_csv=args.keep_latency_csv,
+        perf=args.perf, perf_frequency=args.perf_frequency, kallsyms=args.kallsyms,
+        keep_latency_csv=args.keep_latency_csv,
         daemon_cpus=args.daemon_cpus, client_cpus=args.client_cpus,
         sampler_cpus=args.sampler_cpus, baseline_mount=args.baseline_mount,
         baseline_device=args.baseline_device, baseline_medium=args.baseline_medium, evidence=args.evidence,
@@ -573,6 +579,27 @@ def counters(bench: Bench) -> tuple[metrics.DeviceStat, int]:
             metrics.read_ledger(bench.ledger).write_completed_bytes)
 
 
+def observer(bench: Bench, phase: str) -> observe.PhaseObserver:
+    return observe.PhaseObserver(bench.config.evidence, phase, sampler=pinned(bench.config.sampler_cpus),
+                                 pid=bench.daemon.process.pid if bench.daemon else None,
+                                 devices=observed_devices(bench), perf=bench.config.perf)
+
+
+def observed_devices(bench: Bench) -> list[str]:
+    """Kernel names of the client device and the device that holds the medium below it."""
+    if bench.baseline:
+        media = [bench.config.baseline_medium]
+    elif bench.backing_kind == "block-device":
+        media = [bench.backing]
+    else:
+        media = []
+    names = [bench.client_device.resolve().name, *(path.resolve().name for path in media)]
+    if not bench.baseline and bench.backing_kind != "block-device":
+        dev = bench.backing.stat().st_dev
+        names.append(Path(f"/sys/dev/block/{os.major(dev)}:{os.minor(dev)}").resolve().name)
+    return list(dict.fromkeys(name for name in names if (Path("/sys/class/block") / name).exists()))
+
+
 def block_stat_path(device: Path) -> Path:
     return Path("/sys/class/block") / device.resolve().name / "stat"
 
@@ -588,7 +615,8 @@ def measured_phase(bench: Bench, name: str, units: int, seed: int) -> Phase:
         raise Failure(f"daemon exited with {bench.daemon.process.returncode} before {name}")
     device_before, medium_before = counters(bench)
     daemon_before = daemon_cpu_seconds(bench)
-    result = bench.client.window(bench, name, units, seed)
+    with observer(bench, name) as watched:
+        result = bench.client.window(bench, name, units, seed)
     device_after, medium_after = counters(bench)
     daemon_after = daemon_cpu_seconds(bench)
     device_bytes = device_after.write_bytes - device_before.write_bytes
@@ -603,6 +631,7 @@ def measured_phase(bench: Bench, name: str, units: int, seed: int) -> Phase:
         discards=device_after.discard_requests - device_before.discard_requests,
         daemon_cpu_seconds=round(daemon_after - daemon_before, 3) if daemon_before is not None else None,
         client_cpu_seconds=round(result.client_cpu_seconds, 3),
+        observation=watched.summary,
     )
     bench.phases.append(phase)
     snapshot_backing(bench, name)
@@ -614,7 +643,9 @@ def measured_phase(bench: Bench, name: str, units: int, seed: int) -> Phase:
 
 def load(bench: Bench) -> None:
     device_before, medium_before = counters(bench)
-    facts = bench.client.load(bench)
+    with observer(bench, "load") as watched:
+        facts = bench.client.load(bench)
+    bench.facts["load_observation"] = watched.summary
     device_after, medium_after = counters(bench)
     facts |= {"device_write_bytes": device_after.write_bytes - device_before.write_bytes,
               "backing_write_bytes": medium_after - medium_before}
@@ -748,7 +779,8 @@ class Profiler:
         self.process.send_signal(signal.SIGINT)
         self.process.wait(timeout=300)
         # A flat profile; open perf.data with perf report or a flame graph tool for call graphs.
-        run(self.bench, "perf-report", ["perf", "report", "-i", self.data, "--stdio", "--no-children",
+        kallsyms = [f"--kallsyms={self.bench.config.kallsyms}"] if self.bench.config.kallsyms else []
+        run(self.bench, "perf-report", ["perf", "report", "-i", self.data, *kallsyms, "--stdio", "--no-children",
                                         "-g", "none", "--no-inline", "--percent-limit", "0.5",
                                         "--sort", "dso,symbol"], check=False)
 
@@ -912,6 +944,10 @@ def write_summary(bench: Bench, result: str) -> None:
     lines += ["", f"Latency columns are {write_operation} in microseconds. "
               "Per-second series are in <phase>-series.csv.", "", "| gate | pass |", "|---|---|"]
     lines += [f"| {name} | {'yes' if ok else 'NO'} |" for name, ok in bench.gates.items()]
+    observations = [("load", bench.facts["load_observation"])] if bench.facts.get("load_observation") else []
+    observations += [(phase.name, phase.observation) for phase in bench.phases if phase.observation]
+    if observations:
+        lines += ["", *observe.markdown(observations)]
     (config.evidence / "summary.md").write_text("\n".join(lines) + "\n")
 
 

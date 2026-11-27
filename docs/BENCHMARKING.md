@@ -1235,6 +1235,7 @@ workload writes less than 2 KiB to the device per operation. The harness sets
 | Backing state, between windows | `blkctl.jsonl` and `blkctl/<phase>.txt`: the parsed `blkctl info --blocks` (used, live, metadata, dead, free, segment states) after the load and after each window. It reads the backing for seconds, so it never runs inside a measured window. Its counts lag by up to one checkpoint interval ([ADR-11](../ADR-11-BLKCTL-INSPECTION-TOOL.md)). |
 | Daemon totals | The daemon's shutdown records (`request_totals`, `log_writes`, `reclaim_stats`, `space`) in `summary.json`. |
 | Profile | `perf.data` with frame-pointer call graphs and kernel stacks, and a flat profile in `perf-report.out`. |
+| Observation, every phase | `observe/<phase>/`: see [Find the limit while it runs](#find-the-limit-while-it-runs). |
 
 The evidence directory is `evidence/aged-sqlite-<ns>/`, and Git ignores it. `summary.md` holds
 the phase table and the gates. Every command's output is in `<step>.out`.
@@ -1247,6 +1248,50 @@ Pin the daemon and the client, for example
 `BENCH_ARGS="--daemon-cpus 2,3 --client-cpus 0,1"` on the Zen 5 cores. `summary.json` records the host state at the
 start and the load average at the end; see
 [How do we keep results reproducible?](#how-do-we-keep-results-reproducible).
+
+### Find the limit while it runs
+
+A throughput number alone doesn't tell what limits it. The harness observes every measured phase
+(the load and each window) and writes `observe/<phase>/`. The tables in `summary.md` under "Where
+the time went" answer three questions:
+
+1. **Is a daemon thread CPU-bound?** For each daemon thread: on-CPU, run-queue and off-CPU time
+   as fractions of the phase, from `/proc/<pid>/task/<tid>/schedstat`, and voluntary and
+   involuntary context switches per second. A thread near 100% on-CPU is the limit. A thread
+   with high off-CPU time waits: on an io_uring completion, a lock or the cleaner.
+2. **Is the time in our device or below it?** For the client device (`ublkbN` or the baseline
+   device) and the device under the medium: writes/s, MiB/s, write and flush latency, utilization
+   and queue depth, from `/sys/block/<dev>/stat`. The client device's write latency minus the
+   medium's is the time our daemon adds per request. brd keeps no counters, so the medium is the
+   LV above it.
+3. **Did the host disturb the run?** CPU and memory pressure stall (PSI) fractions. I/O PSI is
+   only in `summary.json`. On 2026-11-27 the idle host showed 80–95% I/O pressure, and 40% iowait
+   in `top`, with no task in D state and almost no disk I/O. The only tasks waiting on I/O were
+   ghostty's threads in `io_cqring_wait`. We think io_uring counts a wait with requests in flight
+   as iowait, which would also apply to our daemon; this isn't confirmed.
+
+The directory also has 1-second series: `mpstat.txt` (every CPU), `pidstat.txt` (every daemon
+thread) and `iostat.txt` (the same devices). With `--perf` it adds `perf-stat.txt`: cycles and
+instructions per daemon thread, for IPC. Its task-clock disagreed with schedstat and pidstat by
+2.3 times in the first smoke run, for a reason not yet found, so it records only these two. The tools run on the sampler CPUs and read only
+`/proc` and sysfs; none needs root except perf.
+
+For a closer look during a run, use these from another terminal. They need root:
+
+```sh
+P=$(pgrep -f 'block-storage-ublk serve')
+sudo offcputime-bpfcc -f -p $P 30 > offcpu.folded   # where daemon threads block, with stacks
+sudo runqlat-bpfcc -p $P 10 1                       # how long daemon threads wait for a CPU
+sudo biolatency-bpfcc -D 10 1                       # latency histogram per block device
+sudo perf top -p $P -g                              # live on-CPU profile (frame-pointer build)
+```
+
+Unbound kernel workers, such as dm-crypt's `kcryptd` for the NVMe that holds the evidence, can run
+on the measured CPUs. To keep them on CPUs 4–11 and 16–23 during a matrix:
+
+```sh
+echo ff0ff0 | sudo tee /sys/devices/virtual/workqueue/cpumask   # restore with ffffff
+```
 
 ### Run the matrix on RAM
 
@@ -1291,6 +1336,10 @@ divided by the device's writes, for example the thin pool's data device against 
 ```sh
 sudo tools/aged-sqlite/ram-lvm.sh setup                   # brd, VG "bench", LVs, mounts under /mnt/bench
 make bench-aged-matrix MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --benchmarks sqlite-a --repeats 3"
+# PROFILE=1: frame-pointer build, perf record and perf stat of the daemon in every run
+sudo sysctl kernel.perf_event_paranoid=1 kernel.kptr_restrict=0
+sudo cat /proc/kallsyms > /tmp/kallsyms    # this kernel hides kernel addresses from users; once per boot
+make bench-aged-matrix PROFILE=1 KALLSYMS=/tmp/kallsyms MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --benchmarks sqlite-a --repeats 3"
 make bench-aged-matrix MATRIX_ARGS="--variants raw-lv thin-xfs plain-xfs thin-raw plain-raw \
     --benchmarks sqlite-a rocksdb-a fio-uniform --repeats 3"
 sudo tools/aged-sqlite/ram-lvm.sh teardown
