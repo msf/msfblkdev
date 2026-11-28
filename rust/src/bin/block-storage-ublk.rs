@@ -950,6 +950,8 @@ struct Maintenance<'c> {
     wakeups: u64,
     /// Ticks that ran maintenance because the maximum interval passed under continuous requests.
     due_ticks: u64,
+    /// Ticks that ran maintenance under continuous requests because the active cleaner runs.
+    active_ticks: u64,
     growths: u64,
     stale_timers: u64,
     last_step: Option<MaintenanceStep>,
@@ -977,6 +979,7 @@ impl<'c> Maintenance<'c> {
             ticks: 0,
             wakeups: 0,
             due_ticks: 0,
+            active_ticks: 0,
             growths: 0,
             stale_timers: 0,
             last_step: None,
@@ -1065,10 +1068,14 @@ impl<'c> Maintenance<'c> {
         queue.ublk_submit_sqe_sync(entry)
     }
 
-    /// Runs maintenance when the queue is idle or the maximum interval has passed.
+    /// Runs maintenance when the queue is idle, the active cleaner runs or the maximum interval
+    /// has passed. While the active cleaner runs, every tick applies what the cleaner has read so
+    /// far, so cleaning keeps pace with the writes instead of waiting until a write runs out of
+    /// room.
     fn tick(&mut self, volume: &mut block_storage::Volume, now: Instant) -> Result<(), io::Error> {
         let idle = self.scheduler.idle(now);
-        if !idle && !self.scheduler.maintenance_due(now) {
+        let active = volume.active_cleaner();
+        if !idle && !active && !self.scheduler.maintenance_due(now) {
             // Not yet: take the cleaner's reports and clear its wake-up, or the re-armed poll
             // would complete at once and spin until the deadline.
             return volume.poll_cleaner_events();
@@ -1077,10 +1084,17 @@ impl<'c> Maintenance<'c> {
             self.claim_growth(volume);
         }
         self.ticks += 1;
-        if !idle {
-            self.due_ticks += 1;
+        match (idle, active) {
+            (true, _) => {}
+            (false, true) => self.active_ticks += 1,
+            (false, false) => self.due_ticks += 1,
         }
-        let step = volume.maintain_for(SelectionMode::Idle, self.slice, self.clock);
+        let mode = if active {
+            SelectionMode::Active
+        } else {
+            SelectionMode::Idle
+        };
+        let step = volume.maintain_for(mode, self.slice, self.clock);
         let lateness = self.scheduler.maintained(now);
         if lateness > self.slice {
             log_debug!(
@@ -1117,9 +1131,10 @@ impl<'c> Maintenance<'c> {
 
     fn summary(&self) -> String {
         format!(
-            "maintenance_ticks={} maintenance_due_ticks={} cleaner_wakeups={} stale_timers={} maintenance_runs={} maintenance_worst_lateness_us={} maintenance_total_lateness_us={} growths_claimed={} last_step={:?}",
+            "maintenance_ticks={} maintenance_due_ticks={} maintenance_active_ticks={} cleaner_wakeups={} stale_timers={} maintenance_runs={} maintenance_worst_lateness_us={} maintenance_total_lateness_us={} growths_claimed={} last_step={:?}",
             self.ticks,
             self.due_ticks,
+            self.active_ticks,
             self.wakeups,
             self.stale_timers,
             self.scheduler.maintenance_runs(),
@@ -1724,11 +1739,16 @@ mod tests {
 
         /// One MiB of backing with 32-block segments: seven whole segments.
         fn formatted(volume_blocks: u32) -> io::Result<Self> {
+            Self::formatted_bytes(volume_blocks, 1024 * 1024)
+        }
+
+        /// `backing_bytes` of backing with 32-block segments.
+        fn formatted_bytes(volume_blocks: u32, backing_bytes: u64) -> io::Result<Self> {
             let backing = Self::new()?;
             OpenOptions::new()
                 .write(true)
                 .open(&backing.0)?
-                .set_len(1024 * 1024)?;
+                .set_len(backing_bytes)?;
             block_storage::format_with_options(
                 &backing.0,
                 u64::from(volume_blocks) * u64::from(LOGICAL_BLOCK_BYTES),
@@ -2159,6 +2179,42 @@ mod tests {
             previous = Some(user_data);
         }
         assert_eq!(maintenance.stale_timers, 999);
+    }
+
+    #[test]
+    fn ticks_under_continuous_requests_maintain_only_while_the_active_cleaner_runs()
+    -> io::Result<()> {
+        // Bounded: 4 MiB of 32-block segments fills well within this many block writes.
+        const MAXIMUM_WRITES: u32 = 4096;
+        let config = ServeConfig::default();
+        let backing = TemporaryBacking::formatted_bytes(256, 4 << 20)?;
+        let mut volume =
+            block_storage::open_live_with_options(&backing.0, config.volume_open_options())?;
+        let clock = block_storage::ManualClock::new(Instant::now());
+        let mut maintenance = Maintenance::new(config, 4, -1, &clock);
+        // A request just completed and the maximum interval has not passed: not idle, not due.
+        let now = clock.now();
+        maintenance.scheduler.request_completed(now);
+        maintenance.tick(&mut volume, now)?;
+        assert_eq!(maintenance.ticks, 0, "plenty of room: wait for an idle gap");
+        let payload = [0x5a; LOGICAL_BLOCK_USIZE];
+        let mut writes = 0;
+        while !volume.active_cleaner() {
+            assert!(
+                writes < MAXIMUM_WRITES,
+                "free space never fell to the start watermark"
+            );
+            volume.write_block(writes % 256, &payload)?;
+            writes += 1;
+        }
+        maintenance.tick(&mut volume, now)?;
+        assert_eq!(
+            maintenance.ticks, 1,
+            "low on room: maintain between requests"
+        );
+        assert_eq!(maintenance.active_ticks, 1);
+        assert_eq!(maintenance.due_ticks, 0);
+        volume.close()
     }
 
     #[test]

@@ -2,6 +2,7 @@
 use super::{
     Geometry, HeadId, RecordHeader,
     geometry::TABLE_ENTRIES,
+    reclaim::scheduler::ActiveWatermarks,
     segment_table::{SegmentEntry, SegmentState, SegmentTablePage},
 };
 use crate::{invalid_data, invalid_input};
@@ -35,6 +36,12 @@ pub(crate) struct Segments {
     free_count: u32,
     pending_free_count: u32,
     discard_pending_count: u32,
+    /// Thresholds of the active cleaner; `None` until a live volume sets them.
+    active_watermarks: Option<ActiveWatermarks>,
+    /// The active cleaner's latch. It flips only where the allocatable count changes, so it
+    /// turns on once when free segments fall below the start threshold and off once when they
+    /// climb back to the stop threshold.
+    active_cleaner: bool,
 }
 
 /// The persistent image of one segment table page, ready for encoding.
@@ -68,6 +75,8 @@ impl Segments {
             pending_free_count: 0,
             discard_pending_count: 0,
             emptied_count: 0,
+            active_watermarks: None,
+            active_cleaner: false,
         };
         segments.table_dirty[..geometry.table_pages as usize].fill(true);
         Ok(segments)
@@ -132,6 +141,24 @@ impl Segments {
     /// Free segments the allocator can hand out now.
     pub(crate) fn allocatable_count(&self) -> u32 {
         self.free_count - self.discard_pending_count
+    }
+
+    /// Sets the active cleaner's thresholds and re-evaluates its latch from the current count.
+    pub(crate) fn set_active_watermarks(&mut self, watermarks: ActiveWatermarks) {
+        self.active_watermarks = Some(watermarks);
+        self.update_active_cleaner();
+    }
+
+    /// Whether the active cleaner runs: see `active_cleaner` on the struct.
+    pub(crate) fn active_cleaner(&self) -> bool {
+        self.active_cleaner
+    }
+
+    /// Called after every change of the allocatable count.
+    fn update_active_cleaner(&mut self) {
+        if let Some(watermarks) = self.active_watermarks {
+            self.active_cleaner = watermarks.active(self.active_cleaner, self.allocatable_count());
+        }
     }
 
     pub(crate) fn table_block(&self, table: u32) -> u32 {
@@ -238,6 +265,7 @@ impl Segments {
             .ok_or_else(|| io::Error::from_raw_os_error(libc::ENOSPC))?;
         self.set(segment, SegmentEntry::open(head));
         self.free_count -= 1;
+        self.update_active_cleaner();
         self.used_blocks[segment as usize] = 0;
         // A segment reused before its punch was offered holds live data again: no discard.
         self.discard_due[segment as usize] = false;
@@ -404,6 +432,7 @@ impl Segments {
             }
             self.published_flags[index] = self.flags[index];
         }
+        self.update_active_cleaner();
         // The durable root now matches `published_flags`, so state may change again: sealed
         // segments whose last current metadata this publication re-emitted hold nothing.
         for segment in 0..self.geometry.segment_count {
@@ -428,6 +457,7 @@ impl Segments {
         }
         self.discard_pending[segment as usize] = true;
         self.discard_pending_count += 1;
+        self.update_active_cleaner();
         Ok(())
     }
 
@@ -438,6 +468,7 @@ impl Segments {
         );
         self.discard_pending[segment as usize] = false;
         self.discard_pending_count -= 1;
+        self.update_active_cleaner();
     }
 
     pub(crate) fn add_live(&mut self, block: u32) -> io::Result<()> {
@@ -566,6 +597,33 @@ mod tests {
         assert_eq!(segments.allocate(HeadId::User).unwrap(), 0);
         assert_eq!(segments.allocate(HeadId::Relocation).unwrap(), 1);
         segments
+    }
+
+    #[test]
+    fn active_cleaner_latch_flips_where_the_allocatable_count_crosses_a_threshold() {
+        let mut segments = fresh();
+        // Six segments and a victim floor of 1: on below 2 free segments, off again at 3.
+        segments.set_active_watermarks(ActiveWatermarks::new(geometry(), 1));
+        assert_eq!(segments.allocatable_count(), 4);
+        assert!(!segments.active_cleaner());
+        segments.begin_discard(2).unwrap();
+        segments.begin_discard(3).unwrap();
+        assert_eq!(segments.allocatable_count(), 2);
+        assert!(!segments.active_cleaner(), "at start: not yet");
+        assert_eq!(segments.allocate(HeadId::User).unwrap(), 4);
+        assert!(
+            segments.active_cleaner(),
+            "an allocation crossed below start"
+        );
+        segments.finish_discard(2);
+        assert_eq!(segments.allocatable_count(), 2);
+        assert!(segments.active_cleaner(), "below stop: stays on");
+        segments.finish_discard(3);
+        assert_eq!(segments.allocatable_count(), 3);
+        assert!(
+            !segments.active_cleaner(),
+            "a discard completion reached stop"
+        );
     }
 
     #[test]

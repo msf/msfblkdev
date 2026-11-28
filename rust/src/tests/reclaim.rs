@@ -1,7 +1,7 @@
 //! Raw reclamation through the cleaner thread: wraparound, release, stale sources, discard
 //! and growth.
 use super::*;
-use crate::format_v4::segment_table::SegmentState;
+use crate::format_v4::{reclaim::scheduler::ActiveWatermarks, segment_table::SegmentState};
 use crate::{BackingDiscard, MaintenanceStep, SelectionMode};
 use std::time::Duration;
 
@@ -867,4 +867,127 @@ fn maintain_for_ends_its_slice_on_the_injected_clock() -> io::Result<()> {
         "{last:?}"
     );
     Ok(())
+}
+
+/// The active cleaner turns on when writes leave fewer free segments than the start threshold,
+/// stays on while active maintenance frees segments, and turns off at the stop threshold.
+/// Forty segments keep the stop threshold reachable while the data stays live.
+#[test]
+fn active_cleaner_runs_from_the_start_to_the_stop_threshold() -> io::Result<()> {
+    // Bounded: 40 segments of 64 blocks fill within this many single-block writes.
+    const MAXIMUM_WRITES: u32 = 40 * 64;
+    // Bounded: each victim takes a few windows and two publications.
+    const MAXIMUM_STEPS: usize = 2000;
+    let backing = TemporaryBacking::new()?;
+    format_segments(&backing, 128, 40, WRAP_SEGMENT_BLOCKS)?;
+    let mut volume = open_live_with_options(&backing.0, options(8))?;
+    let watermarks = ActiveWatermarks::new(volume.log.geometry, volume.victim_floor());
+    assert!(!volume.active_cleaner(), "a fresh log has room");
+    let mut random = Random(0x9e37_79b9);
+    let mut writes = 0;
+    while !volume.active_cleaner() {
+        writes += 1;
+        assert!(
+            writes <= MAXIMUM_WRITES,
+            "free space never fell to the start threshold"
+        );
+        volume.write_block(random.next() % 48, &value(writes))?;
+        if writes % 7 == 0 {
+            volume.flush()?;
+        }
+    }
+    let free = volume.log.segments.allocatable_count();
+    assert!(
+        watermarks.active(false, free),
+        "on below start: {free} free"
+    );
+    assert_eq!(
+        volume.reclaim_stats().pressure_steps,
+        0,
+        "on before writes had to clean"
+    );
+    for _ in 0..MAXIMUM_STEPS {
+        if !volume.active_cleaner() {
+            break;
+        }
+        match volume.maintain(SelectionMode::Active)? {
+            MaintenanceStep::Waiting => {
+                assert!(volume.wait_for_cleaner(CLEANER_WAIT)?, "cleaner report");
+            }
+            MaintenanceStep::Idle => panic!("active cleaning stopped below the stop threshold"),
+            _ => {}
+        }
+    }
+    let free = volume.log.segments.allocatable_count();
+    assert!(!volume.active_cleaner(), "off again: {free} free");
+    assert!(!watermarks.active(true, free), "off at stop: {free} free");
+    assert!(volume.reclaim_stats().segments_freed > 0);
+    volume.close()
+}
+
+/// A full log can hold no segment that is a quarter dead. Idle cleaning then refuses every
+/// victim, but the active cleaner must still clean: any victim that frees more than its copies
+/// append is worth it.
+#[test]
+fn active_cleaner_cleans_a_log_where_no_segment_is_a_quarter_dead() -> io::Result<()> {
+    // Each victim gains about a sixth of a segment, so whole free segments appear only after
+    // several victims.
+    const VICTIMS: u64 = 10;
+    // Bounded: each victim takes a selection, a window or two and two publications.
+    const MAXIMUM_STEPS: usize = 1000;
+    let backing = TemporaryBacking::new()?;
+    format_segments(&backing, 1536, 40, WRAP_SEGMENT_BLOCKS)?;
+    // A buffer of one segment packs each record into a whole segment: one footer and one link.
+    let mut volume = open_live_with_options(&backing.0, options(64))?;
+    for lba in 0..1536 {
+        volume.write_block(lba, &value(lba))?;
+    }
+    // One overwrite in eight: every sealed segment ends about 15% dead with its footer and link.
+    for lba in (0..1536).step_by(8) {
+        volume.write_block(lba, &value(10_000 + lba))?;
+    }
+    volume.flush()?;
+    let floor = crate::format_v4::reclaim::select::idle_minimum_dead(volume.log.geometry);
+    let sealed: Vec<u32> = (0..volume.log.geometry.segment_count)
+        .filter(|&segment| volume.log.segments.state(segment) == SegmentState::Sealed)
+        .collect();
+    assert!(!sealed.is_empty());
+    for &segment in &sealed {
+        let dead = crate::format_v4::reclaim::select::dead_blocks(&volume.log, segment);
+        assert!(dead > 0 && dead < floor, "segment {segment}: {dead} dead");
+    }
+    drain(&mut volume, SelectionMode::Idle, MAXIMUM_STEPS)?;
+    assert_eq!(
+        volume.reclaim_stats().victims_selected,
+        0,
+        "idle refuses them all"
+    );
+    let before = volume.log_writes();
+    for _ in 0..MAXIMUM_STEPS {
+        if volume.reclaim_stats().segments_freed >= VICTIMS {
+            break;
+        }
+        match volume.maintain(SelectionMode::Active)? {
+            MaintenanceStep::Waiting => {
+                assert!(volume.wait_for_cleaner(CLEANER_WAIT)?, "cleaner report");
+            }
+            MaintenanceStep::Idle => panic!("active cleaning refused every victim"),
+            _ => {}
+        }
+    }
+    let stats = volume.reclaim_stats();
+    assert!(stats.segments_freed >= VICTIMS, "{stats:?}");
+    // Net progress: the freed segments hold more blocks than the copies, their footers and
+    // links, and the publications appended. The gain sits in head room, not in whole segments.
+    let after = volume.log_writes();
+    let appended = (after.relocation_payload_blocks - before.relocation_payload_blocks)
+        + (after.relocation_footer_blocks - before.relocation_footer_blocks)
+        + (after.link_blocks - before.link_blocks)
+        + (after.metadata_blocks - before.metadata_blocks);
+    let freed = stats.segments_freed * u64::from(volume.log.geometry.blocks_per_segment);
+    assert!(
+        freed > appended,
+        "freed {freed} blocks, appended {appended}"
+    );
+    volume.close()
 }

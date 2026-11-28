@@ -170,6 +170,7 @@ pub(crate) fn open_with_io(
     };
     // Replay may have applied a growth record after the cleaner was spawned.
     volume.update_cleaner_geometry()?;
+    volume.set_active_watermarks();
     // Sealed segments the last publication emptied are recorded as Sealed in the root; release
     // them now so the barrier frees them without a scan.
     for segment in 0..volume.log.geometry.segment_count {

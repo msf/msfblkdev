@@ -9,7 +9,8 @@ use crate::format_v4::{
         Entry, MetadataKind, ProposalBuffer, ReclaimStats, View,
         cleaner::{CleanerHandle, Command, DISCARD_SLOTS, Event},
         scanner::ScanCursor,
-        select::{Selection, SelectionMode, select},
+        scheduler::ActiveWatermarks,
+        select::{Selection, SelectionMode, copy_overhead_blocks, select},
     },
     reservation::ensure_user_space,
 };
@@ -227,6 +228,21 @@ impl Volume {
             .send(Command::Geometry(self.log.geometry))
     }
 
+    /// Whether the active cleaner runs: free segments fell below the start threshold (5% of the
+    /// log, at most 2 GiB) and have not yet climbed back to the stop threshold (6%, at most
+    /// 3 GiB). While it runs, request loops call `maintain(SelectionMode::Active)` between
+    /// requests instead of waiting for an idle gap.
+    pub fn active_cleaner(&self) -> bool {
+        self.log.segments.active_cleaner()
+    }
+
+    /// Sets the active cleaner's thresholds for the current geometry and reserve. Called at
+    /// open and after backing growth.
+    pub(crate) fn set_active_watermarks(&mut self) {
+        let watermarks = ActiveWatermarks::new(self.log.geometry, self.victim_floor());
+        self.log.segments.set_active_watermarks(watermarks);
+    }
+
     /// Whether `maintain` has work that does not depend on the cleaner reporting first.
     pub fn maintenance_ready(&self) -> bool {
         !self.reclaim.queue.is_empty()
@@ -321,15 +337,23 @@ impl Volume {
             + 2
     }
 
+    /// Free segments that let idle or active cleaning start any victim: a worst-case relocation
+    /// and two publications on top of the reserve they leave alone (see `can_start_victim`).
+    pub(crate) fn victim_floor(&self) -> u32 {
+        self.reserve.segments
+            + self.reserve.relocation_segments
+            + 2 * self.reserve.publication_segments
+    }
+
     /// Whether relocating `victim` and then publishing twice fits the space left, so that a
     /// started victim can always be released (the progress contract). Idle cleaning also
     /// leaves the foreground reserve alone, so it can never push a write into `ENOSPC`.
     fn can_start_victim(&self, victim: u32, mode: SelectionMode) -> bool {
-        let live = u64::from(self.log.segments.live_blocks(victim));
-        let copies = live + live.div_ceil(self.reserve.relocation_batch) + 1;
+        let live = self.log.segments.live_blocks(victim);
+        let copies = u64::from(live) + copy_overhead_blocks(live, self.reserve.relocation_batch);
         let keep = match mode {
             SelectionMode::Pressure => 0,
-            SelectionMode::Idle => self.reserve.segments,
+            SelectionMode::Idle | SelectionMode::Active => self.reserve.segments,
         };
         self.maintenance_fits(copies, 2, keep)
     }
@@ -366,7 +390,8 @@ impl Volume {
             // feeds itself forever, one segment of stale metadata per cycle.
             return Ok(MaintenanceStep::Idle);
         }
-        match select(&self.log, mode, None) {
+        self.reclaim.stats.select_calls += 1;
+        match select(&self.log, mode, None, self.reserve.relocation_batch) {
             Selection::Victim(_) | Selection::Nothing if self.reclaim.discards_in_flight > 0 => {
                 // A freed segment is still being punched; it becomes allocatable when the
                 // cleaner reports, so this is not the all-live case yet.

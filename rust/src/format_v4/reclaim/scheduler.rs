@@ -1,12 +1,70 @@
 //! Maintenance timing policy with an injectable clock. The daemon feeds real instants; tests
 //! feed synthetic ones. The engine's backing I/O is synchronous, so a due maintenance step runs
 //! at the next safe boundary after its deadline, not within a fixed wall-clock delay.
+use crate::{BLOCK_SIZE, format_v4::Geometry};
 use std::time::{Duration, Instant};
 
 /// Default gap without requests before idle maintenance runs (ADR-08 candidate range 1–5 ms).
 pub const DEFAULT_IDLE_WAIT: Duration = Duration::from_millis(2);
 /// Default longest stretch of continuous requests before maintenance runs anyway.
 pub const DEFAULT_MAXIMUM_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Free segments, in percent of the log, below which the active cleaner starts. Low on purpose:
+/// every segment kept free packs the live data into fewer segments, so victims hold more live
+/// blocks and cost more to copy. ADR-08 leaves the value to measurement; this is a first guess.
+const ACTIVE_START_PERCENT: u32 = 5;
+/// Free segments, in percent of the log, at which the active cleaner stops. The gap to the start
+/// keeps the cleaner from turning on and off at one threshold.
+const ACTIVE_STOP_PERCENT: u32 = 6;
+/// Caps on the two thresholds for large logs. The headroom the cleaner needs is write bandwidth
+/// times its reaction time, an absolute amount, while 5% of a 2 TiB log is 100 GiB.
+const ACTIVE_START_CAP_BYTES: u64 = 2 << 30;
+const ACTIVE_STOP_CAP_BYTES: u64 = 3 << 30;
+
+/// Free-segment thresholds of the active cleaner: it starts when free segments fall below
+/// `start` and stops when they reach `stop`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ActiveWatermarks {
+    start: u32,
+    stop: u32,
+}
+
+impl ActiveWatermarks {
+    /// `start` stays above `victim_floor`, the free segments the active cleaner needs to start
+    /// a victim, so it can act as soon as it turns on. `stop` stays above `start`.
+    pub(crate) fn new(geometry: Geometry, victim_floor: u32) -> Self {
+        let count = geometry.segment_count;
+        let segment_bytes = u64::from(geometry.blocks_per_segment) * BLOCK_SIZE as u64;
+        let start = percent_of(count, ACTIVE_START_PERCENT)
+            .min(capped_segments(ACTIVE_START_CAP_BYTES, segment_bytes))
+            .max(victim_floor + 1);
+        let stop = percent_of(count, ACTIVE_STOP_PERCENT)
+            .min(capped_segments(ACTIVE_STOP_CAP_BYTES, segment_bytes))
+            .max(start + 1);
+        Self { start, stop }
+    }
+
+    /// Whether the active cleaner runs with `free_segments` allocatable, given whether it ran
+    /// before.
+    pub(crate) fn active(self, was_active: bool, free_segments: u32) -> bool {
+        let threshold = if was_active { self.stop } else { self.start };
+        free_segments < threshold
+    }
+}
+
+/// Whole segments in `cap_bytes`, at least one.
+fn capped_segments(cap_bytes: u64, segment_bytes: u64) -> u32 {
+    u32::try_from(cap_bytes / segment_bytes)
+        .unwrap_or(u32::MAX)
+        .max(1)
+}
+
+/// `percent` of `count`, rounded up.
+fn percent_of(count: u32, percent: u32) -> u32 {
+    assert!(percent <= 100, "a percentage of the log fits the log");
+    let scaled = (u64::from(count) * u64::from(percent)).div_ceil(100);
+    u32::try_from(scaled).expect("at most 100% of a u32 count fits a u32")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scheduler {
@@ -157,6 +215,55 @@ mod tests {
             scheduler.wait_hint(later + Duration::from_millis(4)),
             Duration::from_micros(1)
         );
+    }
+
+    /// 32 MiB segments, as `plan_format` selects for the fio benchmark's 9 GiB backing.
+    fn geometry(segment_count: u64) -> Geometry {
+        let blocks_per_segment = 8192;
+        Geometry::new(1 << 20, 2 + segment_count * blocks_per_segment, 8192).expect("geometry")
+    }
+
+    #[test]
+    fn active_watermarks_are_percentages_of_the_log() {
+        // 287 segments: 5% is 14.35 and 6% is 17.22, both rounded up.
+        let watermarks = ActiveWatermarks::new(geometry(287), 8);
+        assert_eq!(
+            watermarks,
+            ActiveWatermarks {
+                start: 15,
+                stop: 18
+            }
+        );
+    }
+
+    #[test]
+    fn active_watermarks_are_capped_on_large_logs() {
+        // 2 TiB of 32 MiB segments: 5% would be 100 GiB; the caps are 2 GiB and 3 GiB.
+        let watermarks = ActiveWatermarks::new(geometry(65_536), 8);
+        assert_eq!(
+            watermarks,
+            ActiveWatermarks {
+                start: 64,
+                stop: 96
+            }
+        );
+    }
+
+    #[test]
+    fn active_watermarks_stay_above_the_victim_floor_and_apart() {
+        // 12 segments: 5% and 6% both round up to 1, below a victim floor of 8.
+        let watermarks = ActiveWatermarks::new(geometry(12), 8);
+        assert_eq!(watermarks, ActiveWatermarks { start: 9, stop: 10 });
+    }
+
+    #[test]
+    fn active_cleaner_starts_below_start_and_stops_at_stop() {
+        let watermarks = ActiveWatermarks::new(geometry(287), 8);
+        assert!(!watermarks.active(false, 15), "at start: not yet");
+        assert!(watermarks.active(false, 14), "below start: on");
+        assert!(watermarks.active(true, 17), "between the two: stays on");
+        assert!(!watermarks.active(true, 18), "at stop: off");
+        assert!(!watermarks.active(false, 17), "between the two: stays off");
     }
 
     #[test]

@@ -72,6 +72,7 @@ impl Volume {
         self.actual_backing_blocks = self.actual_backing_blocks.max(new_blocks);
         self.reserve =
             Reserve::compute(grown, self.mapping.cache.snapshot().sizing.capacity as u64);
+        self.set_active_watermarks();
         self.update_cleaner_geometry()
     }
 }

@@ -1,4 +1,5 @@
-//! Victim selection: greedy under pressure, cost-benefit when idle (ADR-08, F2FS §2.5).
+//! Victim selection: greedy under pressure and while the active cleaner runs, cost-benefit
+//! when idle (ADR-08, F2FS §2.5).
 use crate::format_v4::{Geometry, log::Log, segment_table::SegmentState};
 
 /// Idle cleaning takes a victim only when at least this fraction of the segment is dead. Every
@@ -17,6 +18,10 @@ pub enum SelectionMode {
     Pressure,
     /// Nothing waits: prefer old, mostly dead segments by `(1 - u) * age / (1 + u)`.
     Idle,
+    /// Free space is low but above the reserve, and requests keep coming: take the segment with
+    /// the fewest live blocks, between requests, without spending the reserve. A full log may
+    /// hold no segment that is a quarter dead, so any victim that gains space qualifies.
+    Active,
 }
 
 /// Whether `segment` may be cleaned: sealed, off both roots' replay paths and not empty of
@@ -48,8 +53,33 @@ pub(crate) enum Selection {
     Nothing,
 }
 
-/// Picks the best eligible victim, skipping `excluded`.
-pub(crate) fn select(log: &Log, mode: SelectionMode, excluded: Option<u32>) -> Selection {
+/// Blocks that copying `live` payloads appends besides the payloads themselves: one footer per
+/// relocation record of at most `relocation_batch` payloads, and a link.
+pub(crate) fn copy_overhead_blocks(live: u32, relocation_batch: u64) -> u64 {
+    u64::from(live).div_ceil(relocation_batch) + 1
+}
+
+/// Whether a sealed segment with `dead` dead blocks is worth cleaning in `mode`. Active cleaning
+/// needs a net gain: a victim whose only dead blocks are its own footers and link would be copied
+/// into a segment with the same overhead, and the active cleaner would run without freeing space.
+fn worth_cleaning(log: &Log, segment: u32, dead: u32, mode: SelectionMode, batch: u64) -> bool {
+    match mode {
+        SelectionMode::Pressure => dead > 0,
+        SelectionMode::Idle => dead >= idle_minimum_dead(log.geometry),
+        SelectionMode::Active => {
+            u64::from(dead) > copy_overhead_blocks(log.segments.live_blocks(segment), batch)
+        }
+    }
+}
+
+/// Picks the best eligible victim, skipping `excluded`. `relocation_batch` is the most payloads
+/// one relocation record holds.
+pub(crate) fn select(
+    log: &Log,
+    mode: SelectionMode,
+    excluded: Option<u32>,
+    relocation_batch: u64,
+) -> Selection {
     let mut best: Option<(u32, u128)> = None;
     let mut awaiting = false;
     for segment in 0..log.geometry.segment_count {
@@ -60,7 +90,7 @@ pub(crate) fn select(log: &Log, mode: SelectionMode, excluded: Option<u32>) -> S
             continue;
         }
         let dead = dead_blocks(log, segment);
-        if dead == 0 || mode == SelectionMode::Idle && dead < idle_minimum_dead(log.geometry) {
+        if !worth_cleaning(log, segment, dead, mode, relocation_batch) {
             continue;
         }
         if !eligible(log, segment) {
@@ -68,7 +98,7 @@ pub(crate) fn select(log: &Log, mode: SelectionMode, excluded: Option<u32>) -> S
             continue;
         }
         let score = match mode {
-            SelectionMode::Pressure => u128::from(dead),
+            SelectionMode::Pressure | SelectionMode::Active => u128::from(dead),
             SelectionMode::Idle => {
                 let used = u128::from(log.segments.used_blocks(segment)).max(1);
                 let live = used - u128::from(dead);
