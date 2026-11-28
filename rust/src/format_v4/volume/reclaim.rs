@@ -144,7 +144,6 @@ impl Reclaim {
                 .map(|buffer| buffer.allocated_bytes())
                 .sum::<usize>()
             + std::mem::size_of_val(self.accepted.as_ref())
-            + crate::format_v4::reclaim::scanner::Scanner::allocated_bytes()
     }
 }
 
@@ -561,9 +560,14 @@ impl Volume {
         let ScanState::Ready(cursor) = self.reclaim.scan else {
             return Ok(false);
         };
-        let Some(buffer) = self.reclaim.pool.pop() else {
+        let Some(mut buffer) = self.reclaim.pool.pop() else {
             return Ok(false);
         };
+        let (start, end) = cursor.window(self.log.geometry, buffer.arena.len())?;
+        let segments = &self.log.segments;
+        buffer.fill_live(start, (end - u64::from(start)) as usize, |block| {
+            segments.is_live_block(block)
+        });
         self.reclaim.scan = ScanState::InFlight;
         self.reclaim
             .cleaner

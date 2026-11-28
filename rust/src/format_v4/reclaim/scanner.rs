@@ -1,27 +1,17 @@
 //! Scans one sealed victim through fixed windows and records the candidates it holds.
-use super::{Entry, MetadataKind, ProposalBuffer, View};
+use super::{Entry, MetadataKind, ProposalBuffer};
 use crate::format_v4::{
     FIRST_SEGMENT_BLOCK, Geometry, NO_PREVIOUS_BOUNDARY, RecordHeader, RecordKind,
-    data_record::DataRecord,
-    decode_metadata_framing,
-    index_page::MappingIndexLevel,
+    data_record::DataRecord, decode_metadata_framing, index_page::MappingIndexLevel,
     looks_like_record,
-    mapping_page::{MappingPageRecord, PageExpectation},
 };
 use crate::{
     AlignedBlock, BLOCK_SIZE, MAXIMUM_PAYLOAD_BLOCKS,
     accounted_io::{BackingIo, submit_exact, submit_exact_unaccounted},
-    invalid_data,
-    mapping_cache::{ENTRIES_PER_PAGE, MappingEntries},
-    payload_checksum, read_block_exact, read_u32, read_u64,
+    invalid_data, payload_checksum, read_u32, read_u64,
 };
 use io_uring::{opcode, types};
 use std::{fs::File, io, os::fd::AsRawFd};
-
-/// Recently decoded snapshots; sorted releases keep consecutive payloads on one page.
-const PAGE_CACHE_SLOTS: usize = 4;
-pub(crate) const PAGE_CACHE_BYTES: usize =
-    PAGE_CACHE_SLOTS * (size_of::<Option<u32>>() + size_of::<MappingEntries>());
 
 /// Where a scan stands inside its victim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +35,19 @@ impl ScanCursor {
             last_lsn: 0,
             done: false,
         })
+    }
+
+    /// The blocks the next window covers: from `next_block`, at most `window_blocks`, never past
+    /// the victim's end. The writer fills live bits for this range before it hands the window
+    /// over, and the scanner reads it.
+    pub(crate) fn window(
+        &self,
+        geometry: Geometry,
+        window_blocks: usize,
+    ) -> io::Result<(u32, u64)> {
+        let segment_end = geometry.segment_end(self.victim)?;
+        let end = (u64::from(self.next_block) + window_blocks as u64).min(segment_end);
+        Ok((self.next_block, end))
     }
 
     /// Whether `header` is the next record of this segment's chain.
@@ -77,29 +80,17 @@ pub(crate) struct ScanContext<'a> {
     pub(crate) backing: &'a File,
     pub(crate) geometry: Geometry,
     pub(crate) volume_id: u64,
-    pub(crate) view: &'a View,
 }
 
 pub(crate) struct Scanner {
     io: BackingIo,
-    scratch: AlignedBlock,
-    page_cache: [(Option<u32>, MappingEntries); PAGE_CACHE_SLOTS],
-    next_cache_slot: usize,
 }
 
 impl Scanner {
     pub(crate) fn new() -> io::Result<Self> {
         Ok(Self {
             io: BackingIo::new(None)?,
-            scratch: AlignedBlock([0; BLOCK_SIZE]),
-            page_cache: std::array::from_fn(|_| (None, MappingEntries::zeroed())),
-            next_cache_slot: 0,
         })
-    }
-
-    /// Scratch the cleaner thread holds. The ring is a kernel resource, reported separately.
-    pub(crate) fn allocated_bytes() -> usize {
-        size_of::<AlignedBlock>() + PAGE_CACHE_BYTES
     }
 
     /// Reads the next window of the victim into `buffer` and records its live candidates.
@@ -117,15 +108,15 @@ impl Scanner {
             ..
         } = *context;
         let segment_end = geometry.segment_end(cursor.victim)?;
-        let window_start = cursor.next_block;
-        let window_end = (u64::from(window_start) + buffer.arena.len() as u64).min(segment_end);
+        let (window_start, window_end) = cursor.window(geometry, buffer.arena.len())?;
         let blocks = (window_end - u64::from(window_start)) as usize;
         assert!(blocks > 0, "cursor inside the segment");
+        assert_eq!(
+            buffer.window_start, window_start,
+            "the writer filled live bits for this window"
+        );
         buffer.reset(cursor.victim, cursor.seal_lsn, window_start);
         self.read_window(backing, window_start, &mut buffer.arena[..blocks])?;
-        for entry in self.page_cache.iter_mut() {
-            entry.0 = None;
-        }
         let mut report = ScanReport {
             blocks_read: blocks as u64,
             ..ScanReport::default()
@@ -271,8 +262,7 @@ impl Scanner {
         for index in 0..count {
             let lba = record.lba_ids[index];
             let physical = start + index as u32;
-            let live = self.is_live(context, lba, physical, report)?;
-            if !live {
+            if !buffer.is_live(physical) {
                 report.payloads_dead += 1;
                 continue;
             }
@@ -292,56 +282,6 @@ impl Scanner {
             });
         }
         Ok(())
-    }
-
-    /// Whether the view maps `lba` to `physical`. An unreadable snapshot counts as live so the
-    /// writer, not the scanner, decides against stale state.
-    fn is_live(
-        &mut self,
-        context: &ScanContext<'_>,
-        lba: u32,
-        physical: u32,
-        report: &mut ScanReport,
-    ) -> io::Result<bool> {
-        let ScanContext {
-            backing,
-            geometry,
-            volume_id,
-            view,
-        } = *context;
-        let page_id = lba / ENTRIES_PER_PAGE as u32;
-        let entry = (lba % ENTRIES_PER_PAGE as u32) as usize;
-        let snapshot = view.snapshot_block[page_id as usize];
-        if snapshot == 0 {
-            return Ok(false);
-        }
-        if let Some(slot) = self
-            .page_cache
-            .iter()
-            .position(|(id, _)| *id == Some(page_id))
-        {
-            return Ok(self.page_cache[slot].1.physical_addr[entry] == physical);
-        }
-        read_block_exact(&mut self.io, backing, snapshot, &mut self.scratch)?;
-        report.snapshot_reads += 1;
-        let decoded = MappingPageRecord::decode(
-            &self.scratch.0,
-            &PageExpectation {
-                geometry,
-                volume_id,
-                page_id,
-                boundary: snapshot,
-                maximum_lsn: view.maximum_lsn,
-            },
-        );
-        let Ok(page) = decoded else {
-            return Ok(true);
-        };
-        let live = page.entries.physical_addr[entry] == physical;
-        let slot = self.next_cache_slot;
-        self.next_cache_slot = (slot + 1) % PAGE_CACHE_SLOTS;
-        self.page_cache[slot] = (Some(page_id), page.entries);
-        Ok(live)
     }
 }
 

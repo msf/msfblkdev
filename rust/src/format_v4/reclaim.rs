@@ -65,6 +65,10 @@ pub(crate) struct ProposalBuffer {
     pub(crate) payload_count: usize,
     /// Whether this window reached the victim's closing link.
     pub(crate) last_window: bool,
+    /// One bit per window block, set when the writer saw a live payload there at dispatch.
+    /// The scanner proposes only those payloads; the writer checks each again at apply, so a
+    /// bit that went stale costs a wasted proposal, never a lost block.
+    live: Box<[u64]>,
 }
 
 impl ProposalBuffer {
@@ -92,6 +96,7 @@ impl ProposalBuffer {
             payload_order: super::segments::filled(blocks, 0)?,
             payload_count: 0,
             last_window: false,
+            live: super::segments::filled(blocks.div_ceil(64), 0)?,
         })
     }
 
@@ -99,8 +104,34 @@ impl ProposalBuffer {
         std::mem::size_of_val(self.arena.as_ref())
             + std::mem::size_of_val(self.entries.as_ref())
             + std::mem::size_of_val(self.payload_order.as_ref())
+            + std::mem::size_of_val(self.live.as_ref())
     }
 
+    /// The writer's side of a dispatch: records which blocks of the window starting at
+    /// `window_start` hold live payloads, for `blocks` blocks.
+    pub(crate) fn fill_live(
+        &mut self,
+        window_start: u32,
+        blocks: usize,
+        live: impl Fn(u32) -> bool,
+    ) {
+        assert!(blocks <= self.arena.len(), "a window fits its buffer");
+        self.window_start = window_start;
+        self.live.fill(0);
+        for offset in 0..blocks {
+            if live(window_start + offset as u32) {
+                self.live[offset / 64] |= 1 << (offset % 64);
+            }
+        }
+    }
+
+    /// Whether the writer saw a live payload at `block` when it dispatched this window.
+    pub(crate) fn is_live(&self, block: u32) -> bool {
+        let offset = (block - self.window_start) as usize;
+        self.live[offset / 64] & (1 << (offset % 64)) != 0
+    }
+
+    /// Starts a scan of the window. Keeps the live bits the writer filled at dispatch.
     pub(crate) fn reset(&mut self, victim: u32, seal_lsn: u64, window_start: u32) {
         self.victim = victim;
         self.seal_lsn = seal_lsn;
@@ -245,5 +276,36 @@ impl ReclaimStats {
             self.active_stalls,
             self.active_pauses,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_bits_cover_a_window_across_word_boundaries() {
+        let shape = CleanerShape {
+            window_blocks: 130,
+            proposal_buffers: 1,
+        };
+        let mut buffer = ProposalBuffer::new(shape).unwrap();
+        let live = [1000_u32, 1063, 1064, 1128, 1129];
+        buffer.fill_live(1000, 130, |block| live.contains(&block));
+        for block in 1000..1130 {
+            assert_eq!(
+                buffer.is_live(block),
+                live.contains(&block),
+                "block {block}"
+            );
+        }
+        // A shorter window clears what the previous one set.
+        buffer.fill_live(2000, 10, |_| false);
+        assert!((2000..2010).all(|block| !buffer.is_live(block)));
+        buffer.reset(7, 9, 2000);
+        assert_eq!(
+            buffer.window_start, 2000,
+            "reset keeps the dispatched window"
+        );
     }
 }

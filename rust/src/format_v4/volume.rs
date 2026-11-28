@@ -227,7 +227,10 @@ fn supporting_state(
         // Include the cleaner scan view and the writer's spare snapshot locations.
         resident_index_bytes: super::mapping_index::MappingIndex::allocation_bytes(g) as u64
             + 2 * u64::from(g.page_count) * 4,
-        segment_state_bytes: super::segments::Segments::allocation_bytes(segment_capacity) as u64,
+        segment_state_bytes: super::segments::Segments::allocation_bytes(
+            segment_capacity,
+            g.blocks_per_segment,
+        ) as u64,
         write_buffer_lookup_bytes: lookup_bytes as u64,
         fixed_scratch_bytes: fixed_scratch_bytes(g, buffer_blocks),
     }

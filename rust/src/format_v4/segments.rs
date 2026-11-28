@@ -1,6 +1,6 @@
 //! The writer's segment state: persistent fields, live counts and the two-publication barrier.
 use super::{
-    Geometry, HeadId, RecordHeader,
+    FIRST_SEGMENT_BLOCK, Geometry, HeadId, RecordHeader,
     geometry::TABLE_ENTRIES,
     reclaim::scheduler::ActiveWatermarks,
     segment_table::{SegmentEntry, SegmentState, SegmentTablePage},
@@ -18,6 +18,10 @@ pub(crate) struct Segments {
     published_flags: Box<[u8]>,
     /// Live payload blocks, rebuilt at open and adjusted on every mapping change.
     live_blocks: Box<[u32]>,
+    /// One bit per segment block, set while the block holds a live payload: the per-block form
+    /// of `live_blocks`, kept by the same two calls. The cleaner tests these bits instead of
+    /// reading mapping pages. Only the counts decide when a segment is freed.
+    live_bits: Box<[u64]>,
     /// Current metadata records (snapshots, index pages, table pages) located in the segment.
     metadata_blocks: Box<[u32]>,
     /// Blocks written since the segment was opened; the link counts, unused tail does not.
@@ -48,6 +52,18 @@ pub(crate) struct Segments {
     active_starts: u64,
 }
 
+/// Words of live bits for `capacity` segments of `blocks_per_segment` blocks.
+fn live_bit_words(capacity: u32, blocks_per_segment: u32) -> usize {
+    (u64::from(capacity) * u64::from(blocks_per_segment)).div_ceil(64) as usize
+}
+
+/// The word and mask of `block`'s live bit. Segments are contiguous from
+/// `FIRST_SEGMENT_BLOCK`, so the bit index is the block's offset from there.
+fn live_bit(block: u32) -> (usize, u64) {
+    let index = block - FIRST_SEGMENT_BLOCK;
+    ((index / 64) as usize, 1 << (index % 64))
+}
+
 /// The persistent image of one segment table page, ready for encoding.
 pub(crate) struct TablePageImage {
     pub(crate) entries: [SegmentEntry; TABLE_ENTRIES],
@@ -68,6 +84,7 @@ impl Segments {
             seal_lsn: filled(count, 0)?,
             published_flags: filled(count, 0)?,
             live_blocks: filled(count, 0)?,
+            live_bits: filled(live_bit_words(capacity, geometry.blocks_per_segment), 0)?,
             metadata_blocks: filled(count, 0)?,
             used_blocks: filled(count, 0)?,
             discard_pending: filled(count, false)?,
@@ -97,13 +114,15 @@ impl Segments {
         u32::try_from(self.flags.len()).expect("bounded")
     }
 
-    pub(super) fn allocation_bytes(capacity: u32) -> usize {
+    pub(super) fn allocation_bytes(capacity: u32, blocks_per_segment: u32) -> usize {
         // flags, seal_lsn, published_flags, three block counters and three booleans;
-        // one address and one dirty flag per reserved table page.
+        // one address and one dirty flag per reserved table page; one live bit per block.
         let entry =
             2 * size_of::<u8>() + size_of::<u64>() + 3 * size_of::<u32>() + 3 * size_of::<bool>();
         let table = size_of::<u32>() + size_of::<bool>();
-        capacity as usize * entry + (capacity as usize).div_ceil(TABLE_ENTRIES) * table
+        capacity as usize * entry
+            + (capacity as usize).div_ceil(TABLE_ENTRIES) * table
+            + live_bit_words(capacity, blocks_per_segment) * size_of::<u64>()
     }
 
     pub(crate) fn entry(&self, segment: u32) -> io::Result<SegmentEntry> {
@@ -492,6 +511,8 @@ impl Segments {
     pub(crate) fn add_live(&mut self, block: u32) -> io::Result<()> {
         let segment = self.geometry.segment_of(block)? as usize;
         self.live_blocks[segment] += 1;
+        let (word, mask) = live_bit(block);
+        self.live_bits[word] |= mask;
         Ok(())
     }
 
@@ -500,8 +521,25 @@ impl Segments {
         self.live_blocks[segment] = self.live_blocks[segment]
             .checked_sub(1)
             .ok_or_else(|| invalid_data("live block count underflow"))?;
+        let (word, mask) = live_bit(block);
+        self.live_bits[word] &= !mask;
         self.stuck[segment] = false;
         Ok(())
+    }
+
+    /// Whether `block` holds a live payload. `block` lies inside a whole segment.
+    pub(crate) fn is_live_block(&self, block: u32) -> bool {
+        let (word, mask) = live_bit(block);
+        self.live_bits[word] & mask != 0
+    }
+
+    /// Live bits set in `segment`.
+    #[cfg(test)]
+    fn live_bit_count(&self, segment: u32) -> io::Result<u32> {
+        let start = self.geometry.segment_start(segment)?;
+        Ok((start..start + self.geometry.blocks_per_segment)
+            .filter(|&block| self.is_live_block(block))
+            .count() as u32)
     }
 
     pub(crate) fn add_metadata(&mut self, block: u32) -> io::Result<()> {
@@ -552,8 +590,8 @@ impl Segments {
         Ok(())
     }
 
-    /// Whether the counts still describe the segments: every segment is in one state and no
-    /// live or metadata block exceeds what was written there.
+    /// Whether the counts still describe the segments: every segment is in one state, its live
+    /// bits match its live count, and no live or metadata block exceeds what was written there.
     #[cfg(test)]
     pub(crate) fn check_conservation(&self) -> io::Result<()> {
         let mut free = 0;
@@ -578,6 +616,9 @@ impl Segments {
                 SegmentState::Open | SegmentState::Sealed => {}
             }
             discards += u32::from(self.discard_pending[index]);
+            if self.live_bit_count(segment)? != self.live_blocks[index] {
+                return Err(invalid_data("live bits disagree with the live count"));
+            }
             if self.live_blocks[index] + self.metadata_blocks[index] > self.used_blocks[index] {
                 return Err(invalid_data("segment references exceed its written blocks"));
             }
@@ -792,6 +833,20 @@ mod tests {
     }
 
     #[test]
+    fn live_bits_follow_add_and_remove() {
+        let mut segments = fresh();
+        segments.record_used(1, 4);
+        // Block 10 is the first block of segment 1; 9 is the last of segment 0.
+        segments.add_live(10).unwrap();
+        assert!(segments.is_live_block(10));
+        assert!(!segments.is_live_block(9) && !segments.is_live_block(11));
+        segments.check_conservation().unwrap();
+        segments.remove_live(10).unwrap();
+        assert!(!segments.is_live_block(10));
+        segments.check_conservation().unwrap();
+    }
+
+    #[test]
     fn conservation_detects_dangling_references() {
         let mut segments = fresh();
         segments.record_used(0, 2);
@@ -800,9 +855,10 @@ mod tests {
         segments.check_conservation().unwrap();
         segments.add_live(4).unwrap();
         assert!(segments.check_conservation().is_err());
+        // Eight segments of eight blocks: 64 live bits, one word.
         assert_eq!(
-            Segments::allocation_bytes(segments.capacity()),
-            8 * (1 + 8 + 1 + 4 + 4 + 4 + 1 + 1 + 1) + 4 + 1
+            Segments::allocation_bytes(segments.capacity(), 8),
+            8 * (1 + 8 + 1 + 4 + 4 + 4 + 1 + 1 + 1) + 4 + 1 + 8
         );
     }
 }

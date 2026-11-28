@@ -264,7 +264,6 @@ impl Cleaner {
             backing: &self.backing,
             geometry: self.geometry,
             volume_id: self.volume_id,
-            view: &self.view,
         };
         match self.scanner.scan_window(&context, &mut cursor, &mut buffer) {
             Ok(report) => Event::Scanned {

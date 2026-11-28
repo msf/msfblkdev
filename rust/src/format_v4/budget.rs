@@ -82,17 +82,17 @@ impl CleanerShape {
         (MAXIMUM_PAYLOAD_BLOCKS as u32 + 1).min(geometry.blocks_per_segment)
     }
 
-    /// Bytes of one window buffer: its block arena plus one entry and one order slot per block.
+    /// Bytes of one window buffer: its block arena, one entry and one order slot per block, and
+    /// one live bit per block.
     pub(crate) fn proposal_buffer_bytes(geometry: Geometry) -> u64 {
         let blocks = u64::from(Self::window_blocks(geometry));
         blocks * (BLOCK_SIZE as u64 + super::reclaim::ENTRY_BYTES as u64 + 4)
+            + blocks.div_ceil(64) * 8
     }
 
-    /// Scanner scratch: one snapshot block, the decoded page cache and the accepted-index list.
+    /// The writer's accepted-index list for one window.
     pub(crate) fn scanner_bytes(geometry: Geometry) -> u64 {
-        BLOCK_SIZE as u64
-            + super::reclaim::scanner::PAGE_CACHE_BYTES as u64
-            + u64::from(Self::window_blocks(geometry)) * 4
+        u64::from(Self::window_blocks(geometry)) * 4
     }
 
     /// The smallest useful cleaner share: the scanner scratch and one window buffer.
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(CleanerShape::window_blocks(tiny_segments), 8);
         assert_eq!(
             CleanerShape::minimum_bytes(tiny_segments),
-            CleanerShape::scanner_bytes(tiny_segments) + 8 * (4096 + 24 + 4)
+            CleanerShape::scanner_bytes(tiny_segments) + 8 * (4096 + 24 + 4) + 8
         );
     }
 }

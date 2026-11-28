@@ -152,8 +152,8 @@ fn overwrites_beyond_capacity_reuse_segments_and_keep_latest_values() -> io::Res
     );
     assert!(stats.segments_freed >= 3, "{stats:?}");
     assert!(stats.payloads_copied > 0, "{stats:?}");
-    // The cleaner reads a mapping snapshot page to decide each payload's liveness.
-    assert!(stats.scan_snapshot_reads > 0, "{stats:?}");
+    // The cleaner judges liveness from the writer's live bits, not from mapping pages.
+    assert_eq!(stats.scan_snapshot_reads, 0, "{stats:?}");
     assert!(stats.victims_selected >= 3, "{stats:?}");
     assert_eq!(stats.enospc_all_live, 0);
     assert!(writes_done.relocation_payload_blocks > 0);
