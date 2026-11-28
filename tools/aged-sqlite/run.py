@@ -460,8 +460,9 @@ def format_backing(bench: Bench) -> None:
     else:
         argv += ["--prealloc-mib", str(bench.facts["requested_backing_bytes"] // MIB)]
     metrics.create_ledger(bench.ledger)
-    result = run(bench, "format", argv, env=daemon_env(bench))
+    # check_backing proved the file didn't exist, so whatever format leaves there is ours.
     bench.created_backing = bench.backing_kind == "regular-file"
+    result = run(bench, "format", argv, env=daemon_env(bench))
     bench.facts["format"] = metrics.parse_daemon_events(result.stdout).get("format", {})
     bench.facts["backing_bytes"] = size_of_block_device(bench.backing)
 
@@ -905,15 +906,33 @@ def teardown(bench: Bench, succeeded: bool) -> None:
         except Failure as error:
             note(bench, f"teardown: {error}")
             return
-    if succeeded:
-        if bench.created_backing and bench.backing.parent != bench.owned:
-            bench.backing.unlink()
-        if bench.backing_kind == "block-device":
-            # Return a RAM disk's pages; the next run formats the device again anyway.
-            run(bench, "blkdiscard", ["blkdiscard", bench.backing], check=False)
-        shutil.rmtree(bench.owned)
-    else:
+    # A backing on a matrix LV is the next run's fixture too, and an existing file stops that run. A
+    # failed run keeps the backing's state as evidence instead of the backing itself. Only a file
+    # this run created is removed; a block device is formatted again by the next run anyway.
+    shared = bench.backing_kind == "block-device" or (bench.created_backing and bench.backing.parent != bench.owned)
+    if not succeeded and not shared:
         note(bench, f"preserved {bench.owned} (backing {bench.backing}); remove it with: rm -rf {bench.owned}")
+        return
+    if shared:
+        if not succeeded:
+            record_failed_backing(bench)
+        release_shared_backing(bench)
+    shutil.rmtree(bench.owned)
+
+
+def record_failed_backing(bench: Bench) -> None:
+    if bench.backing_kind == "block-device" or bench.backing.exists():
+        run(bench, "blkctl-info-failed", [bench.config.blkctl, "info", "--segments", "--color=never", bench.backing],
+            check=False)
+        run(bench, "blkctl-check-failed", [bench.config.blkctl, "check", "--color=never", bench.backing], check=False)
+
+
+def release_shared_backing(bench: Bench) -> None:
+    if bench.backing_kind == "block-device":
+        # Return a RAM disk's pages.
+        run(bench, "blkdiscard", ["blkdiscard", bench.backing], check=False)
+    else:
+        bench.backing.unlink(missing_ok=True)
 
 
 def write_summary(bench: Bench, result: str) -> None:
@@ -971,7 +990,15 @@ def new_bench(config: Config) -> Bench:
     return bench
 
 
+def interrupt(signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt(signal.Signals(signum).name)
+
+
 def main(argv: list[str]) -> int:
+    # SIGTERM and SIGHUP (a closed terminal) take the same teardown path as Ctrl-C. Without it the
+    # daemon, which runs in its own session, outlives the harness with the filesystem mounted.
+    signal.signal(signal.SIGTERM, interrupt)
+    signal.signal(signal.SIGHUP, interrupt)
     config = parse_args(argv)
     bench = new_bench(config)
     note(bench, f"evidence: {config.evidence}")

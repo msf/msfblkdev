@@ -75,6 +75,8 @@ IDLE_BUSY_FRACTION = 0.05
 IDLE_SAMPLE_SECONDS = 5
 IDLE_WAIT_SECONDS = 900
 COOLDOWN_SECONDS = 30
+# A run's teardown unmounts, stops the daemon and checks nothing more; it finishes in seconds.
+TEARDOWN_SECONDS = 600
 
 
 def applies(variant: str, benchmark: str) -> bool:
@@ -140,9 +142,21 @@ def run_one(out: Path, index: int, total: int, variant: str, benchmark: str, rep
     print(f"[{index}/{total}] {name}: {' '.join(argv[6:])}", flush=True)
     started = time.monotonic()
     with open(out / "runs" / f"{name}.log", "w") as log:
-        code = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, check=False).returncode
+        code = wait_for_run(subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT))
     print(f"[{index}/{total}] {name}: {'PASS' if code == 0 else 'FAIL'} in {time.monotonic() - started:.0f} s",
           flush=True)
+
+
+def wait_for_run(process: subprocess.Popen) -> int:
+    """Waits for run.py. On Ctrl-C the terminal sends SIGINT to run.py too, and run.py tears down:
+    wait for that instead of killing it, as subprocess.run does after 0.25 s, which leaves the
+    daemon running and the filesystem mounted."""
+    try:
+        return process.wait()
+    except KeyboardInterrupt:
+        print(f"interrupted: waiting up to {TEARDOWN_SECONDS} s for the run's teardown", flush=True)
+        process.wait(timeout=TEARDOWN_SECONDS)
+        raise
 
 
 def passed(evidence: Path) -> bool:
@@ -183,4 +197,8 @@ def wait_until_idle() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        print("interrupted; runs that passed are kept: rerun with the same --out to resume", flush=True)
+        sys.exit(130)
