@@ -68,6 +68,8 @@ pub(crate) struct ScanReport {
     pub(crate) payloads_dead: u64,
     /// Live payloads whose bytes fail their footer checksum; never relocated.
     pub(crate) payloads_corrupt: u64,
+    /// Mapping snapshot pages read to decide whether a payload is live.
+    pub(crate) snapshot_reads: u64,
 }
 
 /// What one scan reads against: the backing, its geometry and the writer's view.
@@ -269,7 +271,7 @@ impl Scanner {
         for index in 0..count {
             let lba = record.lba_ids[index];
             let physical = start + index as u32;
-            let live = self.is_live(context, lba, physical)?;
+            let live = self.is_live(context, lba, physical, report)?;
             if !live {
                 report.payloads_dead += 1;
                 continue;
@@ -294,7 +296,13 @@ impl Scanner {
 
     /// Whether the view maps `lba` to `physical`. An unreadable snapshot counts as live so the
     /// writer, not the scanner, decides against stale state.
-    fn is_live(&mut self, context: &ScanContext<'_>, lba: u32, physical: u32) -> io::Result<bool> {
+    fn is_live(
+        &mut self,
+        context: &ScanContext<'_>,
+        lba: u32,
+        physical: u32,
+        report: &mut ScanReport,
+    ) -> io::Result<bool> {
         let ScanContext {
             backing,
             geometry,
@@ -315,6 +323,7 @@ impl Scanner {
             return Ok(self.page_cache[slot].1.physical_addr[entry] == physical);
         }
         read_block_exact(&mut self.io, backing, snapshot, &mut self.scratch)?;
+        report.snapshot_reads += 1;
         let decoded = MappingPageRecord::decode(
             &self.scratch.0,
             &PageExpectation {

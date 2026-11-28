@@ -512,6 +512,7 @@ impl Volume {
                 assert_eq!(self.reclaim.scan, ScanState::InFlight, "one scan at a time");
                 self.reclaim.stats.windows_scanned += 1;
                 self.reclaim.stats.scan_blocks_read += report.blocks_read;
+                self.reclaim.stats.scan_snapshot_reads += report.snapshot_reads;
                 self.reclaim.stats.payloads_proposed += report.payloads_live;
                 self.reclaim.stats.payloads_corrupt += report.payloads_corrupt;
                 let sealed = self.log.segments.state(buffer.victim)

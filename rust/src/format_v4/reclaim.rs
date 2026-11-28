@@ -176,6 +176,8 @@ pub struct ReclaimStats {
     pub victims_selected: u64,
     pub windows_scanned: u64,
     pub scan_blocks_read: u64,
+    /// Mapping snapshot pages the cleaner read to decide which payloads are live.
+    pub scan_snapshot_reads: u64,
     pub payloads_proposed: u64,
     pub payloads_copied: u64,
     /// Proposed payloads whose mapping moved before apply.
@@ -215,10 +217,11 @@ pub struct ReclaimStats {
 impl ReclaimStats {
     pub fn summary(&self) -> String {
         format!(
-            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_released_without_scan={} reclaim_segments_freed={} reclaim_segments_freed_total={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={} reclaim_select_calls={} reclaim_active_stalls={} reclaim_active_pauses={}",
+            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_scan_snapshot_reads={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_released_without_scan={} reclaim_segments_freed={} reclaim_segments_freed_total={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={} reclaim_select_calls={} reclaim_active_stalls={} reclaim_active_pauses={}",
             self.victims_selected,
             self.windows_scanned,
             self.scan_blocks_read,
+            self.scan_snapshot_reads,
             self.payloads_proposed,
             self.payloads_copied,
             self.payloads_stale,
