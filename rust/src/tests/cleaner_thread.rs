@@ -160,7 +160,7 @@ fn close_with_a_window_read_outstanding_joins_the_cleaner_and_keeps_every_block(
     let mut volume = open_live_with_options(&backing.0, options(1))?;
     volume.delay_cleaner(Duration::from_millis(400))?;
     eligible_victim(&mut volume)?;
-    assert_eq!(volume.cleaner_outstanding(), 2, "view swap and one window");
+    assert_eq!(volume.cleaner_outstanding(), 1, "one window");
     let started = Instant::now();
     volume.close()?;
     let elapsed = started.elapsed();

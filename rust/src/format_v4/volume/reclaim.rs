@@ -6,7 +6,7 @@ use crate::format_v4::{
     data_record::DataRecord,
     mapping_page::{MappingPageRecord, PageExpectation},
     reclaim::{
-        Entry, MetadataKind, ProposalBuffer, ReclaimStats, View,
+        Entry, MetadataKind, ProposalBuffer, ReclaimStats,
         active::ActiveProgress,
         cleaner::{CleanerHandle, Command, DISCARD_SLOTS, Event},
         scanner::ScanCursor,
@@ -75,10 +75,6 @@ pub enum BackingDiscard {
 
 pub(crate) struct Reclaim {
     cleaner: CleanerHandle,
-    /// The view the writer refills and swaps into the cleaner; None while the swap is in flight.
-    spare_view: Option<Box<View>>,
-    /// The checkpoint LSN the cleaner's view was copied at; a newer root refreshes it.
-    view_checkpoint_lsn: Option<u64>,
     pool: Vec<ProposalBuffer>,
     queue: VecDeque<ProposalBuffer>,
     scan: ScanState,
@@ -109,18 +105,8 @@ impl Reclaim {
         queue
             .try_reserve_exact(shape.proposal_buffers as usize)
             .map_err(|_| io::Error::other("proposal queue allocation failed"))?;
-        let cleaner_view = Box::new(View::new(geometry)?);
-        let spare_view = Box::new(View::new(geometry)?);
         Ok(Self {
-            cleaner: CleanerHandle::spawn(
-                backing,
-                backing_kind,
-                geometry,
-                volume_id,
-                cleaner_view,
-            )?,
-            spare_view: Some(spare_view),
-            view_checkpoint_lsn: None,
+            cleaner: CleanerHandle::spawn(backing, backing_kind, geometry, volume_id)?,
             pool,
             queue,
             scan: ScanState::None,
@@ -133,16 +119,14 @@ impl Reclaim {
         })
     }
 
-    /// Heap held by the writer's side and lent to the cleaner: both views, every window buffer
-    /// and the acceptance scratch. The cleaner's own scratch is counted by `Scanner`.
-    pub(crate) fn allocated_bytes(&self, geometry: Geometry) -> usize {
-        2 * View::allocated_bytes_for(geometry)
-            + self
-                .pool
-                .iter()
-                .chain(self.queue.iter())
-                .map(|buffer| buffer.allocated_bytes())
-                .sum::<usize>()
+    /// Heap held by the writer's side and lent to the cleaner: every window buffer and the
+    /// acceptance scratch.
+    pub(crate) fn allocated_bytes(&self) -> usize {
+        self.pool
+            .iter()
+            .chain(self.queue.iter())
+            .map(|buffer| buffer.allocated_bytes())
+            .sum::<usize>()
             + std::mem::size_of_val(self.accepted.as_ref())
     }
 }
@@ -472,7 +456,6 @@ impl Volume {
                 Ok(MaintenanceStep::Idle)
             }
             Selection::Victim(victim) => {
-                self.refresh_view()?;
                 let cursor = ScanCursor::start(
                     self.log.geometry,
                     victim,
@@ -511,7 +494,6 @@ impl Volume {
                 assert_eq!(self.reclaim.scan, ScanState::InFlight, "one scan at a time");
                 self.reclaim.stats.windows_scanned += 1;
                 self.reclaim.stats.scan_blocks_read += report.blocks_read;
-                self.reclaim.stats.scan_snapshot_reads += report.snapshot_reads;
                 self.reclaim.stats.payloads_proposed += report.payloads_live;
                 self.reclaim.stats.payloads_corrupt += report.payloads_corrupt;
                 let sealed = self.log.segments.state(buffer.victim)
@@ -528,10 +510,6 @@ impl Volume {
                 } else {
                     ScanState::Ready(cursor)
                 };
-            }
-            Event::ViewReturned(view) => {
-                assert!(self.reclaim.spare_view.is_none(), "one view swap at a time");
-                self.reclaim.spare_view = Some(view);
             }
             Event::Discarded { segment, result } => {
                 self.reclaim.discards_in_flight -= 1;
@@ -601,33 +579,6 @@ impl Volume {
         self.reclaim.stats.segments_freed += u64::from(freed);
         self.offer_discards()?;
         Ok(MaintenanceStep::Published { freed })
-    }
-
-    /// Copies the resident index into the spare view and swaps it into the cleaner when a
-    /// newer root exists. An eligible victim sealed at or before both roots' LSNs has every
-    /// write into it reflected in the active root, so a payload this view calls dead can never
-    /// become live again; a payload it calls live may have died since, which the apply check
-    /// catches. Commands are ordered, so the swap lands before the victim's first window.
-    fn refresh_view(&mut self) -> io::Result<()> {
-        let checkpoint_lsn = self.log.checkpoint_lsn();
-        if self.reclaim.view_checkpoint_lsn == Some(checkpoint_lsn) {
-            return Ok(());
-        }
-        let mut view = self
-            .reclaim
-            .spare_view
-            .take()
-            .expect("the previous swap returned before this victim's windows");
-        self.log
-            .index
-            .snapshot_blocks()
-            .iter()
-            .zip(view.snapshot_block.iter_mut())
-            .for_each(|(block, target)| *target = *block);
-        view.maximum_lsn = self.log.next_lsn - 1;
-        self.reclaim.cleaner.send(Command::Refresh(view))?;
-        self.reclaim.view_checkpoint_lsn = Some(checkpoint_lsn);
-        Ok(())
     }
 
     /// Validates one scanned window against live state and appends the accepted copies.

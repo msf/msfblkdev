@@ -1,8 +1,8 @@
 //! The cleaner thread. It owns a duplicate backing descriptor, its own io_uring and the scanner
-//! scratch. Window buffers and views travel through bounded channels, so every payload byte,
-//! view entry and cursor has exactly one owner at a time and no lock guards shared state.
+//! scratch. Window buffers travel through bounded channels, so every payload byte and cursor has
+//! exactly one owner at a time and no lock guards shared state.
 use super::{
-    ProposalBuffer, View,
+    ProposalBuffer,
     scanner::{ScanContext, ScanCursor, ScanReport, Scanner},
 };
 use crate::{BLOCK_SIZE, BackingKind, format_v4::Geometry, wakeup::Wakeup};
@@ -20,13 +20,12 @@ pub(crate) const DISCARD_SLOTS: usize = 4;
 
 /// Work the writer hands to the cleaner. Each command carries what it needs and nothing shared.
 pub(crate) enum Command {
-    /// Read one window of `cursor`'s victim into `buffer` against the cleaner's current view.
+    /// Read one window of `cursor`'s victim into `buffer`, proposing the payloads whose live bit
+    /// the writer set.
     Scan {
         cursor: ScanCursor,
         buffer: ProposalBuffer,
     },
-    /// Replace the cleaner's view; the old one comes back as `Event::ViewReturned`.
-    Refresh(Box<View>),
     /// Punch a hole over a free segment.
     Discard {
         segment: u32,
@@ -46,7 +45,7 @@ impl Command {
     /// Whether the cleaner answers this command with an event.
     fn reports(&self) -> bool {
         match self {
-            Command::Scan { .. } | Command::Refresh(_) | Command::Discard { .. } => true,
+            Command::Scan { .. } | Command::Discard { .. } => true,
             Command::Geometry(_) => false,
             #[cfg(test)]
             Command::Delay(_) | Command::FailNextScan => false,
@@ -62,7 +61,6 @@ pub(crate) enum Event {
         buffer: ProposalBuffer,
         report: ScanReport,
     },
-    ViewReturned(Box<View>),
     Discarded {
         segment: u32,
         result: io::Result<()>,
@@ -71,14 +69,14 @@ pub(crate) enum Event {
     ScanFailed(io::Error),
 }
 
-/// The writer's handle. At most one scan, one view refresh and `DISCARD_SLOTS` discards are
-/// outstanding, so the bounded channels never fill.
+/// The writer's handle. At most one scan and `DISCARD_SLOTS` discards are outstanding, so the
+/// bounded channels never fill.
 pub(crate) struct CleanerHandle {
     commands: SyncSender<Command>,
     events: Receiver<Event>,
     wakeup: Wakeup,
     thread: Option<JoinHandle<()>>,
-    /// Commands sent whose buffer, view or completion has not come back yet.
+    /// Commands sent whose buffer or completion has not come back yet.
     outstanding: usize,
 }
 
@@ -88,7 +86,6 @@ struct Cleaner {
     geometry: Geometry,
     volume_id: u64,
     scanner: Scanner,
-    view: Box<View>,
     commands: Receiver<Command>,
     events: SyncSender<Event>,
     wakeup: Wakeup,
@@ -104,9 +101,8 @@ impl CleanerHandle {
         backing_kind: BackingKind,
         geometry: Geometry,
         volume_id: u64,
-        view: Box<View>,
     ) -> io::Result<Self> {
-        let capacity = 2 + DISCARD_SLOTS;
+        let capacity = 1 + DISCARD_SLOTS;
         let (command_sender, command_receiver) = mpsc::sync_channel(capacity);
         let (event_sender, event_receiver) = mpsc::sync_channel(capacity);
         let wakeup = Wakeup::new()?;
@@ -116,7 +112,6 @@ impl CleanerHandle {
             geometry,
             volume_id,
             scanner: Scanner::new()?,
-            view,
             commands: command_receiver,
             events: event_sender,
             wakeup: wakeup.try_clone()?,
@@ -222,9 +217,6 @@ impl Cleaner {
             let event = match command {
                 Command::Shutdown => return,
                 Command::Scan { cursor, buffer } => self.scan(cursor, buffer),
-                Command::Refresh(view) => {
-                    Event::ViewReturned(std::mem::replace(&mut self.view, view))
-                }
                 Command::Discard { segment } => Event::Discarded {
                     segment,
                     result: self.discard(segment),

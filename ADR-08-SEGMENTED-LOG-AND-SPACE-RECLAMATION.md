@@ -109,7 +109,7 @@ policy](#evidence-and-policy) for the assumptions that still need measurement.
 | Term              | Meaning                                                                                                                                           |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Writer            | The foreground thread. It serves requests and alone mutates the log, mapping cache, mapping index and segment table.                              |
-| Cleaner           | The background thread. It reads a checkpoint view and submits conditional relocation proposals.                                                   |
+| Cleaner           | The background thread. It reads victim windows and submits conditional relocation proposals for the payloads the writer marked live.           |
 | Segment           | A fixed-size region of the log. A sealed segment receives no further appends until reuse.                                                         |
 | Head              | An append cursor and its open segment. The two fixed roles are User and Relocation.                                                               |
 | Snapshot          | A `MappingPage` record containing 336 mapping entries.                                                                                            |
@@ -301,7 +301,7 @@ bytes:
 | 1 GiB | 3,124 |
 | 4 GiB | 12,484 |
 
-Peak memory also includes the candidate index and any older index retained by a cleaner view. Count
+Peak memory also includes the candidate index. Count
 every distinct allocation that can coexist. Sharing an allocation does not copy it, but can delay
 its reuse.
 
@@ -322,7 +322,7 @@ exceed the total heap budget.
 | Eviction (cleaner and relocation) | Read windows, retained payloads, metadata buffers, proposal descriptors and queued or in-flight batches. |
 | Write buffers | User payload arena, LBA lookup, sort state and I/O vectors. |
 | Mapping-page cache | Entry arrays, slot state, CLOCK bits, lookup capacity, sorting scratch and alignment. |
-| Required supporting state | Resident/candidate indexes, cleaner views, segment state, live counts, recovery/checkpoint scratch, queues, runtime bookkeeping and allocator overhead. |
+| Required supporting state | Resident/candidate indexes, segment state, live counts and live bits, recovery/checkpoint scratch, queues, runtime bookkeeping and allocator overhead. |
 
 The heap proportion and its division are configuration choices. Resident metadata and scratch are
 part of this total, not extra allowances outside it. Cap mapping-cache allocation at the volume's
@@ -376,7 +376,7 @@ Cache representation, lookup storage, prefetch and allocation accounting retain 
 contract](ADR-07-PAGED-MAPPING-AND-CACHE.md#what-does-the-ram-budget-include). The configured cache
 share of the total heap budget replaces ADR-07's independent automatic cache budget. The cache must
 hold the effective write buffer’s worst-case mapping working set. Startup rejects incompatible
-budgets before recovery writes. Cleaner buffers and retained views must fit their configured shares
+budgets before recovery writes. Cleaner buffers must fit their configured shares
 of the same total heap budget.
 
 Before releasing a buffer, the writer prepares the group:
@@ -589,12 +589,13 @@ liveness.
 The implemented cleaner prepares work one victim at a time, one window at a time (decisions 14 and
 16):
 
-1. The writer selects a victim and refreshes the cleaner's view from the resident index when a
-   newer root exists.
+1. The writer selects a victim. For each window it hands over, it copies the window's live bits
+   into the buffer (decision 14).
 2. The cleaner reads one fixed window (339 blocks, or the whole segment when smaller) into a buffer
    that doubles as the proposal arena, so payload bytes are never copied between arenas.
-3. It identifies live payloads and current snapshots, index pages and table pages against the view,
-   verifies payload checksums, and sorts the payload entries by LBA.
+3. It proposes the payloads whose live bit is set and every snapshot, index page and table page it
+   finds, verifies payload checksums, and sorts the payload entries by LBA. The writer decides at
+   apply which metadata records are current.
 4. It returns the buffer and the scan cursor to the writer, which asks for the next window while it
    applies this one.
 
@@ -609,8 +610,7 @@ The workbench compares the keys and victim counts 1, 4 and 16.
 
 The cleaner share defaults to the write buffer's size and never drops below one window buffer; it
 holds `min(share / window_bytes, 64)` window buffers, each `window_blocks × (4096 + entry bytes +
-4)`, plus one block of read scratch and a four-slot decoded page cache. Nothing retains a whole
-victim. The allocation instrumentation test proves that steady-state writes, reads and maintenance
+4)` plus one live bit per block. Nothing retains a whole victim. The allocation instrumentation test proves that steady-state writes, reads and maintenance
 allocate nothing after open.
 
 ### How does the writer apply a proposal?
@@ -973,22 +973,24 @@ the test, probe or review that exposed the defect the rule fixes.
 
 ### Cleaner and policy
 
-14. **Views.** The cleaner checks liveness against a copy of the resident index. The writer takes
-    this copy when it selects a victim and refreshes it only when the checkpoint LSN changed. Every
-    write into an eligible victim is present in the copy, so a payload the view calls dead never
-    becomes live again. A payload the view calls live is checked again at apply time, against the
-    cache and the buffered writes.
+14. **Live bits.** The segment state keeps one live bit per block. The two calls that keep the live
+    counts, `add_live` and `remove_live`, also set and clear the bits. When the writer dispatches a
+    window, it copies the window's bits into the buffer. The cleaner proposes only payloads whose
+    bit is set. A sealed victim takes no new writes, so a bit can only go stale toward live. The
+    writer checks each proposal again at apply time, against the cache and the buffered writes.
+    The live counts, not the bits, decide when a segment is freed. Reason: the cleaner used to
+    read the LBA's mapping snapshot page for each payload. Under random writes that was about
+    4,800 synchronous 4 KiB reads per 32 MiB victim, and 80% of the cleaner thread's CPU.
 15. **Stuck victims.** A completed scan that could not empty its victim marks the victim stuck.
     Three things leave a victim non-empty: a live payload whose bytes fail their checksum, a
     payload that a buffered overwrite will replace, and resident current metadata that the next
     publication re-emits. A remap that removes a live payload clears the mark. A publication that
     re-emits the segment's metadata also clears it. Whichever of the two empties the segment
     releases it (decision 20).
-16. **Ownership.** The cleaner thread owns a duplicate backing descriptor, its own ring, the scan
-    scratch and one view. Window buffers travel from the writer to the cleaner and back, with the
-    scan cursor as the token. One victim has one window in flight while the writer applies the
-    previous window. The writer keeps a spare view and swaps it in before a victim's first window.
-    Nothing is shared under a lock. At most one scan, one view swap and four discards are
+16. **Ownership.** The cleaner thread owns a duplicate backing descriptor and its own ring. Window
+    buffers travel from the writer to the cleaner and back, with the scan cursor as the token and
+    the window's live bits inside. One victim has one window in flight while the writer applies
+    the previous window. Nothing is shared under a lock. At most one scan and four discards are
     outstanding, so the bounded channels never fill.
 17. **Scheduling.** `maintain` never blocks. `wait_for_cleaner` blocks until one report arrives.
     Pressure reclamation inside a write waits for the cleaner's report, with a 60 s bound, instead
@@ -1346,13 +1348,7 @@ pub struct Segments {
     live_blocks: Box<[u32]>,     metadata_blocks: Box<[u32]>, used_blocks: Box<[u32]>,
     discard_pending: Box<[bool]>, discard_due: Box<[bool]>,   stuck: Box<[bool]>,
     table_block: Box<[u32]>,     table_dirty: Box<[bool]>,
-}
-
-/// What a scan reads against: a copy of the resident snapshot locations made when a victim
-/// is selected. The cleaner owns one; the writer keeps a spare to refresh and swap in.
-pub struct View {
-    pub maximum_lsn: u64,          // snapshots newer than this are not part of the view
-    pub snapshot_block: Box<[u32]>,
+    live_bits: Box<[u64]>,       // one bit per segment block, kept with live_blocks
 }
 
 /// One scan window over one victim. The arena holds the raw blocks that were read; entries
@@ -1365,6 +1361,7 @@ pub struct ProposalBuffer {
     pub entries: Box<[Entry]>,      // one slot per window block
     pub payload_order: Box<[u32]>,  // payload entries sorted by LBA
     pub last_window: bool,
+    live: Box<[u64]>,               // the window's live bits, copied by the writer at dispatch
 }
 
 pub enum Entry {
@@ -1376,11 +1373,11 @@ pub enum Entry {
 /// Where a scan stands: the token that travels with each window.
 pub struct ScanCursor { victim: u32, seal_lsn: u64, next_block: u32, done: bool, .. }
 
-/// Writer → cleaner. Refresh swaps the view; the old one comes back as ViewReturned.
-pub enum Command { Scan { cursor: ScanCursor, buffer: ProposalBuffer }, Refresh(Box<View>),
+/// Writer → cleaner.
+pub enum Command { Scan { cursor: ScanCursor, buffer: ProposalBuffer },
                    Discard { segment: u32 }, Shutdown }
 /// Cleaner → writer, each followed by one eventfd signal.
-pub enum Event { Scanned { cursor, buffer, report: ScanReport }, ViewReturned(Box<View>),
+pub enum Event { Scanned { cursor, buffer, report: ScanReport },
                  Discarded { segment: u32, result: io::Result<()> }, ScanFailed(io::Error) }
 ```
 

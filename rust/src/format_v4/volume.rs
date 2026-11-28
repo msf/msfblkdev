@@ -128,8 +128,7 @@ pub(crate) fn open_with_io(
         options.backing_discard,
     )?;
     assert!(
-        reclaim.allocated_bytes(geometry) as u64
-            <= budget.cleaner_bytes + 2 * u64::from(geometry.page_count) * 4,
+        reclaim.allocated_bytes() as u64 <= budget.cleaner_bytes,
         "cleaner storage fits its share"
     );
     let recovered = recovery::recover(
@@ -224,9 +223,7 @@ fn supporting_state(
     lookup_bytes: usize,
 ) -> SupportingState {
     SupportingState {
-        // Include the cleaner scan view and the writer's spare snapshot locations.
-        resident_index_bytes: super::mapping_index::MappingIndex::allocation_bytes(g) as u64
-            + 2 * u64::from(g.page_count) * 4,
+        resident_index_bytes: super::mapping_index::MappingIndex::allocation_bytes(g) as u64,
         segment_state_bytes: super::segments::Segments::allocation_bytes(
             segment_capacity,
             g.blocks_per_segment,

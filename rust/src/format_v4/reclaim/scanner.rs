@@ -71,8 +71,6 @@ pub(crate) struct ScanReport {
     pub(crate) payloads_dead: u64,
     /// Live payloads whose bytes fail their footer checksum; never relocated.
     pub(crate) payloads_corrupt: u64,
-    /// Mapping snapshot pages read to decide whether a payload is live.
-    pub(crate) snapshot_reads: u64,
 }
 
 /// What one scan reads against: the backing, its geometry and the writer's view.
