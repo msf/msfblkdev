@@ -25,6 +25,9 @@
 #
 # brd allocates RAM only for written pages. The NVMe sees none of the benchmark's writes.
 set -euo pipefail
+# LVM prints sizes in the locale's number format: "9136,00" under en_DK, and bash arithmetic
+# reads the comma as an operator.
+export LC_ALL=C
 
 readonly RAW_MIB="${RAW_MIB:-9216}"
 readonly META_MIB="${META_MIB:-64}"
@@ -75,11 +78,14 @@ setup_integrity_stack() {
   # Journal mode (the default): crash-safe checksums, like our engine's. Format wipes the device
   # so every sector has a valid checksum.
   integritysetup format --batch-mode --sector-size 4096 --integrity crc32c "/dev/${VG}/integ"
-  integritysetup open --allow-discards "/dev/${VG}/integ" "${INTEGRITY_NAME}"
+  # The superblock doesn't record the hash; open must name the same one as format.
+  integritysetup open --allow-discards --integrity crc32c "/dev/${VG}/integ" "${INTEGRITY_NAME}"
   pvcreate --yes "/dev/mapper/${INTEGRITY_NAME}" >/dev/null
   vgcreate "${INTEGRITY_VG}" "/dev/mapper/${INTEGRITY_NAME}" >/dev/null
   local free_mib
   free_mib="$(vgs --noheadings --nosuffix --units m -o vg_free "${INTEGRITY_VG}" | tr -d ' ' | cut -d. -f1)"
+  [[ "${free_mib}" =~ ^[0-9]+$ ]] && ((free_mib > META_MIB)) ||
+    { echo "unexpected free space in ${INTEGRITY_VG}: '${free_mib}' MiB" >&2; exit 1; }
   # The pool takes the whole volume group: data, metadata, and no spare.
   make_thin_stack "${INTEGRITY_VG}" "$((free_mib - META_MIB))" thin-integ
 }
@@ -112,6 +118,8 @@ status() {
       "$(( $(blockdev --getsize64 "/dev/${VG}/integ") >> 20 ))" \
       "$(( $(blockdev --getsize64 "/dev/mapper/${INTEGRITY_NAME}") >> 20 ))"
     integritysetup dump "/dev/${VG}/integ"
+    # Mode J is journal mode; internal_hash names the checksum.
+    dmsetup table "${INTEGRITY_NAME}"
   fi
 }
 
