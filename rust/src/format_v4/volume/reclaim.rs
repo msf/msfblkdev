@@ -7,6 +7,7 @@ use crate::format_v4::{
     mapping_page::{MappingPageRecord, PageExpectation},
     reclaim::{
         Entry, MetadataKind, ProposalBuffer, ReclaimStats, View,
+        active::ActiveProgress,
         cleaner::{CleanerHandle, Command, DISCARD_SLOTS, Event},
         scanner::ScanCursor,
         scheduler::ActiveWatermarks,
@@ -86,6 +87,7 @@ pub(crate) struct Reclaim {
     discard: BackingDiscard,
     discard_disabled: bool,
     pub(super) discards_in_flight: usize,
+    active: ActiveProgress,
 }
 
 impl Reclaim {
@@ -127,6 +129,7 @@ impl Reclaim {
             discard,
             discard_disabled: false,
             discards_in_flight: 0,
+            active: ActiveProgress::default(),
         })
     }
 
@@ -164,8 +167,33 @@ impl Volume {
     /// that won't fit returns `ENOSPC` before writing. A backing `ENOSPC` fails the volume.
     pub fn maintain(&mut self, mode: SelectionMode) -> io::Result<MaintenanceStep> {
         self.check_operational()?;
+        let appended = self.log.writes.appended_blocks();
+        let freed = self.reclaim.stats.segments_freed;
+        let victims = self.reclaim.stats.victims_selected;
         let result = self.maintain_step(mode);
+        if mode == SelectionMode::Active {
+            self.record_active_progress(appended, freed, victims);
+        }
         self.finish_maintenance(result)
+    }
+
+    /// Credits one active step with what it freed and appended since the given counts. No user
+    /// write runs inside a maintenance step, so every appended block is the cleaner's cost.
+    fn record_active_progress(&mut self, appended: u64, freed: u64, victims: u64) {
+        let segment_blocks = u64::from(self.log.geometry.blocks_per_segment);
+        let stalled = self.reclaim.active.record(
+            (self.reclaim.stats.segments_freed - freed) * segment_blocks,
+            self.log.writes.appended_blocks() - appended,
+            self.reclaim.stats.victims_selected > victims,
+            self.log.writes.user_payload_blocks,
+        );
+        if stalled {
+            self.reclaim.stats.active_stalls += 1;
+            crate::log_info!(
+                "event=active_cleaner_stalled free_segments={}",
+                self.log.segments.allocatable_count()
+            );
+        }
     }
 
     fn finish_maintenance<T>(&mut self, result: Result<T, MaintenanceError>) -> io::Result<T> {
@@ -230,10 +258,16 @@ impl Volume {
 
     /// Whether the active cleaner runs: free segments fell below the start threshold (5% of the
     /// log, at most 2 GiB) and have not yet climbed back to the stop threshold (6%, at most
-    /// 3 GiB). While it runs, request loops call `maintain(SelectionMode::Active)` between
+    /// 3 GiB), and its last window of victims gained space or a segment of user writes came
+    /// after it. While it runs, request loops call `maintain(SelectionMode::Active)` between
     /// requests instead of waiting for an idle gap.
     pub fn active_cleaner(&self) -> bool {
+        let resume_blocks = u64::from(self.log.geometry.blocks_per_segment);
         self.log.segments.active_cleaner()
+            && !self
+                .reclaim
+                .active
+                .stalled(self.log.writes.user_payload_blocks, resume_blocks)
     }
 
     /// Sets the active cleaner's thresholds for the current geometry and reserve. Called at

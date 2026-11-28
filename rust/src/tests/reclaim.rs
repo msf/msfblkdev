@@ -991,3 +991,64 @@ fn active_cleaner_cleans_a_log_where_no_segment_is_a_quarter_dead() -> io::Resul
     );
     volume.close()
 }
+
+/// A log so full that each victim frees less than its copies and publications append: the active
+/// cleaner stalls after one window of victims, and one segment of user writes lets it try again.
+#[test]
+fn active_cleaner_stalls_without_net_gain_until_a_segment_of_user_writes() -> io::Result<()> {
+    // 400 segments of 64 blocks: the latch starts below 20 free segments; this fill leaves 15.
+    const VOLUME_BLOCKS: u32 = 23_000;
+    // Bounded: one window is eight victims of a selection, a window and two publications each.
+    const MAXIMUM_STEPS: usize = 1000;
+    let backing = TemporaryBacking::new()?;
+    format_segments(&backing, VOLUME_BLOCKS, 400, WRAP_SEGMENT_BLOCKS)?;
+    // A buffer of one segment packs each record into a whole segment: one footer and one link.
+    let mut volume = open_live_with_options(&backing.0, options(64))?;
+    for lba in 0..VOLUME_BLOCKS {
+        volume.write_block(lba, &value(lba))?;
+    }
+    // About one overwrite per segment: a victim gains about one block before its publications.
+    for lba in (0..VOLUME_BLOCKS).step_by(62) {
+        volume.write_block(lba, &value(lba + 1))?;
+    }
+    volume.flush()?;
+    assert!(
+        volume.active_cleaner(),
+        "the latch is on and nothing stalled yet"
+    );
+    for _ in 0..MAXIMUM_STEPS {
+        if !volume.active_cleaner() {
+            break;
+        }
+        match volume.maintain(SelectionMode::Active)? {
+            MaintenanceStep::Waiting => {
+                assert!(volume.wait_for_cleaner(CLEANER_WAIT)?, "cleaner report");
+            }
+            MaintenanceStep::Idle => panic!("active cleaning refused every victim"),
+            _ => {}
+        }
+    }
+    let stats = volume.reclaim_stats();
+    assert_eq!(stats.active_stalls, 1, "{stats:?}");
+    assert_eq!(stats.victims_selected, 8, "one window of victims");
+    assert!(
+        volume.log.segments.active_cleaner(),
+        "the latch itself stays on"
+    );
+    assert!(!volume.active_cleaner(), "stalled");
+    for lba in 0..63 {
+        volume.write_block(lba, &value(lba + 2))?;
+    }
+    volume.flush()?;
+    assert!(
+        !volume.active_cleaner(),
+        "one block short of a segment of user writes"
+    );
+    volume.write_block(63, &value(65))?;
+    volume.flush()?;
+    assert!(
+        volume.active_cleaner(),
+        "a segment of user writes ends the stall"
+    );
+    volume.close()
+}

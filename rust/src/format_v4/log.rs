@@ -24,6 +24,16 @@ pub struct LogWrites {
 }
 
 impl LogWrites {
+    /// Every block appended to the log.
+    pub fn appended_blocks(&self) -> u64 {
+        self.user_payload_blocks
+            + self.user_footer_blocks
+            + self.relocation_payload_blocks
+            + self.relocation_footer_blocks
+            + self.metadata_blocks
+            + self.link_blocks
+    }
+
     pub fn summary(&self) -> String {
         format!(
             "log_user_payload_blocks={} log_user_footer_blocks={} log_relocation_payload_blocks={} log_relocation_footer_blocks={} log_metadata_blocks={} log_link_blocks={} log_link_fsyncs={}",

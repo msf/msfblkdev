@@ -8,6 +8,7 @@ use super::{Geometry, budget::CleanerShape};
 use crate::{AlignedBlock, BLOCK_SIZE};
 use std::io;
 
+pub(crate) mod active;
 pub(crate) mod cleaner;
 pub(crate) mod scanner;
 pub mod scheduler;
@@ -201,12 +202,14 @@ pub struct ReclaimStats {
     /// Victim selections. Each one examines every segment, so the selection cost is this
     /// count times the segment count.
     pub select_calls: u64,
+    /// Windows of active victims that freed no more blocks than their cleaning appended.
+    pub active_stalls: u64,
 }
 
 impl ReclaimStats {
     pub fn summary(&self) -> String {
         format!(
-            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_released_without_scan={} reclaim_segments_freed={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={} reclaim_select_calls={}",
+            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_released_without_scan={} reclaim_segments_freed={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={} reclaim_select_calls={} reclaim_active_stalls={}",
             self.victims_selected,
             self.windows_scanned,
             self.scan_blocks_read,
@@ -229,6 +232,7 @@ impl ReclaimStats {
             self.pressure_waits,
             self.enospc_all_live,
             self.select_calls,
+            self.active_stalls,
         )
     }
 }
