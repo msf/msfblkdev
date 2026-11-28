@@ -770,6 +770,7 @@ do not establish this engine's performance.
 | Condition | Action | Initial rule |
 |---|---|---|
 | Free segments below the low watermark | Clean continuously; prioritize apply over new writes at the reserve | Greedy under foreground pressure: minimum live bytes. |
+| Free segments below the active start threshold, under continuous requests | The active cleaner applies one step between requests until free segments reach the stop threshold (decision 24) | Greedy: minimum live bytes. The reserve stays for pressure. |
 | Idle with worthwhile victims | Clean even when free space is sufficient | Cost-benefit: `(1 - u) × age / (1 + u)`, age from `current_lsn - seal_lsn`. |
 | High fill factor and poor victims | Request backing growth, or return `ENOSPC` if unavailable | Growth target and owner remain policy decisions. |
 
@@ -881,7 +882,7 @@ can increase checkpoint frequency.
 
 | Open decision | Disposition |
 |---|---|
-| Segment size and watermark band | The formatter tries 32, 16, then 8 MiB and selects the largest size that meets the requested logical fill on the supplied backing. The band is the reserve (decision 11) plus the idle quarter-dead floor (decision 19). Measured on regular files only. |
+| Segment size and watermark band | The formatter tries 32, 16, then 8 MiB and selects the largest size that meets the requested logical fill on the supplied backing. The band is the reserve (decision 11) plus the idle quarter-dead floor (decision 19). The active cleaner adds a start and a stop threshold above the reserve (decision 24). Measured on regular files only. |
 | Victim count and output sort key | Settled: one victim at a time, one window in flight, LBA order within a window. Age-bucket sorting was not measured. |
 | Idle wake-up and apply budget | Settled: 2 ms idle wait, 100 ms maximum interval, one idle wait per tick (decision 17), verified against libublk 0.4.7 in the live ublk-fio lab. |
 | Source validation across reuse | Settled: `(victim, seal_lsn)` plus per-LBA mapping and buffer checks (decision 4). |
@@ -992,8 +993,9 @@ the test, probe or review that exposed the defect the rule fixes.
 17. **Scheduling.** `maintain` never blocks. `wait_for_cleaner` blocks until one report arrives.
     Pressure reclamation inside a write waits for the cleaner's report, with a 60 s bound, instead
     of spinning. The daemon runs a maintenance tick when no request completed for 2 ms, or when
-    100 ms passed under continuous requests. A tick runs steps for at most one idle wait plus one
-    step.
+    100 ms passed under continuous requests. While the active cleaner runs (decision 24), every
+    tick maintains, also under continuous requests. A tick runs steps for at most one idle wait
+    plus one step.
 18. **Backing discards.** The cleaner thread punches holes after the freeing publication, with at
     most four punches in flight. A segment stays excluded from allocation until its punch
     completes. A segment that is reused before its punch was offered drops its discard mark. The
@@ -1047,6 +1049,18 @@ the test, probe or review that exposed the defect the rule fixes.
     reports and clears its eventfd. Reason: the re-armed one-shot poll on a readable descriptor
     completes at once, and the queue loop spins until the deadline. Found by: the final review,
     from the first live log. It showed 90,414 wake-ups for 156 ticks.
+24. **Active cleaner.** Under continuous requests, the 100 ms tick alone let free space fall to
+    the reserve, so writes cleaned inline. A latch in the segment state now starts the active
+    cleaner when free segments fall below 5% of the log, at most 2 GiB. The latch stops it when
+    free segments reach 6%, at most 3 GiB. Both thresholds stay above the free space that a
+    victim start needs. The latch changes only where the allocatable count changes. While the
+    latch is on, every daemon tick runs a greedy step that keeps the reserve. A victim qualifies
+    when it frees more blocks than its copies' footers and link append. Victims run in windows
+    of eight. A window pauses the cleaner when the publications since it opened freed no more
+    blocks than its steps appended. The pause lasts one segment of user writes and doubles for
+    each consecutive stall, up to 64 segments. A step that finds no victim to start pauses the
+    cleaner for one segment of user writes. Measured on the aged fio smoke run: IOPS +10%,
+    pressure steps −33%.
 
 ### Review finding dispositions
 

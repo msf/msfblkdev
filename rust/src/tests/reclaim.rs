@@ -930,8 +930,8 @@ fn active_cleaner_runs_from_the_start_to_the_stop_threshold() -> io::Result<()> 
 /// append is worth it.
 #[test]
 fn active_cleaner_cleans_a_log_where_no_segment_is_a_quarter_dead() -> io::Result<()> {
-    // Each victim gains about a sixth of a segment, so whole free segments appear only after
-    // several victims.
+    // Each victim gains a few blocks after its copies and publications, so whole free segments
+    // appear only after several victims.
     const VICTIMS: u64 = 10;
     // Bounded: each victim takes a selection, a window or two and two publications.
     const MAXIMUM_STEPS: usize = 1000;
@@ -942,8 +942,9 @@ fn active_cleaner_cleans_a_log_where_no_segment_is_a_quarter_dead() -> io::Resul
     for lba in 0..1536 {
         volume.write_block(lba, &value(lba))?;
     }
-    // One overwrite in eight: every sealed segment ends about 15% dead with its footer and link.
-    for lba in (0..1536).step_by(8) {
+    // One overwrite in six: every sealed segment ends about 20% dead with its footer and link,
+    // below the idle quarter and enough for a progress window to gain space.
+    for lba in (0..1536).step_by(6) {
         volume.write_block(lba, &value(10_000 + lba))?;
     }
     volume.flush()?;
@@ -977,6 +978,7 @@ fn active_cleaner_cleans_a_log_where_no_segment_is_a_quarter_dead() -> io::Resul
     }
     let stats = volume.reclaim_stats();
     assert!(stats.segments_freed >= VICTIMS, "{stats:?}");
+    assert_eq!(stats.active_stalls, 0, "{stats:?}");
     // Net progress: the freed segments hold more blocks than the copies, their footers and
     // links, and the publications appended. The gain sits in head room, not in whole segments.
     let after = volume.log_writes();
@@ -1024,13 +1026,18 @@ fn active_cleaner_stalls_without_net_gain_until_a_segment_of_user_writes() -> io
             MaintenanceStep::Waiting => {
                 assert!(volume.wait_for_cleaner(CLEANER_WAIT)?, "cleaner report");
             }
-            MaintenanceStep::Idle => panic!("active cleaning refused every victim"),
+            // The window's verdict: no net gain, so the step stalls instead of selecting.
+            MaintenanceStep::Idle => break,
             _ => {}
         }
     }
     let stats = volume.reclaim_stats();
     assert_eq!(stats.active_stalls, 1, "{stats:?}");
-    assert_eq!(stats.victims_selected, 8, "one window of victims");
+    assert_eq!(stats.active_pauses, 0, "{stats:?}");
+    assert_eq!(
+        stats.victims_selected, 8,
+        "the stall started no ninth victim"
+    );
     assert!(
         volume.log.segments.active_cleaner(),
         "the latch itself stays on"
@@ -1049,6 +1056,58 @@ fn active_cleaner_stalls_without_net_gain_until_a_segment_of_user_writes() -> io
     assert!(
         volume.active_cleaner(),
         "a segment of user writes ends the stall"
+    );
+    volume.close()
+}
+
+/// With the latch on but too little free space to start a victim above the reserve, an active
+/// step pauses the cleaner instead of scanning every segment on every tick. One segment of user
+/// writes ends the pause.
+#[test]
+fn active_cleaner_pauses_when_no_victim_can_start() -> io::Result<()> {
+    // 400 segments of 64 blocks: this fill leaves fewer free segments than a victim start needs.
+    const VOLUME_BLOCKS: u32 = 23_800;
+    // Bounded: publications for victims that await them, then the empty selection.
+    const MAXIMUM_STEPS: usize = 100;
+    let backing = TemporaryBacking::new()?;
+    format_segments(&backing, VOLUME_BLOCKS, 400, WRAP_SEGMENT_BLOCKS)?;
+    let mut volume = open_live_with_options(&backing.0, options(64))?;
+    for lba in 0..VOLUME_BLOCKS {
+        volume.write_block(lba, &value(lba))?;
+    }
+    volume.flush()?;
+    let free = volume.log.segments.allocatable_count();
+    assert!(volume.active_cleaner(), "the latch is on: {free} free");
+    assert!(free < volume.victim_floor(), "{free} free");
+    let mut last = MaintenanceStep::Idle;
+    for _ in 0..MAXIMUM_STEPS {
+        last = volume.maintain(SelectionMode::Active)?;
+        match last {
+            MaintenanceStep::Waiting => {
+                assert!(volume.wait_for_cleaner(CLEANER_WAIT)?, "cleaner report");
+            }
+            MaintenanceStep::Idle => break,
+            _ => {}
+        }
+    }
+    assert_eq!(last, MaintenanceStep::Idle);
+    let stats = volume.reclaim_stats();
+    assert_eq!(stats.active_pauses, 1, "{stats:?}");
+    assert_eq!(stats.victims_selected, 0, "{stats:?}");
+    assert!(!volume.active_cleaner(), "paused");
+    for lba in 0..63 {
+        volume.write_block(lba, &value(lba + 1))?;
+    }
+    volume.flush()?;
+    assert!(
+        !volume.active_cleaner(),
+        "one block short of a segment of user writes"
+    );
+    volume.write_block(63, &value(64))?;
+    volume.flush()?;
+    assert!(
+        volume.active_cleaner(),
+        "a segment of user writes ends the pause"
     );
     volume.close()
 }

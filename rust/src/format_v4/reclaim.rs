@@ -204,12 +204,14 @@ pub struct ReclaimStats {
     pub select_calls: u64,
     /// Windows of active victims that freed no more blocks than their cleaning appended.
     pub active_stalls: u64,
+    /// Active steps that found no victim to start and paused the active cleaner.
+    pub active_pauses: u64,
 }
 
 impl ReclaimStats {
     pub fn summary(&self) -> String {
         format!(
-            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_released_without_scan={} reclaim_segments_freed={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={} reclaim_select_calls={} reclaim_active_stalls={}",
+            "reclaim_victims_selected={} reclaim_windows_scanned={} reclaim_scan_blocks_read={} reclaim_payloads_proposed={} reclaim_payloads_copied={} reclaim_payloads_stale={} reclaim_proposals_rejected_source={} reclaim_snapshots_copied={} reclaim_snapshots_dirtied={} reclaim_index_pages_dirtied={} reclaim_table_pages_dirtied={} reclaim_victims_pending={} reclaim_segments_released_without_scan={} reclaim_segments_freed={} reclaim_barrier_publications={} reclaim_discards_issued={} reclaim_discards_failed={} reclaim_payloads_corrupt={} reclaim_pressure_steps={} reclaim_pressure_waits={} reclaim_enospc_all_live={} reclaim_select_calls={} reclaim_active_stalls={} reclaim_active_pauses={}",
             self.victims_selected,
             self.windows_scanned,
             self.scan_blocks_read,
@@ -233,6 +235,7 @@ impl ReclaimStats {
             self.enospc_all_live,
             self.select_calls,
             self.active_stalls,
+            self.active_pauses,
         )
     }
 }

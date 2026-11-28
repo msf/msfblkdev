@@ -98,8 +98,11 @@ Space reclamation works in this way:
 - The writer frees a victim only after two checkpoint publications.
 - Free segments are hole-punched on a regular file and discarded with `BLKDISCARD` on a block device.
 
-Idle maintenance runs 2 ms after the last request, or at least every 100 ms. Space pressure reclaims
-inline, inside the write. `Volume::maintain`, `maintain_for` and `wait_for_cleaner` drive
+Idle maintenance runs 2 ms after the last request, or at least every 100 ms. When free segments
+fall below 5% of the log (at most 2 GiB), the active cleaner runs maintenance between requests. It
+stops when free segments reach 6% (at most 3 GiB). It also pauses when a window of eight victims
+frees no more blocks than it appends, or when no victim can start. Space pressure reclaims inline,
+inside the write. `Volume::maintain`, `maintain_for` and `wait_for_cleaner` drive
 maintenance from a request loop. `reclaim_stats`, `log_writes`, `heap_budget` and `space_usage`
 report it.
 

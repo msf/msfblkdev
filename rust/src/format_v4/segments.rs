@@ -31,6 +31,8 @@ pub(crate) struct Segments {
     stuck: Box<[bool]>,
     /// Sealed segments that writes or metadata moves emptied without a scan.
     emptied_count: u64,
+    /// Segments that publications made free since open, whatever ran the publication.
+    freed_count: u64,
     table_block: Box<[u32]>,
     table_dirty: Box<[bool]>,
     free_count: u32,
@@ -75,6 +77,7 @@ impl Segments {
             pending_free_count: 0,
             discard_pending_count: 0,
             emptied_count: 0,
+            freed_count: 0,
             active_watermarks: None,
             active_cleaner: false,
         };
@@ -347,6 +350,10 @@ impl Segments {
         self.emptied_count
     }
 
+    pub(crate) fn freed_count(&self) -> u64 {
+        self.freed_count
+    }
+
     pub(crate) fn mark_pending_free(&mut self, segment: u32) -> io::Result<()> {
         let entry = self.entry(segment)?;
         let index = segment as usize;
@@ -432,6 +439,7 @@ impl Segments {
             }
             self.published_flags[index] = self.flags[index];
         }
+        self.freed_count += u64::from(freed);
         self.update_active_cleaner();
         // The durable root now matches `published_flags`, so state may change again: sealed
         // segments whose last current metadata this publication re-emitted hold nothing.
@@ -530,6 +538,7 @@ impl Segments {
         }
         self.free_count += added;
         self.geometry = geometry;
+        self.update_active_cleaner();
         Ok(())
     }
 

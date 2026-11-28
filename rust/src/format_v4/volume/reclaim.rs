@@ -163,37 +163,61 @@ impl Volume {
     }
 
     /// Runs one bounded maintenance step without blocking. Under `Pressure` the writer
-    /// prefers the emptiest victim; `Idle` prefers old, mostly dead segments. A publication
-    /// that won't fit returns `ENOSPC` before writing. A backing `ENOSPC` fails the volume.
+    /// prefers the emptiest victim and may spend the reserve; `Idle` prefers old, mostly dead
+    /// segments; `Active` prefers the emptiest victim, keeps the reserve and checks its progress
+    /// (see `active_cleaner`). A publication that won't fit returns `ENOSPC` before writing. A
+    /// backing `ENOSPC` fails the volume.
     pub fn maintain(&mut self, mode: SelectionMode) -> io::Result<MaintenanceStep> {
         self.check_operational()?;
-        let appended = self.log.writes.appended_blocks();
-        let freed = self.reclaim.stats.segments_freed;
-        let victims = self.reclaim.stats.victims_selected;
-        let result = self.maintain_step(mode);
         if mode == SelectionMode::Active {
-            self.record_active_progress(appended, freed, victims);
+            return self.maintain_active();
         }
+        let result = self.maintain_step(mode);
         self.finish_maintenance(result)
     }
 
-    /// Credits one active step with what it freed and appended since the given counts. No user
-    /// write runs inside a maintenance step, so every appended block is the cleaner's cost.
-    fn record_active_progress(&mut self, appended: u64, freed: u64, victims: u64) {
+    /// One active step inside the progress check. Between victims, a full window gets its
+    /// verdict before the next selection, so a stall never starts another victim. A step that
+    /// finds nothing to start pauses the cleaner. No user write runs inside a maintenance step,
+    /// so every block the step appends is the cleaner's cost.
+    fn maintain_active(&mut self) -> io::Result<MaintenanceStep> {
         let segment_blocks = u64::from(self.log.geometry.blocks_per_segment);
-        let stalled = self.reclaim.active.record(
-            (self.reclaim.stats.segments_freed - freed) * segment_blocks,
-            self.log.writes.appended_blocks() - appended,
-            self.reclaim.stats.victims_selected > victims,
-            self.log.writes.user_payload_blocks,
-        );
-        if stalled {
+        let user_blocks = self.log.writes.user_payload_blocks;
+        let freed = self.log.segments.freed_count();
+        if self.reclaim.active.window_full()
+            && self.between_victims()
+            && self
+                .reclaim
+                .active
+                .close_window(freed, segment_blocks, user_blocks)
+        {
             self.reclaim.stats.active_stalls += 1;
             crate::log_info!(
                 "event=active_cleaner_stalled free_segments={}",
                 self.log.segments.allocatable_count()
             );
+            return Ok(MaintenanceStep::Idle);
         }
+        self.reclaim.active.begin_step(freed);
+        let appended = self.log.writes.appended_blocks();
+        let victims = self.reclaim.stats.victims_selected;
+        let result = self.maintain_step(SelectionMode::Active);
+        self.reclaim.active.record_step(
+            self.log.writes.appended_blocks() - appended,
+            self.reclaim.stats.victims_selected > victims,
+        );
+        if matches!(result, Ok(MaintenanceStep::Idle)) && self.between_victims() {
+            self.reclaim.stats.active_pauses += 1;
+            self.reclaim.active.pause(user_blocks, segment_blocks);
+        }
+        self.finish_maintenance(result)
+    }
+
+    /// No victim is being scanned or applied, and no release waits for a publication.
+    fn between_victims(&self) -> bool {
+        self.reclaim.scan == ScanState::None
+            && self.reclaim.queue.is_empty()
+            && self.log.segments.pending_free_count() == 0
     }
 
     fn finish_maintenance<T>(&mut self, result: Result<T, MaintenanceError>) -> io::Result<T> {
@@ -256,18 +280,17 @@ impl Volume {
             .send(Command::Geometry(self.log.geometry))
     }
 
-    /// Whether the active cleaner runs: free segments fell below the start threshold (5% of the
-    /// log, at most 2 GiB) and have not yet climbed back to the stop threshold (6%, at most
-    /// 3 GiB), and its last window of victims gained space or a segment of user writes came
-    /// after it. While it runs, request loops call `maintain(SelectionMode::Active)` between
-    /// requests instead of waiting for an idle gap.
+    /// Whether the active cleaner runs: free segments fell below the start threshold of
+    /// `ActiveWatermarks` and have not yet climbed back to its stop threshold, and no pause
+    /// holds it. A window of victims without net gain, or a step with no victim to start,
+    /// pauses it for a number of user payload blocks. While it runs, request loops call
+    /// `maintain(SelectionMode::Active)` between requests instead of waiting for an idle gap.
     pub fn active_cleaner(&self) -> bool {
-        let resume_blocks = u64::from(self.log.geometry.blocks_per_segment);
         self.log.segments.active_cleaner()
             && !self
                 .reclaim
                 .active
-                .stalled(self.log.writes.user_payload_blocks, resume_blocks)
+                .paused(self.log.writes.user_payload_blocks)
     }
 
     /// Sets the active cleaner's thresholds for the current geometry and reserve. Called at

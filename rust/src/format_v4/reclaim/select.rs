@@ -18,9 +18,10 @@ pub enum SelectionMode {
     Pressure,
     /// Nothing waits: prefer old, mostly dead segments by `(1 - u) * age / (1 + u)`.
     Idle,
-    /// Free space is low but above the reserve, and requests keep coming: take the segment with
-    /// the fewest live blocks, between requests, without spending the reserve. A full log may
-    /// hold no segment that is a quarter dead, so any victim that gains space qualifies.
+    /// The active cleaner runs between requests: take the segment with the fewest live blocks.
+    /// A victim starts only when its copies and two publications fit above the reserve, so the
+    /// reserve stays for pressure cleaning. A full log may hold no segment that is a quarter
+    /// dead, so any victim that frees more than its copy overhead qualifies.
     Active,
 }
 
@@ -53,8 +54,10 @@ pub(crate) enum Selection {
     Nothing,
 }
 
-/// Blocks that copying `live` payloads appends besides the payloads themselves: one footer per
-/// relocation record of at most `relocation_batch` payloads, and a link.
+/// A lower bound on the blocks that copying `live` payloads appends besides the payloads: one
+/// footer per relocation record of at most `relocation_batch` payloads, and a link. The writer
+/// also ends a record at every window and head crossing, so real copies append more; the active
+/// cleaner's progress window catches victims this bound lets through.
 pub(crate) fn copy_overhead_blocks(live: u32, relocation_batch: u64) -> u64 {
     u64::from(live).div_ceil(relocation_batch) + 1
 }
