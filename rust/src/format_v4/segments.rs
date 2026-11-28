@@ -44,6 +44,8 @@ pub(crate) struct Segments {
     /// turns on once when free segments fall below the start threshold and off once when they
     /// climb back to the stop threshold.
     active_cleaner: bool,
+    /// Times the latch turned on since open.
+    active_starts: u64,
 }
 
 /// The persistent image of one segment table page, ready for encoding.
@@ -80,6 +82,7 @@ impl Segments {
             freed_count: 0,
             active_watermarks: None,
             active_cleaner: false,
+            active_starts: 0,
         };
         segments.table_dirty[..geometry.table_pages as usize].fill(true);
         Ok(segments)
@@ -157,10 +160,17 @@ impl Segments {
         self.active_cleaner
     }
 
+    /// Times the latch turned on since open.
+    pub(crate) fn active_starts(&self) -> u64 {
+        self.active_starts
+    }
+
     /// Called after every change of the allocatable count.
     fn update_active_cleaner(&mut self) {
         if let Some(watermarks) = self.active_watermarks {
-            self.active_cleaner = watermarks.active(self.active_cleaner, self.allocatable_count());
+            let active = watermarks.active(self.active_cleaner, self.allocatable_count());
+            self.active_starts += u64::from(active && !self.active_cleaner);
+            self.active_cleaner = active;
         }
     }
 

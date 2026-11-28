@@ -1091,6 +1091,17 @@ fn active_cleaner_pauses_when_no_victim_can_start() -> io::Result<()> {
         }
     }
     assert_eq!(last, MaintenanceStep::Idle);
+    // The pause came from a victim that cannot start above the reserve, not from an empty log.
+    let selection = crate::format_v4::reclaim::select::select(
+        &volume.log,
+        SelectionMode::Active,
+        None,
+        volume.reserve.relocation_batch,
+    );
+    let crate::format_v4::reclaim::select::Selection::Victim(victim) = selection else {
+        panic!("expected a victim, got {selection:?}");
+    };
+    assert!(!volume.can_start_victim(victim, SelectionMode::Active));
     let stats = volume.reclaim_stats();
     assert_eq!(stats.active_pauses, 1, "{stats:?}");
     assert_eq!(stats.victims_selected, 0, "{stats:?}");

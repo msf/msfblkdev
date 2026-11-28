@@ -153,6 +153,7 @@ impl Volume {
     pub fn reclaim_stats(&self) -> ReclaimStats {
         ReclaimStats {
             segments_released_without_scan: self.log.segments.emptied_count(),
+            segments_freed_total: self.log.segments.freed_count(),
             ..self.reclaim.stats
         }
     }
@@ -181,9 +182,16 @@ impl Volume {
     /// finds nothing to start pauses the cleaner. No user write runs inside a maintenance step,
     /// so every block the step appends is the cleaner's cost.
     fn maintain_active(&mut self) -> io::Result<MaintenanceStep> {
+        // Take the cleaner's reports first: one may end the current victim, and the window's
+        // verdict must come before the next selection.
+        let polled = self.poll_cleaner();
+        self.latch(polled)?;
         let segment_blocks = u64::from(self.log.geometry.blocks_per_segment);
         let user_blocks = self.log.writes.user_payload_blocks;
         let freed = self.log.segments.freed_count();
+        self.reclaim
+            .active
+            .follow_latch(self.log.segments.active_starts());
         if self.reclaim.active.window_full()
             && self.between_victims()
             && self
@@ -206,7 +214,13 @@ impl Volume {
             self.log.writes.appended_blocks() - appended,
             self.reclaim.stats.victims_selected > victims,
         );
-        if matches!(result, Ok(MaintenanceStep::Idle)) && self.between_victims() {
+        // No victim can start, or a due publication does not fit: either way the next tick
+        // would repeat the same full selection for nothing.
+        let nothing_to_start = matches!(
+            result,
+            Ok(MaintenanceStep::Idle) | Err(MaintenanceError::NoPublicationRoom)
+        );
+        if nothing_to_start && self.between_victims() {
             self.reclaim.stats.active_pauses += 1;
             self.reclaim.active.pause(user_blocks, segment_blocks);
         }
@@ -405,7 +419,7 @@ impl Volume {
     /// Whether relocating `victim` and then publishing twice fits the space left, so that a
     /// started victim can always be released (the progress contract). Idle cleaning also
     /// leaves the foreground reserve alone, so it can never push a write into `ENOSPC`.
-    fn can_start_victim(&self, victim: u32, mode: SelectionMode) -> bool {
+    pub(crate) fn can_start_victim(&self, victim: u32, mode: SelectionMode) -> bool {
         let live = self.log.segments.live_blocks(victim);
         let copies = u64::from(live) + copy_overhead_blocks(live, self.reserve.relocation_batch);
         let keep = match mode {

@@ -17,8 +17,10 @@ pub(crate) struct ActiveProgress {
     victims: u32,
     /// Segments freed by publications when the window opened; `None` before its first step.
     /// Every publication counts, whatever ran it: a checkpoint or a pressure step often frees
-    /// an active victim. Segments that user overwrites emptied count too, which overstates the
-    /// cleaner's gain; that errs toward running.
+    /// an active victim. This overstates the active cleaner's gain in two ways: segments that
+    /// user overwrites emptied count, and so do pressure and idle victims, whose copies and
+    /// publications are not in `appended_blocks`. Both err toward running, and pressure
+    /// cleaning stays the fallback either way.
     freed_at_open: Option<u64>,
     /// Blocks that active steps appended in this window.
     appended_blocks: u64,
@@ -26,9 +28,23 @@ pub(crate) struct ActiveProgress {
     consecutive_stalls: u32,
     /// The cleaner pauses until the user payload block count reaches this.
     paused_until_user_blocks: u64,
+    /// The latch start this progress belongs to (`Segments::active_starts`).
+    latch_start: u64,
 }
 
 impl ActiveProgress {
+    /// Starts over when the latch turned on again since the last step: a new episode of low
+    /// free space opens a fresh window and forgets earlier stalls. The pause is kept.
+    pub(crate) fn follow_latch(&mut self, latch_start: u64) {
+        if latch_start != self.latch_start {
+            *self = Self {
+                latch_start,
+                paused_until_user_blocks: self.paused_until_user_blocks,
+                ..Self::default()
+            };
+        }
+    }
+
     /// Whether the window holds all its victims and waits for its verdict.
     pub(crate) fn window_full(&self) -> bool {
         self.victims >= ACTIVE_WINDOW_VICTIMS
@@ -70,6 +86,7 @@ impl ActiveProgress {
         *self = Self {
             consecutive_stalls,
             paused_until_user_blocks,
+            latch_start: self.latch_start,
             ..Self::default()
         };
         stalled
@@ -78,10 +95,17 @@ impl ActiveProgress {
     /// Pauses after a step found no victim it could start, until one segment of user writes:
     /// new overwrites can make a victim worth cleaning, and pressure cleaning can free the room
     /// one needs. Without the pause every tick would scan every segment for nothing.
+    /// A pause happens between victims, so the open window is dropped: cleaning by pressure or
+    /// idle maintenance during the pause must not count toward the next verdict.
     pub(crate) fn pause(&mut self, user_blocks: u64, segment_blocks: u64) {
-        self.paused_until_user_blocks = self
-            .paused_until_user_blocks
-            .max(user_blocks + segment_blocks);
+        *self = Self {
+            consecutive_stalls: self.consecutive_stalls,
+            paused_until_user_blocks: self
+                .paused_until_user_blocks
+                .max(user_blocks + segment_blocks),
+            latch_start: self.latch_start,
+            ..Self::default()
+        };
     }
 
     /// Whether the cleaner pauses at `user_blocks` user payload blocks written.
@@ -164,10 +188,36 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_selection_pauses_for_one_segment_of_user_writes() {
+    fn an_empty_selection_pauses_for_one_segment_of_user_writes_and_drops_the_window() {
         let mut progress = ActiveProgress::default();
+        // Kept, this unproductive step would stall the next window.
+        progress.begin_step(1000);
+        progress.record_step(100_000, true);
         progress.pause(100, SEGMENT);
         assert!(progress.paused(100 + SEGMENT - 1));
         assert!(!progress.paused(100 + SEGMENT));
+        assert!(
+            !window(&mut progress, 8, 60, 0),
+            "the next window starts empty"
+        );
+    }
+
+    #[test]
+    fn a_new_latch_start_opens_a_fresh_window_and_forgets_stalls() {
+        let mut progress = ActiveProgress::default();
+        progress.follow_latch(1);
+        assert!(window(&mut progress, 0, 1, 0));
+        assert!(window(&mut progress, 0, 1, 0), "two stalls in a row");
+        progress.begin_step(10);
+        progress.record_step(500, true);
+        progress.follow_latch(1);
+        assert!(!progress.window_full());
+        progress.follow_latch(2);
+        assert_eq!(progress.victims, 0, "the open window is dropped");
+        assert!(window(&mut progress, 0, 1, 0));
+        assert!(
+            !progress.paused(SEGMENT),
+            "the first stall of a start pauses one segment"
+        );
     }
 }

@@ -770,7 +770,7 @@ do not establish this engine's performance.
 | Condition | Action | Initial rule |
 |---|---|---|
 | Free segments below the low watermark | Clean continuously; prioritize apply over new writes at the reserve | Greedy under foreground pressure: minimum live bytes. |
-| Free segments below the active start threshold, under continuous requests | The active cleaner applies one step between requests until free segments reach the stop threshold (decision 24) | Greedy: minimum live bytes. The reserve stays for pressure. |
+| Free segments below the active start threshold, under continuous requests | Every daemon tick, also between requests, runs active maintenance for one slice until free segments reach the stop threshold (decision 24) | Greedy: minimum live bytes. The reserve stays for pressure. |
 | Idle with worthwhile victims | Clean even when free space is sufficient | Cost-benefit: `(1 - u) × age / (1 + u)`, age from `current_lsn - seal_lsn`. |
 | High fill factor and poor victims | Request backing growth, or return `ENOSPC` if unavailable | Growth target and owner remain policy decisions. |
 
