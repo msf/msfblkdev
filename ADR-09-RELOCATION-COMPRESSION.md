@@ -146,6 +146,26 @@ Measure compression first with this cache disabled. If a cache is later justifie
 misses, evictions, bytes retained and avoided reads/decodes. Use the same workload and memory
 budget.
 
+## What does the raw cleaner teach? (notes, 2026-11-28)
+
+These notes come from profiling the raw cleaner on the aged fio smoke run (`docs/BENCHMARKING.md`).
+They constrain this extension. They are not decisions.
+
+- **Free cleaner CPU first.** The encoding sketch puts compression on the cleaner thread: the
+  cleaner computes each payload checksum once and the writer copies it. Before ADR-08 decision 14,
+  the cleaner spent 80% of its CPU reading mapping pages to judge liveness. Live bits removed that
+  cost. Compression needs that CPU.
+- **Stale payloads cost more when compressed.** The raw writer drops one stale payload at apply.
+  The simplest conditional-apply rule rejects a whole chunk. On the smoke run, 0.45% of proposals
+  went stale (8,832 of 1.98M). With 16 payloads per chunk, that suggests about 7% of chunks
+  rejected. This is an estimate, not a measurement.
+- **Keep proposals fresh.** Run-ahead must stay shallow, a few windows, not whole segments. The
+  writer copies a window's live bits when it dispatches the window, which keeps the bits as fresh
+  as the protocol allows. Measure stale-rejected chunks before tuning either.
+- **Measure CPU contention.** The daemon runs pinned to two CPUs. Today the queue thread uses about
+  55% of one CPU and the cleaner about 45%. Compression will make them compete. The run-queue
+  fraction per thread shows it. A separate compression thread or core is a later decision.
+
 ## Acceptance and delivery
 
 Each delivery has its own evidence requirements. No-compression acceptance remains independently
