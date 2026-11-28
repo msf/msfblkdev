@@ -1149,8 +1149,8 @@ bottlenecks in the daemon.
   `sudo bash scripts/install-ext4-helper.sh`. Its bench actions mount only ublk devices that you
   own, with a size of 4, 8, 16, 32 or 64 GiB, and they mount with the `discard` option.
 - Free memory for a tmpfs backing. The backing uses up to its full size in RAM: 8 GiB by default.
-- For `PROFILE=1`: `kernel.perf_event_paranoid` at 1 or less. perf names kernel symbols only when
-  `kernel.kptr_restrict` is 0; the harness warns otherwise.
+- For `PROFILE=1`: `kernel.perf_event_paranoid` at 1 or less and `kernel.kptr_restrict` at 0.
+  Under `kptr_restrict`, perf records no usable kernel map, so the harness refuses to start.
 
 ### Run it
 
@@ -1271,10 +1271,9 @@ the time went" answer three questions:
    as iowait, which would also apply to our daemon; this isn't confirmed.
 
 The directory also has 1-second series: `mpstat.txt` (every CPU), `pidstat.txt` (every daemon
-thread) and `iostat.txt` (the same devices). With `--perf` it adds `perf-stat.txt`: cycles and
-instructions per daemon thread, for IPC. Its task-clock disagreed with schedstat and pidstat by
-2.3 times in the first smoke run, for a reason not yet found, so it records only these two. The tools run on the sampler CPUs and read only
-`/proc` and sysfs; none needs root except perf.
+thread) and `iostat.txt` (the same devices). The tools run on the sampler CPUs, read only
+`/proc` and sysfs, and need no root. There is no per-thread `perf stat`: in phase-1 runs its cycle
+counts implied 5–9 GHz, and its task-clock disagreed with schedstat and pidstat.
 
 For a closer look during a run, use these from another terminal. They need root:
 
@@ -1352,10 +1351,9 @@ divided by the device's writes, for example the thin pool's data device against 
 ```sh
 sudo tools/aged-sqlite/ram-lvm.sh setup                   # brd, VG "bench", LVs, mounts under /mnt/bench
 make bench-aged-matrix MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --benchmarks sqlite-a --repeats 3"
-# PROFILE=1: frame-pointer build, perf record and perf stat of the daemon in every run
+# PROFILE=1: frame-pointer build and perf record of the daemon in every run
 sudo sysctl kernel.perf_event_paranoid=1 kernel.kptr_restrict=0
-sudo cat /proc/kallsyms > /tmp/kallsyms    # this kernel hides kernel addresses from users; once per boot
-make bench-aged-matrix PROFILE=1 KALLSYMS=/tmp/kallsyms MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --benchmarks sqlite-a --repeats 3"
+make bench-aged-matrix PROFILE=1 MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --benchmarks sqlite-a --repeats 3"
 make bench-aged-matrix MATRIX_ARGS="--variants raw-lv thin-xfs plain-xfs thin-raw plain-raw \
     --benchmarks sqlite-a rocksdb-a fio-uniform --repeats 3"
 sudo tools/aged-sqlite/ram-lvm.sh teardown

@@ -67,8 +67,7 @@ bench-aged-sqlite:
 # Aged SQLite matrix on the RAM-backed LVM layout (sudo tools/aged-sqlite/ram-lvm.sh setup first).
 # Runs one at a time and writes report.html. Pass options with MATRIX_ARGS, for example
 # MATRIX_ARGS="--variants raw-lv xfs-lv ext4-lv --workloads a --repeats 3".
-# PROFILE=1 serves a frame-pointer build and adds perf record and perf stat of the daemon to every run.
-# KALLSYMS=<file> names kernel symbols in perf-report.out: sudo cat /proc/kallsyms > <file>, once per boot.
+# PROFILE=1 serves a frame-pointer build and records the daemon with perf in every run.
 .PHONY: bench-aged-matrix
 bench-aged-matrix:
 	@cd rust && $(if $(filter 1,$(PROFILE)),RUSTFLAGS="-C force-frame-pointers=yes") \
@@ -76,7 +75,7 @@ bench-aged-matrix:
 	@python3 -B tools/aged-sqlite/matrix.py \
 		--daemon $(CURDIR)/rust/target/$(BENCH_DAEMON_PROFILE)/block-storage-ublk \
 		--run-arg=--blkctl=$(CURDIR)/rust/target/$(BENCH_DAEMON_PROFILE)/blkctl \
-		$(if $(filter 1,$(PROFILE)),--run-arg=--perf) $(if $(KALLSYMS),--run-arg=--kallsyms=$(KALLSYMS)) $(MATRIX_ARGS)
+		$(if $(filter 1,$(PROFILE)),--run-arg=--perf) $(MATRIX_ARGS)
 
 # Engine write path under hyperfine: seeded random 4 KiB writes on a fresh tmpfs backing per run,
 # pinned to CPUS (default 2,3). Compares git revisions, e.g. make bench-write-path REVS="v2.1 HEAD".

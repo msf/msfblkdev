@@ -78,7 +78,6 @@ class Config:
     ycsb_properties: list[str]
     perf: bool
     perf_frequency: int
-    kallsyms: Path | None
     keep_latency_csv: bool
     daemon_cpus: str | None
     client_cpus: str | None
@@ -202,8 +201,6 @@ def parse_args(argv: list[str]) -> Config:
                         help="extra go-ycsb property NAME=VALUE, repeatable")
     parser.add_argument("--perf", action="store_true", help="perf record the daemon during the run phases")
     parser.add_argument("--perf-frequency", type=int, default=499)
-    parser.add_argument("--kallsyms", type=Path, help="copy of /proc/kallsyms from this boot, made with sudo, so "
-                        "perf report names kernel symbols; this kernel hides them from unprivileged users")
     parser.add_argument("--daemon-cpus", help="taskset CPU list for the daemon, e.g. 2,3")
     parser.add_argument("--client-cpus", help="taskset CPU list for the client, e.g. 0,1")
     parser.add_argument("--sampler-cpus", help="taskset CPU list for blkctl samples, away from the measured CPUs")
@@ -231,8 +228,7 @@ def parse_args(argv: list[str]) -> Config:
         stop=StopRule(args.min_multiple, args.max_multiple, args.steady_tolerance),
         sample_seconds=args.sample_seconds, max_hours=args.max_hours, seed=args.seed,
         daemon=args.daemon, blkctl=args.blkctl, daemon_args=daemon_args, ycsb_properties=args.ycsb_properties,
-        perf=args.perf, perf_frequency=args.perf_frequency, kallsyms=args.kallsyms,
-        keep_latency_csv=args.keep_latency_csv,
+        perf=args.perf, perf_frequency=args.perf_frequency, keep_latency_csv=args.keep_latency_csv,
         daemon_cpus=args.daemon_cpus, client_cpus=args.client_cpus,
         sampler_cpus=args.sampler_cpus, baseline_mount=args.baseline_mount,
         baseline_device=args.baseline_device, baseline_medium=args.baseline_medium, evidence=args.evidence,
@@ -394,8 +390,10 @@ def preflight_device(bench: Bench) -> None:
             raise Failure("xfs_repair is missing")
     if config.perf and int(Path("/proc/sys/kernel/perf_event_paranoid").read_text()) > 1:
         raise Failure("perf needs kernel.perf_event_paranoid <= 1 to record the daemon with kernel stacks")
+    # perf record stores no usable kernel map under kptr_restrict, and nothing restores the kernel
+    # symbols afterwards: phase-1 profiles on 2026-11-28 lost every kernel frame that way.
     if config.perf and Path("/proc/sys/kernel/kptr_restrict").read_text().strip() != "0":
-        note(bench, "warning: kernel.kptr_restrict != 0, so perf can't name kernel symbols")
+        raise Failure("perf needs kernel.kptr_restrict = 0 to name kernel symbols")
     check_backing(bench)
 
 
@@ -583,7 +581,7 @@ def counters(bench: Bench) -> tuple[metrics.DeviceStat, int]:
 def observer(bench: Bench, phase: str) -> observe.PhaseObserver:
     return observe.PhaseObserver(bench.config.evidence, phase, sampler=pinned(bench.config.sampler_cpus),
                                  pid=bench.daemon.process.pid if bench.daemon else None,
-                                 devices=observed_devices(bench), perf=bench.config.perf)
+                                 devices=observed_devices(bench))
 
 
 def observed_devices(bench: Bench) -> list[str]:
@@ -780,8 +778,7 @@ class Profiler:
         self.process.send_signal(signal.SIGINT)
         self.process.wait(timeout=300)
         # A flat profile; open perf.data with perf report or a flame graph tool for call graphs.
-        kallsyms = [f"--kallsyms={self.bench.config.kallsyms}"] if self.bench.config.kallsyms else []
-        run(self.bench, "perf-report", ["perf", "report", "-i", self.data, *kallsyms, "--stdio", "--no-children",
+        run(self.bench, "perf-report", ["perf", "report", "-i", self.data, "--stdio", "--no-children",
                                         "-g", "none", "--no-inline", "--percent-limit", "0.5",
                                         "--sort", "dso,symbol"], check=False)
 

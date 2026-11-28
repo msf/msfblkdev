@@ -11,9 +11,10 @@ A throughput number alone doesn't say what limits it. For every phase, the obser
   recorded in summary.json but left out of the table: the idle host reads 80-95% I/O pressure with
   no disk I/O, apparently because io_uring waiters (the terminal, our daemon) count as iowait.
 
-It also records 1-second series with mpstat, pidstat and iostat, and with `perf` a per-thread
-`perf stat`. Everything reads /proc and sysfs or runs on the sampler CPUs, away from the measured
-cores, and needs no root except `perf stat` (kernel.perf_event_paranoid <= 1).
+It also records 1-second series with mpstat, pidstat and iostat. Everything reads /proc and sysfs
+or runs on the sampler CPUs, away from the measured cores, and needs no root. There is no per-thread
+`perf stat`: in phase-1 runs its cycle counts implied 5-9 GHz, and its task-clock disagreed with
+schedstat and pidstat.
 """
 
 from __future__ import annotations
@@ -28,9 +29,6 @@ from pathlib import Path
 SERIES_INTERVAL_SECONDS = "1"
 TOOL_STOP_SECONDS = 30
 PRESSURE_RESOURCES = ("cpu", "io", "memory")
-# Only the IPC pair: in the first smoke run, perf stat --per-thread reported 2.3 times the task-clock
-# and context switches that schedstat and pidstat agreed on. Unexplained, so not recorded.
-PERF_STAT_EVENTS = "cycles,instructions"
 SECTOR_BYTES = 512
 
 
@@ -152,9 +150,9 @@ class PhaseObserver:
     """Context manager around one measured phase. Writes observe/<phase>/ and keeps the summary."""
 
     def __init__(self, evidence: Path, phase: str, *, sampler: list[str], pid: int | None,
-                 devices: list[str], perf: bool):
+                 devices: list[str]):
         self.directory = evidence / "observe" / phase
-        self.sampler, self.pid, self.devices, self.perf = sampler, pid, devices, perf
+        self.sampler, self.pid, self.devices = sampler, pid, devices
         self.processes: list[subprocess.Popen] = []
         self.logs: list[object] = []
         self.before: Snapshot | None = None
@@ -166,9 +164,6 @@ class PhaseObserver:
                  "iostat.txt": ["iostat", "-dxy", "-t", *self.devices, interval]}
         if self.pid is not None:
             tools["pidstat.txt"] = ["pidstat", "-t", "-u", "-w", "-p", str(self.pid), interval]
-            if self.perf:
-                tools["perf-stat.txt"] = ["perf", "stat", "--per-thread", "-e", PERF_STAT_EVENTS,
-                                          "-p", str(self.pid)]
         return tools
 
     def __enter__(self) -> PhaseObserver:
